@@ -1,0 +1,59 @@
+embedding:
+  trx_encoder_params:
+    embeddings_noise: 0.003
+    numeric_values:
+      amount_rur: "identity"
+    embeddings:
+      trans_date:
+        in: 800
+        out: 16
+      small_group:
+        in: 250
+        out: 16
+  seq_encoder_params:
+    hidden_size: 128
+    type: "gru"
+  training:
+    max_epochs: 20
+    batch_size: 128
+    num_workers: 0
+  min_seq_len: 25
+
+splitting:
+  test_size: 0.2
+  random_state: 42
+
+downstream:
+  classification_models:
+    - "random_forest"
+    - "mlp"
+  regression_models:
+    - "random_forest"
+    - "mlp"
+
+datasets:
+  age:
+    name: "age"
+    version: "1.0"
+    task_type: "classification"
+    features:
+      - "amount_rur"
+      - "small_group"
+      - "trans_date"
+    target: "target"
+    sequence_id: "client_id"
+    timestamp_col: "trans_date"
+    transactions_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/transactions_train.csv.gz"
+    targets_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/train_target.csv"
+
+task_router:
+  default_embedder: "coles"
+  default_splitter: "standard"
+  dataset_tasks:
+    age:
+      - type: "classification"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "regression" 
+        embedder: "coles"
+        splitter: "standard"
