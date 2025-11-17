@@ -12,9 +12,9 @@ embedding:
         out: 16
   seq_encoder_params:
     hidden_size: 128
-    type: "gru"
+    type: "lstm"
   training:
-    max_epochs: 20
+    max_epochs: 2
     batch_size: 128
     num_workers: 0
   min_seq_len: 25
@@ -27,9 +27,17 @@ downstream:
   classification_models:
     - "random_forest"
     - "mlp"
+    - "catboost"
   regression_models:
     - "random_forest"
     - "mlp"
+  optuna:
+    enabled: True
+    n_trials: 3
+    cv: 3
+    n_jobs: 4           # Number of parallel jobs for scikit-learn
+    max_threads: 4      # Maximum threads per model
+    catboost_threads: 4 # Threads for CatBoost internal parallelism
 
 datasets:
   age:
@@ -54,6 +62,6 @@ task_router:
       - type: "classification"
         embedder: "coles"
         splitter: "standard"
-      - type: "regression" 
+      - type: "regression"
         embedder: "coles"
         splitter: "standard"
