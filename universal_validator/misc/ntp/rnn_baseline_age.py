@@ -656,6 +656,61 @@ def validate_epoch(model, dataloader, criterion, device):
     return avg_loss, final_acc, final_ppl
 
 
+def calculate_mode_baseline(train_dataset, val_dataset):
+    """Calculate mode baseline - always predict the most frequent category"""
+    # Count target frequencies in training data
+    target_counter = Counter(train_dataset.targets)
+    most_frequent_target = target_counter.most_common(1)[0][0]
+    most_frequent_count = target_counter[most_frequent_target]
+    
+    # Calculate accuracy on validation set
+    correct = 0
+    total = len(val_dataset.targets)
+    
+    for target in val_dataset.targets:
+        if target == most_frequent_target:
+            correct += 1
+    
+    accuracy = correct / total if total > 0 else 0
+    
+    # Calculate proper perplexity using empirical distribution
+    vocab_size = len(train_dataset.vocab)
+    total_train = len(train_dataset.targets)
+    
+    # Create empirical probability distribution from training data
+    train_probs = {}
+    for target, count in target_counter.items():
+        train_probs[target] = count / total_train
+    
+    # Calculate perplexity on validation set using empirical distribution
+    total_log_prob = 0.0
+    for target in val_dataset.targets:
+        prob = train_probs.get(target, 1e-8 / vocab_size)  # Small probability for unseen targets
+        total_log_prob += np.log(prob + 1e-12)  # Avoid log(0)
+    
+    avg_log_prob = total_log_prob / total if total > 0 else 0
+    perplexity = np.exp(-avg_log_prob) if avg_log_prob < 0 else float('inf')
+    
+    print(f"\n{'='*80}")
+    print(f"BASELINE: MODE PREDICTION")
+    print(f"{'='*80}")
+    print(f"Most frequent target: '{most_frequent_target}' (frequency: {most_frequent_count}/{total_train} = {most_frequent_count/total_train:.3f})")
+    print(f"Validation Accuracy: {accuracy:.4f}")
+    print(f"Perplexity (empirical distribution): {perplexity:.4f}")
+    print(f"Vocabulary size: {vocab_size}")
+    
+    # Return as lists to be consistent with other methods
+    return {
+        'train_loss': [-np.log(most_frequent_count / total_train + 1e-8)],
+        'train_acc': [most_frequent_count / total_train],
+        'train_ppl': [perplexity],
+        'val_loss': [-np.log(accuracy + 1e-8) if accuracy > 0 else float('inf')],
+        'val_acc': [accuracy],
+        'val_ppl': [perplexity],
+        'epoch_times': [0.0],
+        'learning_rates': [0.0]
+    }
+
 def weight_reset(m):
     """Reset model weights"""
     if hasattr(m, 'reset_parameters'):
@@ -790,13 +845,38 @@ def print_comparison_report(results):
     print("-" * 110)
     
     for method_name, method_results in results.items():
-        final_train_acc = method_results['train_acc'][-1]
-        final_val_acc = method_results['val_acc'][-1]
-        final_train_ppl = method_results['train_ppl'][-1]
-        final_val_ppl = method_results['val_ppl'][-1]
-        best_val_acc = max(method_results['val_acc'])
-        best_val_loss = min(method_results['val_loss'])
-        avg_epoch_time = np.mean(method_results['epoch_times'])
+        # Handle both list and single value formats
+        def get_last_value(data):
+            if isinstance(data, (list, np.ndarray)):
+                return data[-1] if len(data) > 0 else 0.0
+            else:
+                return data
+        
+        def get_max_value(data):
+            if isinstance(data, (list, np.ndarray)):
+                return max(data) if len(data) > 0 else 0.0
+            else:
+                return data
+        
+        def get_min_value(data):
+            if isinstance(data, (list, np.ndarray)):
+                return min(data) if len(data) > 0 else 0.0
+            else:
+                return data
+        
+        def get_avg_value(data):
+            if isinstance(data, (list, np.ndarray)):
+                return np.mean(data) if len(data) > 0 else 0.0
+            else:
+                return data
+        
+        final_train_acc = get_last_value(method_results['train_acc'])
+        final_val_acc = get_last_value(method_results['val_acc'])
+        final_train_ppl = get_last_value(method_results['train_ppl'])
+        final_val_ppl = get_last_value(method_results['val_ppl'])
+        best_val_acc = get_max_value(method_results['val_acc'])
+        best_val_loss = get_min_value(method_results['val_loss'])
+        avg_epoch_time = get_avg_value(method_results['epoch_times'])
         
         print(f"{method_name:<15} {final_train_acc:12.4f} {final_val_acc:12.4f} "
               f"{final_train_ppl:12.4f} {final_val_ppl:12.4f} "
@@ -862,6 +942,9 @@ def run_comparison_experiment(args, device):
         print("ERROR: One of the datasets is empty!")
         return {}
     
+    # Calculate mode baseline
+    mode_baseline_results = calculate_mode_baseline(train_dataset, val_dataset)
+    
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     
@@ -888,6 +971,9 @@ def run_comparison_experiment(args, device):
         model, train_loader, val_loader, optimizer, criterion, device, 
         epochs=args.epochs, teacher_forcing_ratio=args.teacher_forcing_ratio
     )
+    
+    # Add mode baseline to results
+    results['mode_baseline'] = mode_baseline_results
     
     return results
 
