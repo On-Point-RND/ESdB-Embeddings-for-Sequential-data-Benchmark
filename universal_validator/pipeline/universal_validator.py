@@ -10,6 +10,8 @@ from ..core.base_classes import BaseDataset, BaseEmbedder, BaseSplitter, BaseTas
 from ..datasets.age_dataset import AgeDataset
 from ..embedders.coles_embedder import CoLESEmbedder
 from ..splitters.standard_splitter import StandardSplitter
+from ..splitters.lastdate_splitter import LastDateSplitter
+from ..splitters.client_splitter import ClientSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
 from .task_router import TaskRouter
@@ -45,7 +47,10 @@ class UniversalValidator:
     def _initialize_splitters(self) -> Dict[str, BaseSplitter]:
         """Initialize all available data splitters"""
         return {
-            'standard': StandardSplitter(self.config.splitting)
+            'standard': StandardSplitter(self.config.splitting),
+            'last_date': LastDateSplitter(self.config.splitting),
+            'client': ClientSplitter(self.config.splitting),
+            
         }
 
     def _initialize_tasks(self) -> Dict[TaskType, BaseTask]:
@@ -84,9 +89,11 @@ class UniversalValidator:
 
         if use_existing_embeddings and os.path.exists(embeddings_path):
             print(f"Loading existing embeddings from {embeddings_path}")
-            parquet_df = pd.read_parquet(embeddings_path)
-            embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']),axis=0))
+            parquet_df = pd.read_parquet(embeddings_path).dropna()
+            embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']), axis=0))
             embeddings_df.columns = [f"embed_{i}" for i in range(embeddings_df.shape[1])]
+            parquet_df = parquet_df.drop('embedding', axis=1)
+            embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
             targets_df = parquet_df['target']
         else:
             print("Generating new embeddings...")

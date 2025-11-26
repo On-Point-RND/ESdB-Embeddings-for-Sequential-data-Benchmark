@@ -24,7 +24,7 @@ class ClassificationTask(BaseTask):
         # Define models including CatBoost
         self.models = {
             'random_forest': RandomForestClassifier(n_estimators=100, random_state=42),
-            'mlp': MLPClassifier(hidden_layer_sizes=(100, 50), random_state=42, max_iter=100),
+            'mlp': MLPClassifier(hidden_layer_sizes=(100, 50), random_state=42, max_iter=1000),
             'catboost': CatBoostClassifier(
                 iterations=100,  # Use 'iterations' instead of 'n_estimators'
                 random_state=42, 
@@ -42,7 +42,7 @@ class ClassificationTask(BaseTask):
                 'min_samples_leaf': [1, 2, 4],
             },
             'mlp': {
-                'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50)],
+                'hidden_layer_sizes': [(64,), (128,), (64, 64), (128, 64)],
                 'alpha': [0.0001, 0.001, 0.01, 0.1],
                 'learning_rate_init': [0.001, 0.01, 0.1],
             },

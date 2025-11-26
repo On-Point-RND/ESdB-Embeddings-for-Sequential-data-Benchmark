@@ -28,11 +28,29 @@ def main():
     parser.add_argument('--use-existing-embeddings', action='store_true', help='Use existing embeddings')
     parser.add_argument('--list-configs', action='store_true', help='List available configurations')
     
+    # Splitter configuration overrides
+    parser.add_argument('--splitter', type=str, choices=['standard', 'last_date', 'client'], help='Override splitter type')
+    parser.add_argument('--test-size', type=float, help='Override test size ratio')
+    parser.add_argument('--random-state', type=int, help='Override random state')
+    
     args = parser.parse_args()
     
     try:
         # Load configuration - use default if not specified
         config = load_config(args.config)
+        
+        # Override splitter config values from command line
+        if args.splitter:
+            config.task_router.default_splitter = args.splitter
+            print(f"Overriding splitter to: {args.splitter}")
+        
+        if args.test_size is not None:
+            config.splitting.test_size = args.test_size
+            print(f"Overriding test_size to: {args.test_size}")
+            
+        if args.random_state is not None:
+            config.splitting.random_state = args.random_state
+            print(f"Overriding random_state to: {args.random_state}")
         
         # Initialize validator and task router
         validator = UniversalValidator(config)
@@ -59,6 +77,7 @@ def main():
             
             report = validator.run_pipeline(
                 dataset_name=dataset,
+                splitter_name=config.task_router.default_splitter,
                 task_type=TaskType(task_type),
                 use_existing_embeddings=args.use_existing_embeddings
             )
