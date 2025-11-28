@@ -102,7 +102,7 @@ class UniversalValidator:
                 amount_col = amount_col[0]
                 target_values = embeddings_df[amount_col].values
                 if hasattr(target_values[0], '__len__'):
-                    targets_df = pd.DataFrame([v.sum() for v in target_values], columns=['target'])
+                    targets_df = pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
                 else:
                     targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
             else:
