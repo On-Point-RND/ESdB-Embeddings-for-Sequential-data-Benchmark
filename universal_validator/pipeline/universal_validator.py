@@ -21,7 +21,7 @@ class UniversalValidator:
 
     def __init__(self, config: DictConfig):
         self.config = config
-        self.task_router = TaskRouter(config)
+        self.task_router = TaskRouter(config) # seems not yet used properly
         self.dataset_registry = self._initialize_datasets()
         self.embedder_registry = self._initialize_embedders()
         self.splitter_registry = self._initialize_splitters()
@@ -94,7 +94,19 @@ class UniversalValidator:
             embeddings_df.columns = [f"embed_{i}" for i in range(embeddings_df.shape[1])]
             parquet_df = parquet_df.drop('embedding', axis=1)
             embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
-            targets_df = parquet_df['target']
+            if task_type == TaskType.CLASSIFICATION:
+                targets_df = embeddings_df['target'].copy()
+            elif task_type == TaskType.REGRESSION:
+                amount_col = [col for col in embeddings_df.columns if 'amount' in col]
+                assert len(amount_col) == 1
+                amount_col = amount_col[0]
+                target_values = embeddings_df[amount_col].values
+                if hasattr(target_values[0], '__len__'):
+                    targets_df = pd.DataFrame([v.sum() for v in target_values], columns=['target'])
+                else:
+                    targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
+            else:
+                raise NotImplimentedError
         else:
             print("Generating new embeddings...")
             # 1. Load and preprocess dataset
