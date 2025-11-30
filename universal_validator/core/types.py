@@ -7,6 +7,7 @@ from omegaconf import DictConfig
 class TaskType(Enum):
     CLASSIFICATION = "classification"
     REGRESSION = "regression"
+    ANOMALY_DETECTION = "anomaly_detection"
 
 class SplitStrategy(Enum):
     TIME_BASED = "time_based"

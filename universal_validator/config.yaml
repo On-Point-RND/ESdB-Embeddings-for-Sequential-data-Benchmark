@@ -65,3 +65,6 @@ task_router:
       - type: "regression"
         embedder: "coles"
         splitter: "standard"
+      - type: "anomaly_detection"
+        embedder: "coles"
+        splitter: "client"

@@ -14,6 +14,7 @@ from ..splitters.lastdate_splitter import LastDateSplitter
 from ..splitters.client_splitter import ClientSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
+from ..tasks.anomaly_detection_task import AnomalyDetectionTask
 from .task_router import TaskRouter
 
 class UniversalValidator:
@@ -57,7 +58,9 @@ class UniversalValidator:
         """Initialize all available tasks"""
         return {
             TaskType.CLASSIFICATION: ClassificationTask(self.config.downstream),
-            TaskType.REGRESSION: RegressionTask(self.config.downstream)
+            TaskType.REGRESSION: RegressionTask(self.config.downstream),
+            TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config.downstream)
+            
         }
 
     def run_pipeline(self,
@@ -96,6 +99,8 @@ class UniversalValidator:
             embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
             if task_type == TaskType.CLASSIFICATION:
                 targets_df = embeddings_df['target'].copy()
+            elif task_type == TaskType.ANOMALY_DETECTION:
+                targets_df = embeddings_df['anomaly_target'].copy()
             elif task_type == TaskType.REGRESSION:
                 amount_col = [col for col in embeddings_df.columns if 'amount' in col]
                 assert len(amount_col) == 1
@@ -177,10 +182,16 @@ class UniversalValidator:
             best_model = max(results.keys(), key=lambda x: results[x]['accuracy'])
             best_metric = results[best_model]['accuracy']
             metric_name = 'accuracy'
-        else:  # Regression
+        elif task_type == TaskType.REGRESSION:
             best_model = max(results.keys(), key=lambda x: results[x]['r2'])
             best_metric = results[best_model]['r2']
             metric_name = 'r2'
+        elif task_type == TaskType.ANOMALY_DETECTION:
+            best_model = max(results.keys(), key=lambda x: results[x]['f1'])
+            best_metric = results[best_model]['f1']
+            metric_name = 'f1'
+        else:
+            raise NotImplementedError(f"Task type {task_type} not supported")
 
         return {
             'dataset': dataset_name,
