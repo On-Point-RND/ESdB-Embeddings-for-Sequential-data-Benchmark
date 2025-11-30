@@ -23,7 +23,7 @@ def parse_args():
                        default='https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/transactions_train.csv.gz?download=true',
                        help='URL to download AGE dataset')
     parser.add_argument('--data-dir', type=str, default='./age_data/', help='Path to cache data directory')
-    parser.add_argument('-mx', '--max-transactions', type=int, default=50000, help='Maximum number of transactions to use')
+    parser.add_argument('-mx', '--max-transactions', type=int, default=None, help='Maximum number of transactions to use')
     parser.add_argument('--sequence-length', type=int, default=5, help='Sequence length for training')
     parser.add_argument('--train-ratio', type=float, default=0.8, help='Train/validation split ratio')
     parser.add_argument('--split-method', type=str, default='strict_temporal', 
@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--min-frequency', type=int, default=10, help='Minimum frequency for vocabulary items')
     
     # Model parameters
-    parser.add_argument('-rnn', '--rnn-type', type=str, default='lstm', choices=['rnn', 'gru', 'lstm'], 
+    parser.add_argument('-rnn', '--rnn_type', type=str, default='lstm', choices=['rnn', 'gru', 'lstm'], 
                        help='Type of RNN to use')
     parser.add_argument('--hidden-dim', type=int, default=64, help='Hidden dimension size')
     parser.add_argument('--embedding-dim', type=int, default=64, help='Embedding dimension size')
@@ -524,9 +524,9 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
         
         master_pbar.set_postfix({
             'Batch': f'{batch_idx+1}/{len(dataloader)}',
-            'Loss': f'{loss.item():.4f}',
-            'Acc': f'{current_acc:.4f}',
-            'PPL': f'{current_ppl:.4f}'
+            'Loss': f'{loss.item():.2f}',
+            'Acc': f'{current_acc:.2f}',
+            'PPL': f'{current_ppl:.2f}'
         }, refresh=False)
         master_pbar.update(1)
     
@@ -538,41 +538,58 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
 
 
 def train_epoch_teacher_forcing_simple(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio=0.5):
-    """Simplified teacher forcing"""
+    """Teacher forcing for simplified NTP: context sequence -> target token"""
     model.train()
     total_loss, total_correct, total_samples = 0, 0, 0
     total_log_ppl = 0
     
     for batch_idx, (sequences, targets, features) in enumerate(dataloader):
         sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
-        batch_size = sequences.shape[0]
+        batch_size, seq_len = sequences.shape
         
         optimizer.zero_grad()
         
         batch_loss, batch_correct, batch_steps = 0, 0, 0
         batch_log_ppl = 0
         
-        # Start with empty sequence, build up to predict target
+        # Start with empty sequence
         current_input = torch.zeros(batch_size, 0, dtype=torch.long, device=device)
         current_features = torch.zeros(batch_size, 0, 2, device=device)
         hidden = model.init_hidden(batch_size, device)
         
-        # Build context step by step
-        for t in range(sequences.shape[1]):
-            # Add next context item
-            next_context_item = sequences[:, t:t+1]
-            next_context_features = features[:, t:t+1, :]
+        # Build context step by step with teacher forcing
+        for t in range(seq_len):
+            use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
+            
+            if use_teacher_forcing and t > 0:  # After first token, we can use teacher forcing
+                # Use ground truth as next input
+                next_input = sequences[:, t:t+1]
+            else:
+                # Use model's own prediction as next input
+                if t == 0:
+                    # First token: use ground truth (no prediction yet)
+                    next_input = sequences[:, t:t+1]
+                else:
+                    # Use last prediction
+                    with torch.no_grad():
+                        logits, _ = model(current_input, current_features, hidden=hidden)
+                        last_logits = logits[:, -1, :]
+                        pred_token = last_logits.argmax(dim=-1)
+                        next_input = pred_token.unsqueeze(1)
+            
+            # Always use ground truth features
+            next_features = features[:, t:t+1, :]
             
             # Concatenate to current input
-            current_input = torch.cat([current_input, next_context_item], dim=1)
-            current_features = torch.cat([current_features, next_context_features], dim=1)
+            current_input = torch.cat([current_input, next_input], dim=1)
+            current_features = torch.cat([current_features, next_features], dim=1)
             
             # Forward pass with current context
             logits, hidden = model(current_input, current_features, hidden=hidden)
             last_logits = logits[:, -1, :]
             
             # If we have full context, predict the actual target
-            if t == sequences.shape[1] - 1:
+            if t == seq_len - 1:
                 target_token = targets
                 
                 # Loss and metrics for final prediction
@@ -591,14 +608,11 @@ def train_epoch_teacher_forcing_simple(model, dataloader, optimizer, criterion, 
         
         # Backward pass
         if batch_loss > 0:
-            avg_batch_loss = batch_loss
-            avg_batch_loss.backward()
-            
-            # Gradient clipping
+            batch_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             optimizer.step()
         
-        total_loss += avg_batch_loss.item() if batch_loss > 0 else 0
+        total_loss += batch_loss.item() if batch_loss > 0 else 0
         total_correct += batch_correct
         total_samples += batch_steps
         total_log_ppl += batch_log_ppl
@@ -609,9 +623,108 @@ def train_epoch_teacher_forcing_simple(model, dataloader, optimizer, criterion, 
         
         master_pbar.set_postfix({
             'Batch': f'{batch_idx+1}/{len(dataloader)}',
-            'Loss': f'{avg_batch_loss.item() if batch_loss > 0 else 0:.4f}',
+            'Loss': f'{batch_loss.item() if batch_loss > 0 else 0:.2f}',
+            'Acc': f'{current_acc:.2f}',
+            'PPL': f'{current_ppl:.2f}'
+        }, refresh=False)
+        master_pbar.update(1)
+    
+    avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
+    final_acc = total_correct / total_samples if total_samples > 0 else 0
+    final_ppl = np.exp(-total_log_ppl / total_samples) if total_samples > 0 else 0
+    
+    return avg_loss, final_acc, final_ppl
+
+
+def train_epoch_tf_partial_context(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio=0.5):
+    """Build context gradually with teacher forcing for simplified NTP"""
+    model.train()
+    total_loss, total_correct, total_samples = 0, 0, 0
+    total_log_ppl = 0
+    
+    for batch_idx, (sequences, targets, features) in enumerate(dataloader):
+        sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
+        batch_size, seq_len = sequences.shape
+        
+        optimizer.zero_grad()
+        
+        # Start with first few tokens (half the context length)
+        start_length = max(1, seq_len // 2)
+        current_input = sequences[:, :start_length]
+        current_features = features[:, :start_length, :]
+        hidden = model.init_hidden(batch_size, device)
+        
+        batch_loss = 0
+        context_loss_steps = 0
+        
+        # Build up to full context token by token
+        for pos in range(start_length, seq_len):
+            # Forward pass with current partial context
+            logits, hidden = model(current_input, current_features, hidden=hidden)
+            last_logits = logits[:, -1, :]
+            
+            # Predict the next context token
+            pred_token = last_logits.argmax(dim=-1)
+            true_next_token = sequences[:, pos]
+            
+            # Teacher forcing decision
+            use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
+            
+            if use_teacher_forcing:
+                next_input = true_next_token.unsqueeze(1)
+            else:
+                next_input = pred_token.unsqueeze(1)
+            
+            next_features = features[:, pos:pos+1, :]
+            
+            # Update context
+            current_input = torch.cat([current_input, next_input], dim=1)
+            current_features = torch.cat([current_features, next_features], dim=1)
+            
+            # Optional: Add small loss for context token predictions during training
+            # This helps the model learn to build good context representations
+            if teacher_forcing_ratio < 1.0:  # Only if we're actually using own predictions
+                context_loss = criterion(last_logits, true_next_token) * 0.1  # Small weight
+                batch_loss += context_loss
+                context_loss_steps += 1
+        
+        # Now with full context, predict the final target
+        logits, hidden = model(current_input, current_features, hidden=hidden)
+        last_logits = logits[:, -1, :]
+        
+        # Main loss for target prediction
+        target_loss = criterion(last_logits, targets)
+        batch_loss += target_loss
+        
+        # Backward pass
+        batch_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+        optimizer.step()
+        
+        # Metrics (only for the final target prediction)
+        with torch.no_grad():
+            preds = last_logits.argmax(dim=-1)
+            correct = (preds == targets).sum().item()
+            
+            probs = torch.softmax(last_logits, dim=-1)
+            target_probs = probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+            batch_log_ppl = torch.sum(torch.log(target_probs + 1e-8)).item()
+        
+        total_loss += target_loss.item()  # Only count target loss for metrics
+        total_correct += correct
+        total_samples += targets.numel()
+        total_log_ppl += batch_log_ppl
+        
+        # Update progress bar
+        current_acc = correct / targets.numel()
+        current_ppl = np.exp(-batch_log_ppl / targets.numel()) if targets.numel() > 0 else 0
+        
+        master_pbar.set_postfix({
+            'Batch': f'{batch_idx+1}/{len(dataloader)}',
+            'Loss': f'{target_loss.item():.4f}',
             'Acc': f'{current_acc:.4f}',
-            'PPL': f'{current_ppl:.4f}'
+            'PPL': f'{current_ppl:.4f}',
+            'TF': f'{teacher_forcing_ratio:.1f}'
         }, refresh=False)
         master_pbar.update(1)
     
@@ -789,15 +902,15 @@ def compare_training_methods(model, train_loader, val_loader, optimizer, criteri
             method_results['learning_rates'].append(current_lr)
             
             # Early stopping check
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-            else:
-                patience_counter += 1
-            
-            if patience_counter >= patience:
-                print(f"\nEarly stopping at epoch {epoch+1}")
-                break
+            #if val_loss < best_val_loss:
+            #    best_val_loss = val_loss
+            #    patience_counter = 0
+            #else:
+            #    patience_counter += 1
+            # 
+            #if patience_counter >= patience:
+            #    print(f"\nEarly stopping at epoch {epoch+1}")
+            #    break
             
             # Calculate moving averages (last 3 epochs)
             window = min(3, epoch + 1)
@@ -811,12 +924,12 @@ def compare_training_methods(model, train_loader, val_loader, optimizer, criteri
             # Update master progress bar with epoch summary
             master_pbar.set_postfix({
                 'Epoch': f'{epoch+1}/{epochs}',
-                'Trn_L': f'{mov_avg_train_loss:.4f}',
-                'Trn_A': f'{mov_avg_train_acc:.4f}', 
-                'Trn_P': f'{mov_avg_train_ppl:.4f}',
-                'Val_L': f'{mov_avg_val_loss:.4f}',
-                'Val_A': f'{mov_avg_val_acc:.4f}',
-                'Val_P': f'{mov_avg_val_ppl:.4f}',
+                'Trn_L': f'{mov_avg_train_loss:.2f}',
+                #'Trn_A': f'{mov_avg_train_acc:.4f}', 
+                #'Trn_P': f'{mov_avg_train_ppl:.4f}',
+                #'Val_L': f'{mov_avg_val_loss:.4f}',
+                'Val_A': f'{mov_avg_val_acc:.2f}',
+                'Val_P': f'{mov_avg_val_ppl:.2f}',
                 'LR': f'{current_lr:.2e}',
                 'Time': f'{epoch_time:.1f}s'
             }, refresh=False)
@@ -941,6 +1054,13 @@ def run_comparison_experiment(args, device):
     if len(train_dataset) == 0 or len(val_dataset) == 0:
         print("ERROR: One of the datasets is empty!")
         return {}
+    
+    train_seq_lengths = [len(seq) for seq in train_dataset.sequences]
+    val_seq_lengths = [len(seq) for seq in val_dataset.sequences]
+    
+    print(f"\nSequence Lengths:")
+    print(f"TRAIN - All sequences: {set(train_seq_lengths)}")
+    print(f"VAL   - All sequences: {set(val_seq_lengths)}")
     
     # Calculate mode baseline
     mode_baseline_results = calculate_mode_baseline(train_dataset, val_dataset)
