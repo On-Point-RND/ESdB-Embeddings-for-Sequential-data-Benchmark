@@ -187,9 +187,9 @@ class UniversalValidator:
             best_metric = results[best_model]['r2']
             metric_name = 'r2'
         elif task_type == TaskType.ANOMALY_DETECTION:
-            best_model = max(results.keys(), key=lambda x: results[x]['f1'])
-            best_metric = results[best_model]['f1']
-            metric_name = 'f1'
+            best_model = max(results.keys(), key=lambda x: results[x]['auc'])
+            best_metric = results[best_model]['auc']
+            metric_name = 'auc'
         else:
             raise NotImplementedError(f"Task type {task_type} not supported")
 

@@ -42,31 +42,40 @@ class AnomalyDetectionTask(BaseTask):
             )
         }
         
-        # Search spaces for hyperparameter optimization with F1 scoring
+        # Enhanced search spaces with AUC scoring and more CatBoost parameters
         self.search_spaces = {
             'random_forest': {
-                'n_estimators': [50, 100, 150, 200],
+                'n_estimators': [50, 100, 150, 200, 300],
                 'max_depth': [3, 5, 10, 15, 20, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4],
+                'min_samples_split': [2, 5, 10, 15],
+                'min_samples_leaf': [1, 2, 4, 8],
+                'max_features': ['sqrt', 'log2', None],
                 'class_weight': ['balanced', None]
             },
             'mlp': {
-                'hidden_layer_sizes': [(64,), (128,), (64, 64), (128, 64)],
-                'alpha': [0.0001, 0.001, 0.01, 0.1],
-                'learning_rate_init': [0.001, 0.01, 0.1],
+                'hidden_layer_sizes': [(64,), (128,), (256,), (64, 64), (128, 64), (128, 128)],
+                'alpha': [0.0001, 0.001, 0.01, 0.1, 0.5],
+                'learning_rate_init': [0.001, 0.01, 0.1, 0.2],
+                'batch_size': [32, 64, 128, 256],
+                'early_stopping': [True, False]
             },
             'catboost': {
-                'iterations': [50, 100, 150, 200],
-                'depth': [4, 6, 8, 10],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'l2_leaf_reg': [1, 3, 5, 7, 9],
-                'auto_class_weights': ['Balanced', 'SqrtBalanced']  # Remove None, use valid options
+                'iterations': [100, 200, 300, 500, 1000],
+                'depth': [4, 6, 8, 10, 12],
+                'learning_rate': [0.001, 0.01, 0.05, 0.1, 0.2, 0.3],
+                'l2_leaf_reg': [1, 3, 5, 7, 9, 13],
+                'border_count': [32, 64, 128, 254],
+                'random_strength': [0.5, 1, 2, 5],
+                'bagging_temperature': [0, 0.5, 1, 2],
+                'leaf_estimation_iterations': [1, 5, 10, 20],
+                'auto_class_weights': ['Balanced', 'SqrtBalanced'],
+                'grow_policy': ['SymmetricTree', 'Depthwise', 'Lossguide'],
+                'min_data_in_leaf': [1, 5, 10, 20, 50],
             }
         }
 
     def _create_search_model(self, model_name, base_model):
-        """Create RandomizedSearchCV model with F1 scoring and optimized thread control"""
+        """Create RandomizedSearchCV model with AUC scoring and optimized thread control"""
         n_iter = self.optuna_config.get('n_trials', 10)
         cv = self.optuna_config.get('cv', 3)
         n_jobs = self.optuna_config.get('n_jobs', 4)
@@ -88,7 +97,7 @@ class AnomalyDetectionTask(BaseTask):
             self.search_spaces[model_name],
             n_iter=n_iter,
             cv=cv,
-            scoring='f1',
+            scoring='roc_auc',  # Use AUC for hyperparameter optimization
             random_state=42,
             n_jobs=n_jobs,
             return_train_score=False,
@@ -104,7 +113,7 @@ class AnomalyDetectionTask(BaseTask):
         if self.use_optuna:
             n_jobs = self.optuna_config.get('n_jobs', 4)
             max_threads = self.optuna_config.get('max_threads', 4)
-            print(f"Using hyperparameter optimization with F1 scoring (n_jobs={n_jobs}, max_threads={max_threads})")
+            print(f"Using hyperparameter optimization with AUC scoring (n_jobs={n_jobs}, max_threads={max_threads})")
         
         print(f"Available models: {list(self.models.keys())}")
         
@@ -133,7 +142,7 @@ class AnomalyDetectionTask(BaseTask):
             precision = precision_score(split_data['y_test'], predictions)
             recall = recall_score(split_data['y_test'], predictions)
             
-            # Calculate AUC if possible
+            # Calculate AUC (primary metric)
             auc = 0.0
             if hasattr(model, 'predict_proba'):
                 y_scores = model.predict_proba(split_data['X_test'])[:, 1]
@@ -141,32 +150,32 @@ class AnomalyDetectionTask(BaseTask):
 
             # Store results
             results[name] = {
+                'auc': auc,  # Primary metric now
                 'f1': f1,
                 'precision': precision,
                 'recall': recall,
-                'auc': auc,
                 'predictions': predictions,
                 'model': model
             }
 
             # Add CV results if available
             if self.use_optuna and hasattr(model, 'best_score_'):
-                cv_f1 = model.best_score_
-                results[name]['cv_f1'] = cv_f1
+                cv_auc = model.best_score_
+                results[name]['cv_auc'] = cv_auc
                 results[name]['best_params'] = model.best_params_
                 
                 # Get CV standard deviation
                 if hasattr(model, 'cv_results_') and 'std_test_score' in model.cv_results_:
                     cv_std = model.cv_results_['std_test_score'][model.best_index_]
-                    results[name]['cv_f1_std'] = cv_std
+                    results[name]['cv_auc_std'] = cv_std
                     
-                    print(f"  {name}: CV F1 = {cv_f1:.4f} ± {cv_std:.4f}, Test F1 = {f1:.4f}, AUC = {auc:.4f}")
+                    print(f"  {name}: CV AUC = {cv_auc:.4f} ± {cv_std:.4f}, Test AUC = {auc:.4f}, F1 = {f1:.4f}")
                 else:
-                    print(f"  {name}: CV F1 = {cv_f1:.4f}, Test F1 = {f1:.4f}, AUC = {auc:.4f}")
+                    print(f"  {name}: CV AUC = {cv_auc:.4f}, Test AUC = {auc:.4f}, F1 = {f1:.4f}")
                     
             else:
-                results[name]['cv_f1'] = None
-                results[name]['cv_f1_std'] = None
-                print(f"  {name}: Test F1 = {f1:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, AUC = {auc:.4f}")
+                results[name]['cv_auc'] = None
+                results[name]['cv_auc_std'] = None
+                print(f"  {name}: Test AUC = {auc:.4f}, F1 = {f1:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}")
 
         return results

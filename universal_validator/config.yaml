@@ -33,7 +33,7 @@ downstream:
     - "mlp"
   optuna:
     enabled: True
-    n_trials: 3
+    n_trials: 30
     cv: 3
     n_jobs: 4           # Number of parallel jobs for scikit-learn
     max_threads: 4      # Maximum threads per model

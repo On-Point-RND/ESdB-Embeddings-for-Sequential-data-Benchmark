@@ -93,7 +93,7 @@ def main():
             metric = {
                 'classification': 'accuracy',
                 'regression': 'r2', 
-                'anomaly_detection': 'f1'
+                'anomaly_detection': 'auc'
             }.get(task_type, 'accuracy')
 
             print(f"{report['dataset']} ({task_type}): {report['best_model']} - {metric}: {report[f'best_{metric}']:.4f}")
