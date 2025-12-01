@@ -98,11 +98,11 @@ class UniversalValidator:
             parquet_df = parquet_df.drop('embedding', axis=1)
             embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
             if task_type == TaskType.CLASSIFICATION:
-                targets_df = embeddings_df['target'].copy()
+                targets_df = embeddings_df['post_target'].copy()
             elif task_type == TaskType.ANOMALY_DETECTION:
-                targets_df = embeddings_df['anomaly_target'].copy()
+                targets_df = embeddings_df['post_anomaly_target'].copy()
             elif task_type == TaskType.REGRESSION:
-                amount_col = [col for col in embeddings_df.columns if 'amount' in col]
+                amount_col = [col for col in embeddings_df.columns if 'post_amount' in col]
                 assert len(amount_col) == 1
                 amount_col = amount_col[0]
                 target_values = embeddings_df[amount_col].values
