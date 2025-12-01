@@ -14,6 +14,7 @@ from ..splitters.lastdate_splitter import LastDateSplitter
 from ..splitters.client_splitter import ClientSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
+from ..tasks.forecast_task import ForecastTask
 from ..tasks.anomaly_detection_task import AnomalyDetectionTask
 from .task_router import TaskRouter
 
@@ -59,8 +60,8 @@ class UniversalValidator:
         return {
             TaskType.CLASSIFICATION: ClassificationTask(self.config.downstream),
             TaskType.REGRESSION: RegressionTask(self.config.downstream),
-            TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config.downstream)
-            
+            TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config.downstream),
+            TaskType.FORECAST: ForecastTask(self.config.downstream)
         }
 
     def run_pipeline(self,
@@ -98,6 +99,8 @@ class UniversalValidator:
             parquet_df = parquet_df.drop('embedding', axis=1)
             embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
             if task_type == TaskType.CLASSIFICATION:
+                targets_df = embeddings_df['post_target'].copy()
+            elif task_type == TaskType.FORECAST:
                 targets_df = embeddings_df['post_target'].copy()
             elif task_type == TaskType.ANOMALY_DETECTION:
                 targets_df = embeddings_df['post_anomaly_target'].copy()
@@ -190,6 +193,10 @@ class UniversalValidator:
             best_model = max(results.keys(), key=lambda x: results[x]['auc'])
             best_metric = results[best_model]['auc']
             metric_name = 'auc'
+        elif task_type == TaskType.FORECAST:
+            best_model = max(results.keys(), key=lambda x: results[x]['mse'])
+            best_metric = results[best_model]['mse']
+            metric_name = 'mse'
         else:
             raise NotImplementedError(f"Task type {task_type} not supported")
 

@@ -68,3 +68,6 @@ task_router:
       - type: "anomaly_detection"
         embedder: "coles"
         splitter: "client"
+      - type: "forecast"
+        embedder: "coles"
+        splitter: "client"

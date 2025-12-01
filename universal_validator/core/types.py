@@ -8,6 +8,7 @@ class TaskType(Enum):
     CLASSIFICATION = "classification"
     REGRESSION = "regression"
     ANOMALY_DETECTION = "anomaly_detection"
+    FORECAST = "forecast"
 
 class SplitStrategy(Enum):
     TIME_BASED = "time_based"
