@@ -202,73 +202,101 @@ class AGEDataset(Dataset):
         print(f"{self.split_type.upper()} split: {len(result)} transactions from {result['client_id'].nunique()} clients")
         return result
     
-    def _create_variable_length_sequences(self):
-        """Create variable length sequences for each client"""
+    def _create_variable_length_sequences(self, samples_per_client=64):
+        """Create sequences with reproducible random sampling"""
         if len(self.df) == 0:
             return
-            
+
+        # Set random seed for reproducibility
+        seed = 42 + hash(self.split_type) % 1000  # Different seeds for train/val
+        np.random.seed(seed)
+
         sequences_created = 0
         sequences_skipped_oov = 0
-        sequences_skipped_short = 0
-        
-        for client_id in self.df['client_id'].unique():
+
+        # Process clients in sorted order
+        for client_id in sorted(self.df['client_id'].unique()):
             client_data = self.df[self.df['client_id'] == client_id].sort_values('timestamp')
-            
+
             if len(client_data) < self.min_seq_length:
-                sequences_skipped_short += 1
                 continue
-            
-            # Get all items for this client in chronological order
+
             client_items = client_data['small_group'].astype(str).tolist()
             client_timestamps = client_data['timestamp'].tolist()
             client_amounts = client_data['amount_rur'].tolist()
-            
-            # Create sequences of increasing length
-            for seq_len in range(self.min_seq_length, min(len(client_items), self.max_seq_length) + 1):
-                seq_items = client_items[:seq_len]
-                seq_timestamps = client_timestamps[:seq_len]
-                seq_amounts = client_amounts[:seq_len]
-                
-                # Skip sequences with OOV tokens that aren't in training vocab
+
+            n = len(client_items)
+
+            # Determine how many sequences to create for this client
+            max_possible_sequences = n - self.min_seq_length + 1
+            num_sequences = min(samples_per_client, max_possible_sequences)
+
+            # Always include sequence starting at position 0
+            start_positions = [0]
+
+            # Add random positions if needed
+            if num_sequences > 1:
+                # Get available positions (excluding 0)
+                available_positions = list(range(1, max_possible_sequences))
+                if available_positions:
+                    # Deterministic random sampling
+                    rng = np.random.RandomState(seed + hash(client_id) % 1000)
+                    random_positions = rng.choice(
+                        available_positions,
+                        size=min(num_sequences - 1, len(available_positions)),
+                        replace=False
+                    )
+                    start_positions.extend(sorted(random_positions.tolist()))
+
+            # Create sequences from each start position
+            for start_idx in start_positions:
+                # Random sequence length for this start
+                max_len = min(self.max_seq_length, n - start_idx)
+
+                # Deterministic random length based on client and start position
+                length_seed = seed + hash(str(client_id) + str(start_idx)) % 1000
+                length_rng = np.random.RandomState(length_seed)
+                seq_len = length_rng.randint(self.min_seq_length, max_len + 1)
+
+                end_idx = start_idx + seq_len
+
+                seq_items = client_items[start_idx:end_idx]
+                seq_timestamps = client_timestamps[start_idx:end_idx]
+                seq_amounts = client_amounts[start_idx:end_idx]
+
+                # Skip OOV sequences
                 if self.is_using_training_vocab:
                     if any(item not in self.vocab for item in seq_items):
                         sequences_skipped_oov += 1
                         continue
-                
-                # Calculate time deltas between consecutive transactions
-                time_deltas = []
-                for j in range(len(seq_timestamps)):
-                    if j == 0:
-                        time_deltas.append(0.0)  # First item in sequence
-                    else:
-                        delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
-                        time_deltas.append(delta_seconds)
-                
+
+                # Calculate time deltas
+                time_deltas = [0.0]  # First position
+                for j in range(1, len(seq_timestamps)):
+                    delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
+                    time_deltas.append(delta_seconds)
+
                 log_time_deltas = np.log1p(time_deltas)
-                
-                # Normalize amounts using the fitted scaler
-                if len(seq_amounts) > 0:
-                    norm_amounts = self.amount_scaler.transform(
-                        np.array(seq_amounts).reshape(-1, 1)
-                    ).flatten()
-                else:
-                    norm_amounts = np.array([])
-                
-                # Create feature tensor
+
+                # Normalize amounts
+                norm_amounts = self.amount_scaler.transform(
+                    np.array(seq_amounts).reshape(-1, 1)
+                ).flatten()
+
+                # Create features
                 features_tensor = torch.tensor(
                     list(zip(log_time_deltas, norm_amounts)), 
                     dtype=torch.float
                 )
-                
+
                 self.sequences.append(seq_items)
                 self.features.append(features_tensor)
                 self.sequence_lengths.append(seq_len)
                 sequences_created += 1
-        
-        print(f"Created {sequences_created} sequences, "
-              f"skipped {sequences_skipped_oov} due to OOV, "
-              f"skipped {sequences_skipped_short} due to being too short")
-    
+
+        print(f"Created {sequences_created} sequences (sampled), "
+              f"skipped {sequences_skipped_oov} due to OOV")
+
     def __len__(self):
         return len(self.sequences)
     
@@ -402,6 +430,29 @@ def collate_fn(batch):
     
     return inputs_sorted, targets_sorted, features_sorted, lengths_sorted
 
+# Function to map token index to Unicode symbol
+def idx_to_symbol(idx):
+    # Special tokens
+    if idx == 0:  # <PAD>
+        return '□'  # U+25A1
+    elif idx == 1:  # <OOV>
+        return '?'  # U+003F
+    elif idx == 2:  # <START>
+        return '▶'  # U+25B6
+    elif idx == 3:  # <END>
+        return '■'  # U+25A0
+    else:
+        # Map regular tokens to Unicode symbols starting from U+2460
+        # ① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩ ...
+        if idx <= 20:  # First 20 tokens use circled numbers
+            return chr(0x2460 + idx - 4)  # Start from ① (U+2460)
+        elif idx <= 50:  # Next 30 tokens use parenthesized letters
+            return chr(0x249C + idx - 21)  # Start from ⒜ (U+249C)
+        else:
+            # Beyond that, use various symbols
+            symbols = ['☆', '★', '◇', '◆', '◈', '▣', '▤', '▥', '▦', '▧']
+            return symbols[(idx - 51) % len(symbols)]
+
 
 def train_epoch_standard(model, dataloader, optimizer, criterion, device, master_pbar, epoch):
     """Standard full autoregressive training (predict all tokens)"""
@@ -421,6 +472,34 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
         # Forward pass through the entire sequence
         logits, _ = model(inputs, features, lengths.cpu())
         
+        # Print detailed example for first sequence of first batch
+        if batch_idx == 0 and epoch == 0:
+            dataset = dataloader.dataset
+            idx_to_token = {idx: token for token, idx in dataset.vocab.items()}
+
+            i = 0
+            seq_len_i = lengths[i].item()
+
+            print("\nExample Sequence:")
+            print(f"Length: {seq_len_i}")
+            # Build sequences
+            input_symbols = [idx_to_symbol(idx.item()) for idx in inputs[i, :seq_len_i]]
+            target_symbols = [idx_to_symbol(idx.item()) for idx in targets[i, :seq_len_i]]
+            pred_symbols = [idx_to_symbol(logits[i, pos].argmax().item()) for pos in range(seq_len_i)]
+
+            print(f"Input:  {' '.join(input_symbols)}")
+            print(f"Target: {' '.join(target_symbols)}")
+            print(f"Pred:   {' '.join(pred_symbols)}")
+
+            # Show matches
+            matches = []
+            for pos in range(seq_len_i):
+                matches.append('✓' if logits[i, pos].argmax().item() == targets[i, pos].item() else '✗')
+            print(f"Match:  {' '.join(matches)}")
+
+            accuracy = sum(1 for m in matches if m == '✓') / seq_len_i
+            print(f"Acc: {accuracy:.1%}\n")
+
         # Calculate loss (ignore padding tokens)
         loss = 0
         batch_tokens_correct = 0
