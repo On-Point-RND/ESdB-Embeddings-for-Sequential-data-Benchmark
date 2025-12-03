@@ -21,11 +21,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Full Autoregressive Next Token Prediction for AGE Financial Transactions')
     
     # Data parameters
-    parser.add_argument('--data-url', type=str, 
-                       default='https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/transactions_train.csv.gz?download=true',
-                       help='URL to download AGE dataset')
-    parser.add_argument('--data-dir', type=str, default='./age_data/', help='Path to cache data directory')
-    parser.add_argument('-mx', '--max-transactions', type=int, default=None, help='Maximum number of transactions to use')
+    parser.add_argument('-pp','--parquet-path', type=str, default='embeddings_age_coles.parquet', help='Path to cache data directory in parquet format')
+    parser.add_argument('-mx', '--max-clients', type=int, default=None, help='Maximum number of clients to use')
     parser.add_argument('--max-seq-length', type=int, default=10, help='Maximum sequence length')
     parser.add_argument('--min-seq-length', type=int, default=2, help='Minimum sequence length to include')
     parser.add_argument('--train-ratio', type=float, default=0.8, help='Train/validation split ratio')
@@ -38,6 +35,7 @@ def parse_args():
     parser.add_argument('--embedding-dim', type=int, default=64, help='Embedding dimension size')
     parser.add_argument('--num-layers', type=int, default=1, help='Number of RNN layers')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate')
+    parser.add_argument('--use-embeddings', action='store_true', help='Use embeddings')
     
     # Training parameters
     parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
@@ -55,74 +53,99 @@ def parse_args():
     return parser.parse_args()
 
 
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+import time
+from collections import Counter
+from sklearn.preprocessing import StandardScaler
+import ast
+
 class AGEDataset(Dataset):
-    def __init__(self, max_seq_length=10, min_seq_length=2, data_url=None, data_dir='./age_data/', 
-                 max_transactions=None, split_type='train', split_ratio=0.8, 
-                 scaler=None, vocab=None, min_frequency=10):
+    def __init__(self, max_seq_length=10, min_seq_length=2, parquet_path='embeddings_age_coles.parquet', 
+                 max_clients=None, split_type='train', split_ratio=0.8,
+                 base_date='2023-01-01',
+                 scaler=None, vocab=None, min_frequency=10, use_embeddings=False):
+        """
+        Args:
+            max_seq_length: Maximum sequence length
+            min_seq_length: Minimum sequence length
+            parquet_path: Path to parquet file
+            max_clients: Maximum number of clients
+            split_type: 'train', 'val', or 'all'
+            split_ratio: Train/validation split ratio
+            scaler: Pre-fitted scaler for amounts
+            vocab: Pre-existing vocabulary
+            min_frequency: Minimum frequency for vocabulary items
+            use_embeddings: Whether to use client embeddings
+        """
         self.max_seq_length = max_seq_length
         self.min_seq_length = min_seq_length
-        self.max_transactions = max_transactions
+        self.max_clients = max_clients
         self.split_type = split_type
         self.split_ratio = split_ratio
         self.min_frequency = min_frequency
+        self.use_embeddings = use_embeddings
+        self.base_date = pd.Timestamp(base_date)
         
         start_time = time.time()
         
-        # Create data directory if it doesn't exist
-        os.makedirs(data_dir, exist_ok=True)
+        # Load data
+        print(f"Loading AGE dataset from {parquet_path}...")
+        self.df = pd.read_parquet(parquet_path)
         
-        # Download and load data
-        cache_file = os.path.join(data_dir, 'transactions_train.csv')
-        if not os.path.exists(cache_file):
-            print("Downloading AGE dataset...")
-            self.df = pd.read_csv(data_url, compression='gzip')
-            self.df.to_csv(cache_file, index=False)
-        else:
-            print("Loading cached AGE dataset...")
-            self.df = pd.read_csv(cache_file)
+        # Store embeddings separately if they exist
+        self.embeddings = {}
+        self.embedding_dim = None
+        if 'embedding' in self.df.columns:
+            for idx, row in self.df.iterrows():
+                client_id = row['client_id']
+                if isinstance(row['embedding'], (list, np.ndarray)):
+                    self.embeddings[client_id] = np.array(row['embedding'], dtype=np.float32)
+                elif pd.notna(row['embedding']):
+                    self.embeddings[client_id] = np.array(row['embedding'], dtype=np.float32)
+            # Remove embedding column from df
+            self.embedding_dim = self.df['embedding'].iloc[0].shape[0]
+            self.df = self.df.drop('embedding', axis=1)
         
-        # Apply transaction limit
-        if max_transactions and len(self.df) > max_transactions:
-            self.df = self.df.head(max_transactions)
+        if max_clients and len(self.df) > max_clients:
+            self.df = self.df.head(max_clients)
         
-        # Convert trans_date to datetime (treat as sequential days)
-        base_date = pd.Timestamp('2023-01-01')
-        self.df['transaction_datetime'] = base_date + pd.to_timedelta(self.df['trans_date'] - 1, unit='D')
+        print(f"Loaded {len(self.df)} client records")
+        if self.embeddings:
+            print(f"Loaded embeddings for {len(self.embeddings)} clients")
         
-        # Sort by client and date
-        self.df = self.df.sort_values(['client_id', 'transaction_datetime'])
+        # Parse array columns
+        self._parse_post_arrays()
         
-        # Convert datetime to timestamp
-        self.df['timestamp'] = self.df['transaction_datetime'].astype('int64') // 10**9
+        # Apply client split
+        self.df = self._apply_client_split()
         
-        # Apply simple temporal split per client
-        self.df = self._apply_simple_split(self.df)
+        # Extract sequences from post columns
+        self.client_sequences = self._extract_post_sequences()
         
-        # Use provided scaler or fit new one
+        # Fit or use scaler
         if scaler is not None:
             self.amount_scaler = scaler
         else:
-            # Fit scaler on amount_rur for training data
             self.amount_scaler = StandardScaler()
-            if len(self.df) > 0:
-                self.amount_scaler.fit(self.df[['amount_rur']].values)
+            all_amounts = []
+            for seq in self.client_sequences:
+                all_amounts.extend(seq['post_amounts'])
+            if all_amounts:
+                self.amount_scaler.fit(np.array(all_amounts).reshape(-1, 1))
         
-        # Use provided vocab or create new one
+        # Create or use vocabulary
         if vocab is not None:
             self.vocab = vocab
             self.is_using_training_vocab = True
-            # Ensure special tokens exist
-            if '<PAD>' not in self.vocab:
-                self.vocab['<PAD>'] = len(self.vocab)
-            if '<OOV>' not in self.vocab:
-                self.vocab['<OOV>'] = len(self.vocab)
-            if '<START>' not in self.vocab:
-                self.vocab['<START>'] = len(self.vocab)
-            if '<END>' not in self.vocab:
-                self.vocab['<END>'] = len(self.vocab)
+            # Ensure special tokens
+            for token in ['<PAD>', '<OOV>', '<START>', '<END>']:
+                if token not in self.vocab:
+                    self.vocab[token] = len(self.vocab)
         else:
-            # Create vocabulary with frequency filtering and special tokens
-            self.vocab = self._create_vocab_with_frequency()
+            self.vocab = self._create_vocab_from_post_sequences()
             self.is_using_training_vocab = False
         
         self.vocab_size = len(self.vocab)
@@ -130,29 +153,99 @@ class AGEDataset(Dataset):
         print(f"Vocabulary size: {self.vocab_size} (after frequency filtering)")
         print(f"Special tokens: { {k: self.vocab[k] for k in ['<PAD>', '<OOV>', '<START>', '<END>'] if k in self.vocab} }")
         
-        # Create sequences - variable length
-        self.sequences = []
-        self.sequence_targets = []  # Full target sequences
-        self.features = []
+        # Create training sequences
+        self.sequences = []  # small_group tokens
+        self.features = []   # (time_delta, normalized_amount) pairs
         self.sequence_lengths = []
+        self.client_ids = []  # Store client_id for each sequence
         
-        self._create_variable_length_sequences()
+        self._create_variable_length_sequences_from_post()
         
         end_time = time.time()
         
         print(f"Dataset created in {end_time - start_time:.2f} seconds")
         print(f"Dataset: {len(self.sequences)} sequences, vocabulary size: {self.vocab_size}")
-        print(f"Sequence length stats: min={min(self.sequence_lengths) if self.sequence_lengths else 0}, "
-              f"max={max(self.sequence_lengths) if self.sequence_lengths else 0}, "
-              f"avg={np.mean(self.sequence_lengths) if self.sequence_lengths else 0:.1f}")
-        if len(self.df) > 0:
-            print(f"Time range: {self.df['transaction_datetime'].min()} to {self.df['transaction_datetime'].max()}")
+        if self.sequence_lengths:
+            print(f"Sequence length stats: min={min(self.sequence_lengths)}, "
+                  f"max={max(self.sequence_lengths)}, "
+                  f"avg={np.mean(self.sequence_lengths):.1f}")
     
-    def _create_vocab_with_frequency(self):
-        """Create vocabulary with frequency filtering to reduce rare categories"""
-        counter = Counter(self.df['small_group'].astype(str))
+    def _parse_post_arrays(self):
+        """Parse post array columns if stored as strings"""
+        post_columns = ['post_trans_date', 'post_amount', 'post_small_group']
         
-        # Create vocabulary with special tokens first
+        for col in post_columns:
+            if col in self.df.columns:
+                if len(self.df) > 0 and isinstance(self.df[col].iloc[0], str):
+                    self.df[col] = self.df[col].apply(
+                        lambda x: ast.literal_eval(x) if pd.notna(x) else []
+                    )
+    
+    def _apply_client_split(self):
+        """Split clients into train/validation sets"""
+        if self.split_type == 'all':
+            return self.df
+        
+        clients = self.df['client_id'].unique()
+        np.random.seed(42)
+        shuffled_clients = np.random.permutation(clients)
+        
+        split_idx = int(len(shuffled_clients) * self.split_ratio)
+        
+        if self.split_type == 'train':
+            selected_clients = shuffled_clients[:split_idx]
+        else:
+            selected_clients = shuffled_clients[split_idx:]
+        
+        result = self.df[self.df['client_id'].isin(selected_clients)].copy()
+        print(f"{self.split_type.upper()} split: {len(result)} clients")
+        return result
+    
+    def _extract_post_sequences(self):
+        """Extract sequences from post columns"""
+        client_sequences = []
+        
+        for _, row in self.df.iterrows():
+            client_id = row['client_id']
+            
+            # Get post sequences
+            post_dates = []
+            post_amounts = []
+            post_groups = []
+            
+            if 'post_trans_date' in row and isinstance(row['post_trans_date'], (list, np.ndarray)):
+                post_dates = list(row['post_trans_date'])
+            
+            if 'post_amount' in row and isinstance(row['post_amount'], (list, np.ndarray)):
+                post_amounts = list(row['post_amount'])
+            
+            if 'post_small_group' in row and isinstance(row['post_small_group'], (list, np.ndarray)):
+                post_groups = list(row['post_small_group'])
+            
+            # Ensure all arrays have same length
+            min_len = min(len(post_dates), len(post_amounts), len(post_groups))
+            
+            if min_len >= self.min_seq_length:
+                client_sequences.append({
+                    'client_id': client_id,
+                    'post_dates': post_dates[:min_len],
+                    'post_amounts': post_amounts[:min_len],
+                    'post_groups': post_groups[:min_len],
+                    'original_length': min_len
+                })
+        
+        print(f"Extracted {len(client_sequences)} client sequences from post columns")
+        return client_sequences
+    
+    def _create_vocab_from_post_sequences(self):
+        """Create vocabulary from post_small_group sequences"""
+        all_items = []
+        
+        for seq in self.client_sequences:
+            all_items.extend([str(item) for item in seq['post_groups']])
+        
+        counter = Counter(all_items)
+        
         vocab = {}
         idx = 0
         
@@ -168,78 +261,52 @@ class AGEDataset(Dataset):
                 vocab[str(item)] = idx
                 idx += 1
         
-        print(f"Vocabulary: {len(vocab)} items (filtered from {len(counter)}), min_freq={self.min_frequency}")
-        print(f"Most common items: {list(counter.most_common(5))}")
+        print(f"Vocabulary from post sequences: {len(vocab)} items (filtered from {len(counter)})")
+        if counter:
+            print(f"Most common post items: {list(counter.most_common(5))}")
         
         return vocab
     
-    def _apply_simple_split(self, df):
-        """Simple temporal split per client"""
-        if self.split_type == 'all':
-            return df
-            
-        train_dfs = []
-        val_dfs = []
-        
-        for client_id in df['client_id'].unique():
-            client_data = df[df['client_id'] == client_id].sort_values('transaction_datetime')
-            if len(client_data) == 0:
-                continue
-                
-            split_idx = int(len(client_data) * self.split_ratio)
-            
-            if self.split_type == 'train':
-                train_dfs.append(client_data.iloc[:split_idx])
-            else:  # 'val'
-                if split_idx < len(client_data):  # Only add if client has validation data
-                    val_dfs.append(client_data.iloc[split_idx:])
-        
-        if self.split_type == 'train':
-            result = pd.concat(train_dfs) if train_dfs else df.iloc[0:0]
-        else:
-            result = pd.concat(val_dfs) if val_dfs else df.iloc[0:0]
-        
-        print(f"{self.split_type.upper()} split: {len(result)} transactions from {result['client_id'].nunique()} clients")
-        return result
-    
-    def _create_variable_length_sequences(self, samples_per_client=64):
-        """Create sequences with reproducible random sampling"""
-        if len(self.df) == 0:
+    def _create_variable_length_sequences_from_post(self, samples_per_client=32):
+        """Create training sequences from post data"""
+        if not self.client_sequences:
             return
-
-        # Set random seed for reproducibility
-        seed = 42 + hash(self.split_type) % 1000  # Different seeds for train/val
+        
+        seed = 42 + hash(self.split_type) % 1000
         np.random.seed(seed)
-
+        
         sequences_created = 0
         sequences_skipped_oov = 0
-
-        # Process clients in sorted order
-        for client_id in sorted(self.df['client_id'].unique()):
-            client_data = self.df[self.df['client_id'] == client_id].sort_values('timestamp')
-
-            if len(client_data) < self.min_seq_length:
+        
+        for client_seq in self.client_sequences:
+            client_id = client_seq['client_id']
+            post_groups = [str(item) for item in client_seq['post_groups']]
+            post_amounts = client_seq['post_amounts']
+            post_dates = client_seq['post_dates']
+            
+            n = len(post_groups)
+            
+            if n < self.min_seq_length:
                 continue
-
-            client_items = client_data['small_group'].astype(str).tolist()
-            client_timestamps = client_data['timestamp'].tolist()
-            client_amounts = client_data['amount_rur'].tolist()
-
-            n = len(client_items)
-
-            # Determine how many sequences to create for this client
+            
+            # Convert dates to timestamps (sequential days)
+            base_date = self.base_date
+            timestamps = []
+            for date in post_dates:
+                transaction_date = base_date + pd.to_timedelta(date - 1, unit='D')
+                timestamps.append(transaction_date.timestamp())
+            
+            # Determine number of sequences for this client
             max_possible_sequences = n - self.min_seq_length + 1
             num_sequences = min(samples_per_client, max_possible_sequences)
-
+            
             # Always include sequence starting at position 0
             start_positions = [0]
-
-            # Add random positions if needed
+            
+            # Add random positions
             if num_sequences > 1:
-                # Get available positions (excluding 0)
                 available_positions = list(range(1, max_possible_sequences))
                 if available_positions:
-                    # Deterministic random sampling
                     rng = np.random.RandomState(seed + hash(client_id) % 1000)
                     random_positions = rng.choice(
                         available_positions,
@@ -247,56 +314,58 @@ class AGEDataset(Dataset):
                         replace=False
                     )
                     start_positions.extend(sorted(random_positions.tolist()))
-
-            # Create sequences from each start position
+            
+            # Create sequences
             for start_idx in start_positions:
-                # Random sequence length for this start
                 max_len = min(self.max_seq_length, n - start_idx)
-
-                # Deterministic random length based on client and start position
+                
+                if max_len < self.min_seq_length:
+                    continue
+                
                 length_seed = seed + hash(str(client_id) + str(start_idx)) % 1000
                 length_rng = np.random.RandomState(length_seed)
                 seq_len = length_rng.randint(self.min_seq_length, max_len + 1)
-
+                
                 end_idx = start_idx + seq_len
-
-                seq_items = client_items[start_idx:end_idx]
-                seq_timestamps = client_timestamps[start_idx:end_idx]
-                seq_amounts = client_amounts[start_idx:end_idx]
-
+                
+                seq_items = post_groups[start_idx:end_idx]
+                seq_timestamps = timestamps[start_idx:end_idx]
+                seq_amounts = post_amounts[start_idx:end_idx]
+                
                 # Skip OOV sequences
                 if self.is_using_training_vocab:
                     if any(item not in self.vocab for item in seq_items):
                         sequences_skipped_oov += 1
                         continue
-
+                
                 # Calculate time deltas
                 time_deltas = [0.0]  # First position
                 for j in range(1, len(seq_timestamps)):
                     delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
                     time_deltas.append(delta_seconds)
-
+                
                 log_time_deltas = np.log1p(time_deltas)
-
+                
                 # Normalize amounts
                 norm_amounts = self.amount_scaler.transform(
                     np.array(seq_amounts).reshape(-1, 1)
                 ).flatten()
-
-                # Create features
+                
+                # Create features tensor
                 features_tensor = torch.tensor(
                     list(zip(log_time_deltas, norm_amounts)), 
                     dtype=torch.float
                 )
-
+                
                 self.sequences.append(seq_items)
                 self.features.append(features_tensor)
                 self.sequence_lengths.append(seq_len)
+                self.client_ids.append(client_id)
                 sequences_created += 1
-
-        print(f"Created {sequences_created} sequences (sampled), "
+        
+        print(f"Created {sequences_created} sequences from post data (sampled), "
               f"skipped {sequences_skipped_oov} due to OOV")
-
+    
     def __len__(self):
         return len(self.sequences)
     
@@ -304,6 +373,7 @@ class AGEDataset(Dataset):
         sequence = self.sequences[idx]
         features = self.features[idx]
         seq_len = self.sequence_lengths[idx]
+        client_id = self.client_ids[idx]
         
         # Convert tokens to indices
         seq_indices = [self.vocab.get(token, self.vocab['<OOV>']) for token in sequence]
@@ -313,12 +383,30 @@ class AGEDataset(Dataset):
         input_indices = [self.vocab['<START>']] + seq_indices[:-1]
         target_indices = seq_indices
         
+        # Get embedding if available
+        embedding = None
+        if self.use_embeddings and client_id in self.embeddings:
+            embedding = torch.tensor(self.embeddings[client_id], dtype=torch.float)
+        else:
+            embedding = -torch.ones(self.embedding_dim, dtype=torch.float)
         return (
             torch.tensor(input_indices, dtype=torch.long),
             torch.tensor(target_indices, dtype=torch.long),
             features,
-            seq_len
+            seq_len,
+            embedding
         )
+    
+    def get_client_data(self, client_id):
+        """Get all data for a specific client"""
+        for seq in self.client_sequences:
+            if seq['client_id'] == client_id:
+                return seq
+        return None
+    
+    def get_client_embedding(self, client_id):
+        """Get embedding for a specific client"""
+        return self.embeddings.get(client_id)
 
 
 class NextTokenRNN(nn.Module):
@@ -411,24 +499,29 @@ class NextTokenRNN(nn.Module):
 
 
 def collate_fn(batch):
-    """Custom collate function to handle variable length sequences"""
-    inputs, targets, features, lengths = zip(*batch)
+    """Simpler collate function assuming consistent embedding size"""
+    inputs, targets, features, lengths, embeddings = zip(*batch)
     
     # Pad sequences
-    inputs_padded = pad_sequence(inputs, batch_first=True, padding_value=0)  # 0 = <PAD>
+    inputs_padded = pad_sequence(inputs, batch_first=True, padding_value=0)
     targets_padded = pad_sequence(targets, batch_first=True, padding_value=0)
     features_padded = pad_sequence(features, batch_first=True, padding_value=0.0)
+    
+    # Stack embeddings (they should all have same shape)
+    embeddings_tensor = torch.stack(embeddings) if embeddings[0].numel() > 0 else torch.zeros(len(batch), 1)
     
     # Convert lengths to tensor
     lengths_tensor = torch.tensor(lengths, dtype=torch.long)
     
-    # Sort by length (descending) for packed sequences
+    # Sort by length
     lengths_sorted, sorted_idx = lengths_tensor.sort(descending=True)
     inputs_sorted = inputs_padded[sorted_idx]
     targets_sorted = targets_padded[sorted_idx]
     features_sorted = features_padded[sorted_idx]
+    embeddings_sorted = embeddings_tensor[sorted_idx]
     
-    return inputs_sorted, targets_sorted, features_sorted, lengths_sorted
+    return inputs_sorted, targets_sorted, features_sorted, lengths_sorted, embeddings_sorted
+
 
 # Function to map token index to Unicode symbol
 def idx_to_symbol(idx):
@@ -461,7 +554,7 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
     total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     
-    for batch_idx, (inputs, targets, features, lengths) in enumerate(dataloader):
+    for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
         
@@ -575,7 +668,7 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
     total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     
-    for batch_idx, (inputs, targets, features, lengths) in enumerate(dataloader):
+    for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
         
@@ -707,7 +800,7 @@ def validate_epoch(model, dataloader, criterion, device):
     total_log_ppl = 0
     
     with torch.no_grad():
-        for inputs, targets, features, lengths in dataloader:
+        for inputs, targets, features, lengths, embeddings in dataloader:
             inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
             lengths = lengths.to(device)
             
@@ -974,11 +1067,11 @@ def run_experiment(args, device):
     train_dataset = AGEDataset(
         max_seq_length=args.max_seq_length,
         min_seq_length=args.min_seq_length,
-        data_url=args.data_url,
-        data_dir=args.data_dir,
-        max_transactions=args.max_transactions,
+        parquet_path=args.parquet_path,
+        max_clients=args.max_clients,
         split_type='train',
         split_ratio=args.train_ratio,
+        use_embeddings=args.use_embeddings,
         min_frequency=args.min_frequency
     )
     
@@ -987,13 +1080,13 @@ def run_experiment(args, device):
     val_dataset = AGEDataset(
         max_seq_length=args.max_seq_length,
         min_seq_length=args.min_seq_length,
-        data_url=args.data_url,
-        data_dir=args.data_dir,
-        max_transactions=args.max_transactions,
+        parquet_path=args.parquet_path,
+        max_clients=args.max_clients,
         split_type='val',
         split_ratio=args.train_ratio,
         scaler=train_dataset.amount_scaler,
         vocab=train_dataset.vocab,
+        use_embeddings=args.use_embeddings,
         min_frequency=args.min_frequency
     )
     
