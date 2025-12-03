@@ -7,16 +7,18 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 from sklearn.preprocessing import StandardScaler
 from collections import defaultdict, Counter
 import pandas as pd
 import numpy as np
-import dask.dataframe as dd
 from tqdm import tqdm
+import warnings
+warnings.filterwarnings('ignore')
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Next Token Prediction Baseline for AGE Financial Transactions')
+    parser = argparse.ArgumentParser(description='Full Autoregressive Next Token Prediction for AGE Financial Transactions')
     
     # Data parameters
     parser.add_argument('--data-url', type=str, 
@@ -24,12 +26,9 @@ def parse_args():
                        help='URL to download AGE dataset')
     parser.add_argument('--data-dir', type=str, default='./age_data/', help='Path to cache data directory')
     parser.add_argument('-mx', '--max-transactions', type=int, default=None, help='Maximum number of transactions to use')
-    parser.add_argument('--sequence-length', type=int, default=5, help='Sequence length for training')
+    parser.add_argument('--max-seq-length', type=int, default=10, help='Maximum sequence length')
+    parser.add_argument('--min-seq-length', type=int, default=2, help='Minimum sequence length to include')
     parser.add_argument('--train-ratio', type=float, default=0.8, help='Train/validation split ratio')
-    parser.add_argument('--split-method', type=str, default='strict_temporal', 
-                       choices=['temporal', 'client', 'strict_temporal'], 
-                       help='How to split data: temporal (by time), client (by client), strict_temporal (global time split)')
-    parser.add_argument('--cross-session', action='store_true', help='Create sequences across sessions')
     parser.add_argument('--min-frequency', type=int, default=10, help='Minimum frequency for vocabulary items')
     
     # Model parameters
@@ -45,8 +44,9 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
+    parser.add_argument('--patience', type=int, default=20, help='Patience for early stopping')
     parser.add_argument('--teacher-forcing-ratio', type=float, default=0.5,
-                       help='Teacher forcing ratio for TF method')
+                       help='Teacher forcing ratio (used for teacher forcing method)')
     
     # System parameters
     parser.add_argument('--cuda-devices', type=str, default='0', help='CUDA visible devices')
@@ -56,15 +56,14 @@ def parse_args():
 
 
 class AGEDataset(Dataset):
-    def __init__(self, sequence_length=5, data_url=None, data_dir='./age_data/', max_transactions=None, 
-                 split_type='all', split_ratio=0.8, split_method='strict_temporal', 
-                 cross_session=False, scaler=None, vocab=None, min_frequency=10, global_time_split=None):
-        self.sequence_length = sequence_length
+    def __init__(self, max_seq_length=10, min_seq_length=2, data_url=None, data_dir='./age_data/', 
+                 max_transactions=None, split_type='train', split_ratio=0.8, 
+                 scaler=None, vocab=None, min_frequency=10):
+        self.max_seq_length = max_seq_length
+        self.min_seq_length = min_seq_length
         self.max_transactions = max_transactions
         self.split_type = split_type
         self.split_ratio = split_ratio
-        self.split_method = split_method
-        self.cross_session = cross_session
         self.min_frequency = min_frequency
         
         start_time = time.time()
@@ -96,8 +95,8 @@ class AGEDataset(Dataset):
         # Convert datetime to timestamp
         self.df['timestamp'] = self.df['transaction_datetime'].astype('int64') // 10**9
         
-        # Apply appropriate split method
-        self.df = self._apply_split(self.df, global_time_split)
+        # Apply simple temporal split per client
+        self.df = self._apply_simple_split(self.df)
         
         # Use provided scaler or fit new one
         if scaler is not None:
@@ -112,49 +111,56 @@ class AGEDataset(Dataset):
         if vocab is not None:
             self.vocab = vocab
             self.is_using_training_vocab = True
+            # Ensure special tokens exist
+            if '<PAD>' not in self.vocab:
+                self.vocab['<PAD>'] = len(self.vocab)
             if '<OOV>' not in self.vocab:
                 self.vocab['<OOV>'] = len(self.vocab)
+            if '<START>' not in self.vocab:
+                self.vocab['<START>'] = len(self.vocab)
+            if '<END>' not in self.vocab:
+                self.vocab['<END>'] = len(self.vocab)
         else:
-            # Create vocabulary with frequency filtering
+            # Create vocabulary with frequency filtering and special tokens
             self.vocab = self._create_vocab_with_frequency()
             self.is_using_training_vocab = False
         
         self.vocab_size = len(self.vocab)
-        self.oov_token = '<OOV>'
         
         print(f"Vocabulary size: {self.vocab_size} (after frequency filtering)")
+        print(f"Special tokens: { {k: self.vocab[k] for k in ['<PAD>', '<OOV>', '<START>', '<END>'] if k in self.vocab} }")
         
-        # Create sequences and features
+        # Create sequences - variable length
         self.sequences = []
-        self.targets = []
+        self.sequence_targets = []  # Full target sequences
         self.features = []
-        self.sequence_timestamps = []
+        self.sequence_lengths = []
         
-        if self.cross_session:
-            self._create_sequences_cross_session()
-        else:
-            self._create_sequences_within_session()
+        self._create_variable_length_sequences()
         
         end_time = time.time()
         
         print(f"Dataset created in {end_time - start_time:.2f} seconds")
-        print(f"Dataset: {len(self.sequences)} sequences, {self.vocab_size} small_group categories")
+        print(f"Dataset: {len(self.sequences)} sequences, vocabulary size: {self.vocab_size}")
+        print(f"Sequence length stats: min={min(self.sequence_lengths) if self.sequence_lengths else 0}, "
+              f"max={max(self.sequence_lengths) if self.sequence_lengths else 0}, "
+              f"avg={np.mean(self.sequence_lengths) if self.sequence_lengths else 0:.1f}")
         if len(self.df) > 0:
             print(f"Time range: {self.df['transaction_datetime'].min()} to {self.df['transaction_datetime'].max()}")
-        if scaler is None and len(self.df) > 0:
-            print(f"Amount stats: mean={self.amount_scaler.mean_[0]:.2f}, std={self.amount_scaler.scale_[0]:.2f}")
     
     def _create_vocab_with_frequency(self):
         """Create vocabulary with frequency filtering to reduce rare categories"""
         counter = Counter(self.df['small_group'].astype(str))
         
-        # Keep only items that meet minimum frequency
+        # Create vocabulary with special tokens first
         vocab = {}
         idx = 0
         
-        # Add special tokens first
-        vocab['<OOV>'] = idx
-        idx += 1
+        # Add special tokens
+        vocab['<PAD>'] = idx; idx += 1
+        vocab['<OOV>'] = idx; idx += 1
+        vocab['<START>'] = idx; idx += 1
+        vocab['<END>'] = idx; idx += 1
         
         # Add frequent items
         for item, count in counter.most_common():
@@ -163,47 +169,13 @@ class AGEDataset(Dataset):
                 idx += 1
         
         print(f"Vocabulary: {len(vocab)} items (filtered from {len(counter)}), min_freq={self.min_frequency}")
-        print(f"Most common items: {list(counter.most_common(10))}")
+        print(f"Most common items: {list(counter.most_common(5))}")
         
         return vocab
     
-    def _apply_split(self, df, global_time_split=None):
-        """Apply the appropriate split method to the dataframe"""
+    def _apply_simple_split(self, df):
+        """Simple temporal split per client"""
         if self.split_type == 'all':
-            return df
-        
-        if self.split_method == 'strict_temporal':
-            return self._apply_strict_temporal_split(df, global_time_split)
-        elif self.split_method == 'temporal':
-            return self._apply_temporal_split_fixed(df)
-        elif self.split_method == 'client':
-            return self._apply_client_split(df)
-        else:
-            raise ValueError(f"Unknown split method: {self.split_method}")
-    
-    def _apply_strict_temporal_split(self, df, global_time_split=None):
-        """Strict temporal split - all clients use the same time threshold"""
-        if len(df) == 0:
-            return df
-            
-        if global_time_split is None:
-            # Calculate global split time
-            sorted_df = df.sort_values('transaction_datetime')
-            split_idx = int(len(sorted_df) * self.split_ratio)
-            global_time_split = sorted_df.iloc[split_idx]['transaction_datetime']
-            print(f"Global time split at: {global_time_split}")
-        
-        if self.split_type == 'train':
-            result = df[df['transaction_datetime'] < global_time_split]
-        else:  # 'val'
-            result = df[df['transaction_datetime'] >= global_time_split]
-        
-        print(f"{self.split_type.upper()} split: {len(result)} transactions from {result['client_id'].nunique()} clients")
-        return result
-    
-    def _apply_temporal_split_fixed(self, df):
-        """Split by time per client to avoid leakage"""
-        if len(df) == 0:
             return df
             
         train_dfs = []
@@ -230,189 +202,112 @@ class AGEDataset(Dataset):
         print(f"{self.split_type.upper()} split: {len(result)} transactions from {result['client_id'].nunique()} clients")
         return result
     
-    def _apply_client_split(self, df):
-        """Split by client only - unseen clients in validation"""
-        if len(df) == 0:
-            return df
-            
-        unique_clients = df['client_id'].unique()
-        split_idx = int(len(unique_clients) * self.split_ratio)
-        
-        train_clients = unique_clients[:split_idx]
-        val_clients = unique_clients[split_idx:]
-        
-        if self.split_type == 'train':
-            return df[df['client_id'].isin(train_clients)]
-        else:  # 'val'
-            return df[df['client_id'].isin(val_clients)]
-    
-    def _create_sequences_within_session(self):
-        """Create sequences ONLY within the same shopping session"""
+    def _create_variable_length_sequences(self):
+        """Create variable length sequences for each client"""
         if len(self.df) == 0:
             return
             
-        # For AGE dataset, we'll define sessions by client_id and transaction_datetime
-        self.df['session_id'] = self.df.groupby(['client_id', 'transaction_datetime']).ngroup()
-        self.df = self.df.sort_values(['client_id', 'transaction_datetime', 'timestamp'])
-        
         sequences_created = 0
         sequences_skipped_oov = 0
+        sequences_skipped_short = 0
         
         for client_id in self.df['client_id'].unique():
-            client_data = self.df[self.df['client_id'] == client_id]
+            client_data = self.df[self.df['client_id'] == client_id].sort_values('timestamp')
             
-            for session_id in client_data['session_id'].unique():
-                session_data = client_data[client_data['session_id'] == session_id]
-                
-                # Sort items within session by timestamp
-                session_data = session_data.sort_values('timestamp')
-                
-                # Get all items in this session
-                session_items = session_data['small_group'].astype(str).tolist()
-                session_timestamps = session_data['timestamp'].tolist()
-                session_amounts = session_data['amount_rur'].tolist()
-                
-                # Only create sequences if session has enough items
-                if len(session_items) > self.sequence_length:
-                    for i in range(self.sequence_length, len(session_items)):
-                        # Input: previous sequence_length items in this session
-                        seq_items = session_items[i-self.sequence_length:i]
-                        seq_timestamps = session_timestamps[i-self.sequence_length:i]
-                        seq_amounts = session_amounts[i-self.sequence_length:i]
-                        
-                        # Target: next item in this same session
-                        target_item = session_items[i]
-                        
-                        # Skip sequences with OOV targets that aren't in training vocab
-                        if self.is_using_training_vocab:
-                            if any(item not in self.vocab for item in seq_items) or target_item not in self.vocab:
-                                sequences_skipped_oov += 1
-                                continue
-                        
-                        # Calculate time deltas WITHIN the same session
-                        time_deltas = []
-                        for j in range(len(seq_timestamps)):
-                            if j == 0:
-                                time_deltas.append(0.0)  # First item in sequence
-                            else:
-                                delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
-                                time_deltas.append(delta_seconds)
-                        
-                        # Apply log1p to time deltas
-                        log_time_deltas = np.log1p(time_deltas)
-                        
-                        # Normalize amounts using the fitted scaler
-                        norm_amounts = self.amount_scaler.transform(
-                            np.array(seq_amounts).reshape(-1, 1)
-                        ).flatten()
-                        
-                        # Create feature tensor with both time deltas and normalized amounts
-                        features_tensor = torch.tensor(
-                            list(zip(log_time_deltas, norm_amounts)), 
-                            dtype=torch.float
-                        )
-                        
-                        self.sequences.append(seq_items)
-                        self.targets.append(target_item)
-                        self.features.append(features_tensor)
-                        self.sequence_timestamps.append(session_timestamps[i])
-                        sequences_created += 1
-        
-        print(f"Created {sequences_created} sequences, skipped {sequences_skipped_oov} due to OOV")
-    
-    def _create_sequences_cross_session(self):
-        """Create sequences across sessions for more training data"""
-        if len(self.df) == 0:
-            return
+            if len(client_data) < self.min_seq_length:
+                sequences_skipped_short += 1
+                continue
             
-        self.df = self.df.sort_values(['client_id', 'timestamp'])
-        
-        sequences_created = 0
-        sequences_skipped_oov = 0
-        
-        for client_id in self.df['client_id'].unique():
-            client_data = self.df[self.df['client_id'] == client_id]
-            
-            # Get all items for this client across all sessions
+            # Get all items for this client in chronological order
             client_items = client_data['small_group'].astype(str).tolist()
             client_timestamps = client_data['timestamp'].tolist()
             client_amounts = client_data['amount_rur'].tolist()
             
-            # Create sequences across sessions
-            if len(client_items) > self.sequence_length:
-                for i in range(self.sequence_length, len(client_items)):
-                    seq_items = client_items[i-self.sequence_length:i]
-                    target_item = client_items[i]
-                    
-                    # Skip OOV targets in validation
-                    if self.is_using_training_vocab:
-                        if any(item not in self.vocab for item in seq_items) or target_item not in self.vocab:
-                            sequences_skipped_oov += 1
-                            continue
-                    
-                    # Calculate time deltas (can be across sessions)
-                    seq_timestamps = client_timestamps[i-self.sequence_length:i]
-                    time_deltas = [0.0]  # First item
-                    for j in range(1, len(seq_timestamps)):
+            # Create sequences of increasing length
+            for seq_len in range(self.min_seq_length, min(len(client_items), self.max_seq_length) + 1):
+                seq_items = client_items[:seq_len]
+                seq_timestamps = client_timestamps[:seq_len]
+                seq_amounts = client_amounts[:seq_len]
+                
+                # Skip sequences with OOV tokens that aren't in training vocab
+                if self.is_using_training_vocab:
+                    if any(item not in self.vocab for item in seq_items):
+                        sequences_skipped_oov += 1
+                        continue
+                
+                # Calculate time deltas between consecutive transactions
+                time_deltas = []
+                for j in range(len(seq_timestamps)):
+                    if j == 0:
+                        time_deltas.append(0.0)  # First item in sequence
+                    else:
                         delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
                         time_deltas.append(delta_seconds)
-                    
-                    log_time_deltas = np.log1p(time_deltas)
-                    
-                    # Normalize amounts
-                    seq_amounts = client_amounts[i-self.sequence_length:i]
+                
+                log_time_deltas = np.log1p(time_deltas)
+                
+                # Normalize amounts using the fitted scaler
+                if len(seq_amounts) > 0:
                     norm_amounts = self.amount_scaler.transform(
                         np.array(seq_amounts).reshape(-1, 1)
                     ).flatten()
-                    
-                    features_tensor = torch.tensor(
-                        list(zip(log_time_deltas, norm_amounts)), 
-                        dtype=torch.float
-                    )
-                    
-                    self.sequences.append(seq_items)
-                    self.targets.append(target_item)
-                    self.features.append(features_tensor)
-                    self.sequence_timestamps.append(client_timestamps[i])
-                    sequences_created += 1
+                else:
+                    norm_amounts = np.array([])
+                
+                # Create feature tensor
+                features_tensor = torch.tensor(
+                    list(zip(log_time_deltas, norm_amounts)), 
+                    dtype=torch.float
+                )
+                
+                self.sequences.append(seq_items)
+                self.features.append(features_tensor)
+                self.sequence_lengths.append(seq_len)
+                sequences_created += 1
         
-        print(f"Created {sequences_created} sequences, skipped {sequences_skipped_oov} due to OOV")
+        print(f"Created {sequences_created} sequences, "
+              f"skipped {sequences_skipped_oov} due to OOV, "
+              f"skipped {sequences_skipped_short} due to being too short")
     
     def __len__(self):
         return len(self.sequences)
     
     def __getitem__(self, idx):
         sequence = self.sequences[idx]
-        target = self.targets[idx]
         features = self.features[idx]
+        seq_len = self.sequence_lengths[idx]
         
-        # Handle OOV tokens - use <OOV> for items not in vocabulary
-        seq_indices = [self.vocab.get(token, self.vocab[self.oov_token]) for token in sequence]
-        target_index = self.vocab.get(target, self.vocab[self.oov_token])
+        # Convert tokens to indices
+        seq_indices = [self.vocab.get(token, self.vocab['<OOV>']) for token in sequence]
+        
+        # Input: <START> + sequence[:-1]
+        # Target: sequence (shifted by 1)
+        input_indices = [self.vocab['<START>']] + seq_indices[:-1]
+        target_indices = seq_indices
         
         return (
-            torch.tensor(seq_indices, dtype=torch.long),
-            torch.tensor(target_index, dtype=torch.long),
-            features
+            torch.tensor(input_indices, dtype=torch.long),
+            torch.tensor(target_indices, dtype=torch.long),
+            features,
+            seq_len
         )
 
 
 class NextTokenRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=64, embedding_dim=64, 
                  continuous_dim=2, rnn_type='lstm', num_layers=1, 
-                 conditional_dim=0, dropout=0.5):
+                 dropout=0.5):
         super(NextTokenRNN, self).__init__()
         
         self.vocab_size = vocab_size
         self.hidden_dim = hidden_dim
         self.continuous_dim = continuous_dim
-        self.conditional_dim = conditional_dim
         self.rnn_type = rnn_type.lower()
         
         # Embedding layer for categorical tokens
         self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
         
-        # Simpler MLP for continuous features
+        # MLP for continuous features
         self.continuous_mlp = nn.Sequential(
             nn.Linear(continuous_dim, 32),
             nn.ReLU(),
@@ -421,9 +316,9 @@ class NextTokenRNN(nn.Module):
         )
         
         # Calculate total input dimension to RNN
-        total_input_dim = embedding_dim + 16 + conditional_dim
+        total_input_dim = embedding_dim + 16
         
-        # RNN layer with drop-in replacement option
+        # RNN layer
         if self.rnn_type == 'gru':
             self.rnn = nn.GRU(total_input_dim, hidden_dim, num_layers, 
                              batch_first=True, dropout=dropout if num_layers > 1 else 0)
@@ -444,7 +339,7 @@ class NextTokenRNN(nn.Module):
         
         self.dropout = nn.Dropout(dropout)
     
-    def forward(self, category_sequence, continuous_features, conditional_embedding=None, hidden=None):
+    def forward(self, category_sequence, continuous_features, lengths=None, hidden=None):
         batch_size, seq_len = category_sequence.shape
         
         # 1. Process categorical sequence through embedding
@@ -453,22 +348,26 @@ class NextTokenRNN(nn.Module):
         # 2. Process continuous features through MLP
         cont_emb = self.continuous_mlp(continuous_features)
         
-        # 3. Prepare conditional embedding (broadcast across sequence)
-        if conditional_embedding is not None:
-            cond_emb = conditional_embedding.unsqueeze(1).expand(-1, seq_len, -1)
-        else:
-            cond_emb = torch.zeros(batch_size, seq_len, self.conditional_dim, 
-                                 device=category_sequence.device)
-        
-        # 4. Concatenate all inputs
-        rnn_input = torch.cat([cat_emb, cont_emb, cond_emb], dim=-1)
+        # 3. Concatenate all inputs
+        rnn_input = torch.cat([cat_emb, cont_emb], dim=-1)
         rnn_input = self.dropout(rnn_input)
+        
+        # 4. Pack sequences if lengths are provided
+        if lengths is not None:
+            # Move lengths to CPU for pack_padded_sequence
+            lengths_cpu = lengths.cpu()
+            rnn_input = pack_padded_sequence(rnn_input, lengths_cpu, batch_first=True, enforce_sorted=False)
         
         # 5. Process through RNN
         rnn_output, hidden = self.rnn(rnn_input, hidden)
+        
+        # 6. Unpack if packed
+        if lengths is not None:
+            rnn_output, _ = pad_packed_sequence(rnn_output, batch_first=True)
+        
         rnn_output = self.dropout(rnn_output)
         
-        # 6. Project to vocabulary
+        # 7. Project to vocabulary
         logits = self.output_proj(rnn_output)
         
         return logits, hidden
@@ -483,592 +382,558 @@ class NextTokenRNN(nn.Module):
             return torch.zeros(self.rnn.num_layers, batch_size, self.hidden_dim, device=device)
 
 
+def collate_fn(batch):
+    """Custom collate function to handle variable length sequences"""
+    inputs, targets, features, lengths = zip(*batch)
+    
+    # Pad sequences
+    inputs_padded = pad_sequence(inputs, batch_first=True, padding_value=0)  # 0 = <PAD>
+    targets_padded = pad_sequence(targets, batch_first=True, padding_value=0)
+    features_padded = pad_sequence(features, batch_first=True, padding_value=0.0)
+    
+    # Convert lengths to tensor
+    lengths_tensor = torch.tensor(lengths, dtype=torch.long)
+    
+    # Sort by length (descending) for packed sequences
+    lengths_sorted, sorted_idx = lengths_tensor.sort(descending=True)
+    inputs_sorted = inputs_padded[sorted_idx]
+    targets_sorted = targets_padded[sorted_idx]
+    features_sorted = features_padded[sorted_idx]
+    
+    return inputs_sorted, targets_sorted, features_sorted, lengths_sorted
+
+
 def train_epoch_standard(model, dataloader, optimizer, criterion, device, master_pbar, epoch):
-    """Standard next-token prediction with gradient clipping"""
+    """Standard full autoregressive training (predict all tokens)"""
     model.train()
-    total_loss, total_correct, total_samples = 0, 0, 0
+    total_loss, total_tokens_correct, total_tokens = 0, 0, 0
+    total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     
-    for batch_idx, (sequences, targets, features) in enumerate(dataloader):
-        sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
+    for batch_idx, (inputs, targets, features, lengths) in enumerate(dataloader):
+        inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
+        lengths = lengths.to(device)
+        
+        batch_size, seq_len = inputs.shape
         
         optimizer.zero_grad()
         
-        logits, _ = model(sequences, features)
-        last_logits = logits[:, -1, :]
+        # Forward pass through the entire sequence
+        logits, _ = model(inputs, features, lengths.cpu())
         
-        loss = criterion(last_logits, targets)
+        # Calculate loss (ignore padding tokens)
+        loss = 0
+        batch_tokens_correct = 0
+        batch_tokens = 0
+        batch_sequences_correct = 0
+        
+        # We need to calculate loss per position, ignoring padding
+        for i in range(batch_size):
+            seq_len_i = lengths[i].item()
+            # Only consider non-padding positions
+            seq_logits = logits[i, :seq_len_i]  # [seq_len_i, vocab_size]
+            seq_targets = targets[i, :seq_len_i]  # [seq_len_i]
+            
+            seq_loss = criterion(seq_logits, seq_targets)
+            loss += seq_loss
+            
+            # Token-level accuracy
+            seq_preds = seq_logits.argmax(dim=-1)
+            seq_correct = (seq_preds == seq_targets).sum().item()
+            batch_tokens_correct += seq_correct
+            batch_tokens += seq_len_i
+            
+            # Sequence-level accuracy (exact match)
+            if (seq_preds == seq_targets).all().item():
+                batch_sequences_correct += 1
+            
+            # Perplexity
+            with torch.no_grad():
+                probs = torch.softmax(seq_logits, dim=-1)
+                target_probs = probs.gather(-1, seq_targets.unsqueeze(-1)).squeeze(-1)
+                total_log_ppl += torch.sum(torch.log(target_probs + 1e-8)).item()
+        
+        loss = loss / batch_size  # Average over sequences
+        
+        # Backward pass
         loss.backward()
-        
-        # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
         
-        # Metrics
-        preds = last_logits.argmax(dim=-1)
-        correct = (preds == targets).sum().item()
-        
-        with torch.no_grad():
-            probs = torch.softmax(last_logits, dim=-1)
-            target_probs = probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
-            batch_log_ppl = torch.sum(torch.log(target_probs + 1e-8)).item()
-        
+        # Update metrics
         total_loss += loss.item()
-        total_correct += correct
-        total_samples += targets.numel()
-        total_log_ppl += batch_log_ppl
+        total_tokens_correct += batch_tokens_correct
+        total_tokens += batch_tokens
+        total_sequences_correct += batch_sequences_correct
+        total_sequences += batch_size
         
         # Update progress bar
-        current_acc = correct / targets.numel()
-        current_ppl = np.exp(-batch_log_ppl / targets.numel()) if targets.numel() > 0 else 0
+        token_acc = batch_tokens_correct / batch_tokens if batch_tokens > 0 else 0
+        seq_acc = batch_sequences_correct / batch_size if batch_size > 0 else 0
+        current_ppl = np.exp(-total_log_ppl / total_tokens) if total_tokens > 0 else 0
         
         master_pbar.set_postfix({
             'Batch': f'{batch_idx+1}/{len(dataloader)}',
             'Loss': f'{loss.item():.2f}',
-            'Acc': f'{current_acc:.2f}',
+            'TokAcc': f'{token_acc:.2f}',
+            'SeqAcc': f'{seq_acc:.2f}',
             'PPL': f'{current_ppl:.2f}'
         }, refresh=False)
         master_pbar.update(1)
     
     avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
-    final_acc = total_correct / total_samples if total_samples > 0 else 0
-    final_ppl = np.exp(-total_log_ppl / total_samples) if total_samples > 0 else 0
+    token_accuracy = total_tokens_correct / total_tokens if total_tokens > 0 else 0
+    sequence_accuracy = total_sequences_correct / total_sequences if total_sequences > 0 else 0
+    perplexity = np.exp(-total_log_ppl / total_tokens) if total_tokens > 0 else 0
     
-    return avg_loss, final_acc, final_ppl
+    return avg_loss, token_accuracy, sequence_accuracy, perplexity
 
 
-def train_epoch_teacher_forcing_simple(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio=0.5):
-    """Teacher forcing for simplified NTP: context sequence -> target token"""
+def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio=0.5):
+    """Teacher forcing training for full sequence prediction"""
     model.train()
-    total_loss, total_correct, total_samples = 0, 0, 0
+    total_loss, total_tokens_correct, total_tokens = 0, 0, 0
+    total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     
-    for batch_idx, (sequences, targets, features) in enumerate(dataloader):
-        sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
-        batch_size, seq_len = sequences.shape
+    for batch_idx, (inputs, targets, features, lengths) in enumerate(dataloader):
+        inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
+        lengths = lengths.to(device)
+        
+        batch_size, max_seq_len = inputs.shape
         
         optimizer.zero_grad()
-        
-        batch_loss, batch_correct, batch_steps = 0, 0, 0
-        batch_log_ppl = 0
-        
-        # Start with empty sequence
-        current_input = torch.zeros(batch_size, 0, dtype=torch.long, device=device)
-        current_features = torch.zeros(batch_size, 0, 2, device=device)
-        hidden = model.init_hidden(batch_size, device)
-        
-        # Build context step by step with teacher forcing
-        for t in range(seq_len):
-            use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
-            
-            if use_teacher_forcing and t > 0:  # After first token, we can use teacher forcing
-                # Use ground truth as next input
-                next_input = sequences[:, t:t+1]
-            else:
-                # Use model's own prediction as next input
-                if t == 0:
-                    # First token: use ground truth (no prediction yet)
-                    next_input = sequences[:, t:t+1]
-                else:
-                    # Use last prediction
-                    with torch.no_grad():
-                        logits, _ = model(current_input, current_features, hidden=hidden)
-                        last_logits = logits[:, -1, :]
-                        pred_token = last_logits.argmax(dim=-1)
-                        next_input = pred_token.unsqueeze(1)
-            
-            # Always use ground truth features
-            next_features = features[:, t:t+1, :]
-            
-            # Concatenate to current input
-            current_input = torch.cat([current_input, next_input], dim=1)
-            current_features = torch.cat([current_features, next_features], dim=1)
-            
-            # Forward pass with current context
-            logits, hidden = model(current_input, current_features, hidden=hidden)
-            last_logits = logits[:, -1, :]
-            
-            # If we have full context, predict the actual target
-            if t == seq_len - 1:
-                target_token = targets
-                
-                # Loss and metrics for final prediction
-                loss = criterion(last_logits, target_token)
-                pred = last_logits.argmax(dim=-1)
-                correct = (pred == target_token).sum().item()
-                
-                with torch.no_grad():
-                    probs = torch.softmax(last_logits, dim=-1)
-                    target_probs = probs.gather(-1, target_token.unsqueeze(-1)).squeeze(-1)
-                    batch_log_ppl += torch.sum(torch.log(target_probs + 1e-8)).item()
-                
-                batch_loss += loss
-                batch_correct += correct
-                batch_steps += batch_size
-        
-        # Backward pass
-        if batch_loss > 0:
-            batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-            optimizer.step()
-        
-        total_loss += batch_loss.item() if batch_loss > 0 else 0
-        total_correct += batch_correct
-        total_samples += batch_steps
-        total_log_ppl += batch_log_ppl
-        
-        # Update progress bar
-        current_acc = batch_correct / batch_steps if batch_steps > 0 else 0
-        current_ppl = np.exp(-batch_log_ppl / batch_steps) if batch_steps > 0 else 0
-        
-        master_pbar.set_postfix({
-            'Batch': f'{batch_idx+1}/{len(dataloader)}',
-            'Loss': f'{batch_loss.item() if batch_loss > 0 else 0:.2f}',
-            'Acc': f'{current_acc:.2f}',
-            'PPL': f'{current_ppl:.2f}'
-        }, refresh=False)
-        master_pbar.update(1)
-    
-    avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
-    final_acc = total_correct / total_samples if total_samples > 0 else 0
-    final_ppl = np.exp(-total_log_ppl / total_samples) if total_samples > 0 else 0
-    
-    return avg_loss, final_acc, final_ppl
-
-
-def train_epoch_tf_partial_context(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio=0.5):
-    """Build context gradually with teacher forcing for simplified NTP"""
-    model.train()
-    total_loss, total_correct, total_samples = 0, 0, 0
-    total_log_ppl = 0
-    
-    for batch_idx, (sequences, targets, features) in enumerate(dataloader):
-        sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
-        batch_size, seq_len = sequences.shape
-        
-        optimizer.zero_grad()
-        
-        # Start with first few tokens (half the context length)
-        start_length = max(1, seq_len // 2)
-        current_input = sequences[:, :start_length]
-        current_features = features[:, :start_length, :]
-        hidden = model.init_hidden(batch_size, device)
         
         batch_loss = 0
-        context_loss_steps = 0
+        batch_tokens_correct = 0
+        batch_tokens = 0
+        batch_sequences_correct = 0
         
-        # Build up to full context token by token
-        for pos in range(start_length, seq_len):
-            # Forward pass with current partial context
+        # Initialize hidden state
+        hidden = model.init_hidden(batch_size, device)
+        
+        # Start with <START> token for all sequences
+        current_input = inputs[:, :1]  # [batch_size, 1] - just the <START> token
+        current_features = features[:, :1, :]  # [batch_size, 1, 2]
+        
+        # Store predictions for each position
+        all_predictions = []
+        
+        # Autoregressive prediction for each position
+        for t in range(max_seq_len):
+            # Get actual length for each sequence
+            active_mask = (t < lengths).unsqueeze(1)  # [batch_size, 1]
+            
+            # Forward pass
             logits, hidden = model(current_input, current_features, hidden=hidden)
-            last_logits = logits[:, -1, :]
+            last_logits = logits[:, -1, :]  # [batch_size, vocab_size]
             
-            # Predict the next context token
-            pred_token = last_logits.argmax(dim=-1)
-            true_next_token = sequences[:, pos]
+            # Get target for this position
+            target_token = targets[:, t] if t < max_seq_len else torch.zeros(batch_size, dtype=torch.long, device=device)
             
-            # Teacher forcing decision
+            # Calculate loss only for active sequences
+            active_loss = criterion(last_logits, target_token)
+            # Mask loss for sequences that have ended
+            loss = (active_loss * active_mask.squeeze()).sum() / active_mask.sum().clamp(min=1)
+            batch_loss += loss
+            
+            # Get predictions
+            pred = last_logits.argmax(dim=-1)  # [batch_size]
+            all_predictions.append(pred.unsqueeze(1))  # [batch_size, 1]
+            
+            # Token-level accuracy (only for active sequences)
+            active_correct = ((pred == target_token) & active_mask.squeeze()).sum().item()
+            batch_tokens_correct += active_correct
+            batch_tokens += active_mask.sum().item()
+            
+            # Perplexity for active sequences
+            with torch.no_grad():
+                probs = torch.softmax(last_logits, dim=-1)
+                target_probs = probs.gather(-1, target_token.unsqueeze(-1)).squeeze(-1)
+                # Only for active sequences
+                active_log_ppl = torch.sum(torch.log(target_probs + 1e-8) * active_mask.squeeze())
+                total_log_ppl += active_log_ppl.item()
+            
+            # Teacher forcing: decide next input
             use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
             
             if use_teacher_forcing:
-                next_input = true_next_token.unsqueeze(1)
+                # Use ground truth as next input
+                next_input = target_token.unsqueeze(1)  # [batch_size, 1]
             else:
-                next_input = pred_token.unsqueeze(1)
+                # Use model's own prediction as next input
+                next_input = pred.unsqueeze(1)  # [batch_size, 1]
             
-            next_features = features[:, pos:pos+1, :]
+            # Get features for next position if available
+            if t + 1 < max_seq_len:
+                next_features = features[:, t+1:t+2, :]
+            else:
+                # Use zeros for positions beyond sequence length
+                next_features = torch.zeros(batch_size, 1, 2, device=device)
             
-            # Update context
+            # Update current input
             current_input = torch.cat([current_input, next_input], dim=1)
             current_features = torch.cat([current_features, next_features], dim=1)
-            
-            # Optional: Add small loss for context token predictions during training
-            # This helps the model learn to build good context representations
-            if teacher_forcing_ratio < 1.0:  # Only if we're actually using own predictions
-                context_loss = criterion(last_logits, true_next_token) * 0.1  # Small weight
-                batch_loss += context_loss
-                context_loss_steps += 1
-        
-        # Now with full context, predict the final target
-        logits, hidden = model(current_input, current_features, hidden=hidden)
-        last_logits = logits[:, -1, :]
-        
-        # Main loss for target prediction
-        target_loss = criterion(last_logits, targets)
-        batch_loss += target_loss
         
         # Backward pass
         batch_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
         
-        # Metrics (only for the final target prediction)
-        with torch.no_grad():
-            preds = last_logits.argmax(dim=-1)
-            correct = (preds == targets).sum().item()
-            
-            probs = torch.softmax(last_logits, dim=-1)
-            target_probs = probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
-            batch_log_ppl = torch.sum(torch.log(target_probs + 1e-8)).item()
+        # Calculate sequence-level accuracy
+        if all_predictions:
+            predictions = torch.cat(all_predictions, dim=1)  # [batch_size, max_seq_len]
+            for i in range(batch_size):
+                seq_len_i = lengths[i].item()
+                seq_preds = predictions[i, :seq_len_i]
+                seq_targets = targets[i, :seq_len_i]
+                if (seq_preds == seq_targets).all().item():
+                    batch_sequences_correct += 1
         
-        total_loss += target_loss.item()  # Only count target loss for metrics
-        total_correct += correct
-        total_samples += targets.numel()
-        total_log_ppl += batch_log_ppl
+        # Update metrics
+        total_loss += batch_loss.item()
+        total_tokens_correct += batch_tokens_correct
+        total_tokens += batch_tokens
+        total_sequences_correct += batch_sequences_correct
+        total_sequences += batch_size
         
         # Update progress bar
-        current_acc = correct / targets.numel()
-        current_ppl = np.exp(-batch_log_ppl / targets.numel()) if targets.numel() > 0 else 0
+        token_acc = batch_tokens_correct / batch_tokens if batch_tokens > 0 else 0
+        seq_acc = batch_sequences_correct / batch_size if batch_size > 0 else 0
+        current_ppl = np.exp(-total_log_ppl / total_tokens) if total_tokens > 0 else 0
         
         master_pbar.set_postfix({
             'Batch': f'{batch_idx+1}/{len(dataloader)}',
-            'Loss': f'{target_loss.item():.4f}',
-            'Acc': f'{current_acc:.4f}',
-            'PPL': f'{current_ppl:.4f}',
+            'Loss': f'{batch_loss.item():.2f}',
+            'TokAcc': f'{token_acc:.2f}',
+            'SeqAcc': f'{seq_acc:.2f}',
+            'PPL': f'{current_ppl:.2f}',
             'TF': f'{teacher_forcing_ratio:.1f}'
         }, refresh=False)
         master_pbar.update(1)
     
     avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
-    final_acc = total_correct / total_samples if total_samples > 0 else 0
-    final_ppl = np.exp(-total_log_ppl / total_samples) if total_samples > 0 else 0
+    token_accuracy = total_tokens_correct / total_tokens if total_tokens > 0 else 0
+    sequence_accuracy = total_sequences_correct / total_sequences if total_sequences > 0 else 0
+    perplexity = np.exp(-total_log_ppl / total_tokens) if total_tokens > 0 else 0
     
-    return avg_loss, final_acc, final_ppl
+    return avg_loss, token_accuracy, sequence_accuracy, perplexity
 
 
 def validate_epoch(model, dataloader, criterion, device):
-    """Validation"""
+    """Validation with full autoregressive prediction"""
     model.eval()
-    total_loss, total_correct, total_samples = 0, 0, 0
+    total_loss, total_tokens_correct, total_tokens = 0, 0, 0
+    total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     
     with torch.no_grad():
-        for sequences, targets, features in dataloader:
-            sequences, targets, features = sequences.to(device), targets.to(device), features.to(device)
+        for inputs, targets, features, lengths in dataloader:
+            inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
+            lengths = lengths.to(device)
             
-            logits, _ = model(sequences, features)
-            last_logits = logits[:, -1, :]
+            batch_size, max_seq_len = inputs.shape
             
-            loss = criterion(last_logits, targets)
-            preds = last_logits.argmax(dim=-1)
-            correct = (preds == targets).sum().item()
+            # Forward pass through the entire sequence
+            logits, _ = model(inputs, features, lengths.cpu())
             
-            # Perplexity calculation
-            probs = torch.softmax(last_logits, dim=-1)
-            target_probs = probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
-            batch_log_ppl = torch.sum(torch.log(target_probs + 1e-8)).item()
+            # Calculate metrics
+            batch_tokens_correct = 0
+            batch_tokens = 0
+            batch_sequences_correct = 0
+            batch_loss = 0
             
-            total_loss += loss.item()
-            total_correct += correct
-            total_samples += targets.numel()
-            total_log_ppl += batch_log_ppl
+            for i in range(batch_size):
+                seq_len_i = lengths[i].item()
+                # Only consider non-padding positions
+                seq_logits = logits[i, :seq_len_i]
+                seq_targets = targets[i, :seq_len_i]
+                
+                # Loss
+                seq_loss = criterion(seq_logits, seq_targets)
+                batch_loss += seq_loss.item()
+                
+                # Token-level accuracy
+                seq_preds = seq_logits.argmax(dim=-1)
+                seq_correct = (seq_preds == seq_targets).sum().item()
+                batch_tokens_correct += seq_correct
+                batch_tokens += seq_len_i
+                
+                # Sequence-level accuracy
+                if (seq_preds == seq_targets).all().item():
+                    batch_sequences_correct += 1
+                
+                # Perplexity
+                probs = torch.softmax(seq_logits, dim=-1)
+                target_probs = probs.gather(-1, seq_targets.unsqueeze(-1)).squeeze(-1)
+                total_log_ppl += torch.sum(torch.log(target_probs + 1e-8)).item()
+            
+            batch_loss = batch_loss / batch_size
+            
+            # Update totals
+            total_loss += batch_loss
+            total_tokens_correct += batch_tokens_correct
+            total_tokens += batch_tokens
+            total_sequences_correct += batch_sequences_correct
+            total_sequences += batch_size
     
     avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
-    final_acc = total_correct / total_samples if total_samples > 0 else 0
-    final_ppl = np.exp(-total_log_ppl / total_samples) if total_samples > 0 else 0
+    token_accuracy = total_tokens_correct / total_tokens if total_tokens > 0 else 0
+    sequence_accuracy = total_sequences_correct / total_sequences if total_sequences > 0 else 0
+    perplexity = np.exp(-total_log_ppl / total_tokens) if total_tokens > 0 else 0
     
-    return avg_loss, final_acc, final_ppl
+    return avg_loss, token_accuracy, sequence_accuracy, perplexity
 
 
-def calculate_mode_baseline(train_dataset, val_dataset):
-    """Calculate mode baseline - always predict the most frequent category"""
-    # Count target frequencies in training data
-    target_counter = Counter(train_dataset.targets)
-    most_frequent_target = target_counter.most_common(1)[0][0]
-    most_frequent_count = target_counter[most_frequent_target]
+def calculate_baselines(train_dataset, val_dataset):
+    """Calculate baselines for full sequence prediction"""
+    # Get vocabulary info
+    vocab = train_dataset.vocab
+    vocab_size = len(vocab)
     
-    # Calculate accuracy on validation set
-    correct = 0
-    total = len(val_dataset.targets)
+    # Count token frequencies in training data
+    all_train_tokens = []
+    for seq in train_dataset.sequences:
+        all_train_tokens.extend(seq)
+    token_counter = Counter(all_train_tokens)
     
-    for target in val_dataset.targets:
-        if target == most_frequent_target:
-            correct += 1
+    # Most frequent token
+    most_frequent_token = token_counter.most_common(1)[0][0]
+    most_frequent_count = token_counter[most_frequent_token]
     
-    accuracy = correct / total if total > 0 else 0
+    # Calculate probabilities for random baseline
+    total_tokens = len(all_train_tokens)
+    token_probs = {token: count / total_tokens for token, count in token_counter.items()}
     
-    # Calculate proper perplexity using empirical distribution
-    vocab_size = len(train_dataset.vocab)
-    total_train = len(train_dataset.targets)
+    # Initialize results
+    mode_token_correct = 0
+    mode_sequence_correct = 0
+    random_token_correct = 0
+    random_sequence_correct = 0
+    previous_token_correct = 0
+    previous_sequence_correct = 0
     
-    # Create empirical probability distribution from training data
-    train_probs = {}
-    for target, count in target_counter.items():
-        train_probs[target] = count / total_train
+    total_val_tokens = 0
+    total_val_sequences = len(val_dataset.sequences)
     
-    # Calculate perplexity on validation set using empirical distribution
-    total_log_prob = 0.0
-    for target in val_dataset.targets:
-        prob = train_probs.get(target, 1e-8 / vocab_size)  # Small probability for unseen targets
-        total_log_prob += np.log(prob + 1e-12)  # Avoid log(0)
+    # Process validation sequences
+    for seq in val_dataset.sequences:
+        seq_len = len(seq)
+        total_val_tokens += seq_len
+        
+        # Mode baseline: always predict most frequent token
+        mode_predictions = [most_frequent_token] * seq_len
+        mode_token_match = sum(1 for pred, true in zip(mode_predictions, seq) if pred == true)
+        mode_token_correct += mode_token_match
+        if mode_token_match == seq_len:
+            mode_sequence_correct += 1
+        
+        # Random baseline: predict random tokens based on training distribution
+        random_predictions = np.random.choice(
+            list(token_probs.keys()), 
+            size=seq_len,
+            p=list(token_probs.values())
+        )
+        random_token_match = sum(1 for pred, true in zip(random_predictions, seq) if pred == true)
+        random_token_correct += random_token_match
+        if random_token_match == seq_len:
+            random_sequence_correct += 1
+        
+        # Previous token baseline: predict the previous token
+        previous_predictions = ['<START>'] + seq[:-1]  # First prediction is <START>, then previous tokens
+        previous_token_match = sum(1 for pred, true in zip(previous_predictions, seq) if pred == true)
+        previous_token_correct += previous_token_match
+        if previous_token_match == seq_len:
+            previous_sequence_correct += 1
     
-    avg_log_prob = total_log_prob / total if total > 0 else 0
-    perplexity = np.exp(-avg_log_prob) if avg_log_prob < 0 else float('inf')
+    # Calculate accuracies
+    mode_token_acc = mode_token_correct / total_val_tokens if total_val_tokens > 0 else 0
+    mode_seq_acc = mode_sequence_correct / total_val_sequences if total_val_sequences > 0 else 0
+    mode_ppl = np.exp(-np.log(mode_token_acc + 1e-8)) if mode_token_acc > 0 else float('inf')
+    
+    random_token_acc = random_token_correct / total_val_tokens if total_val_tokens > 0 else 0
+    random_seq_acc = random_sequence_correct / total_val_sequences if total_val_sequences > 0 else 0
+    random_ppl = vocab_size  # Perplexity of uniform distribution over vocabulary
+    
+    previous_token_acc = previous_token_correct / total_val_tokens if total_val_tokens > 0 else 0
+    previous_seq_acc = previous_sequence_correct / total_val_sequences if total_val_sequences > 0 else 0
+    previous_ppl = np.exp(-np.log(previous_token_acc + 1e-8)) if previous_token_acc > 0 else float('inf')
     
     print(f"\n{'='*80}")
-    print(f"BASELINE: MODE PREDICTION")
+    print(f"BASELINES (Full Sequence Prediction)")
     print(f"{'='*80}")
-    print(f"Most frequent target: '{most_frequent_target}' (frequency: {most_frequent_count}/{total_train} = {most_frequent_count/total_train:.3f})")
-    print(f"Validation Accuracy: {accuracy:.4f}")
-    print(f"Perplexity (empirical distribution): {perplexity:.4f}")
-    print(f"Vocabulary size: {vocab_size}")
+    print(f"Mode Baseline (always predict '{most_frequent_token}'):")
+    print(f"  Token Accuracy: {mode_token_acc:.4f}, Sequence Accuracy: {mode_seq_acc:.4f}, Perplexity: {mode_ppl:.2f}")
     
-    # Return as lists to be consistent with other methods
+    print(f"\nRandom Baseline (weighted by frequency):")
+    print(f"  Token Accuracy: {random_token_acc:.4f}, Sequence Accuracy: {random_seq_acc:.4f}, Perplexity: {random_ppl:.2f}")
+    
+    print(f"\nPrevious Token Baseline:")
+    print(f"  Token Accuracy: {previous_token_acc:.4f}, Sequence Accuracy: {previous_seq_acc:.4f}, Perplexity: {previous_ppl:.2f}")
+    
+    print(f"\nVocabulary size: {vocab_size}")
+    print(f"Total validation sequences: {total_val_sequences}")
+    print(f"Total validation tokens: {total_val_tokens}")
+    
     return {
-        'train_loss': [-np.log(most_frequent_count / total_train + 1e-8)],
-        'train_acc': [most_frequent_count / total_train],
-        'train_ppl': [perplexity],
-        'val_loss': [-np.log(accuracy + 1e-8) if accuracy > 0 else float('inf')],
-        'val_acc': [accuracy],
-        'val_ppl': [perplexity],
-        'epoch_times': [0.0],
-        'learning_rates': [0.0]
+        'mode': {
+            'token_acc': [mode_token_acc],
+            'seq_acc': [mode_seq_acc],
+            'ppl': [mode_ppl]
+        },
+        'random': {
+            'token_acc': [random_token_acc],
+            'seq_acc': [random_seq_acc],
+            'ppl': [random_ppl]
+        },
+        'previous': {
+            'token_acc': [previous_token_acc],
+            'seq_acc': [previous_seq_acc],
+            'ppl': [previous_ppl]
+        }
     }
 
-def weight_reset(m):
-    """Reset model weights"""
-    if hasattr(m, 'reset_parameters'):
-        m.reset_parameters()
 
-
-def compare_training_methods(model, train_loader, val_loader, optimizer, criterion, device, epochs=100, teacher_forcing_ratio=0.5):
-    """
-    Compare standard next-token prediction vs simplified teacher forcing
-    """
-    methods = {
-        'standard': train_epoch_standard,
-        'teacher_forcing': lambda model, dataloader, optimizer, criterion, device, master_pbar, epoch: 
-            train_epoch_teacher_forcing_simple(model, dataloader, optimizer, criterion, device, master_pbar, epoch, teacher_forcing_ratio)
+def train_model(model, train_loader, val_loader, optimizer, criterion, device, args):
+    """Train with both standard and teacher forcing methods"""
+    results = {
+        'standard': {
+            'train_loss': [], 'train_token_acc': [], 'train_seq_acc': [], 'train_ppl': [],
+            'val_loss': [], 'val_token_acc': [], 'val_seq_acc': [], 'val_ppl': [],
+        },
+        'teacher_forcing': {
+            'train_loss': [], 'train_token_acc': [], 'train_seq_acc': [], 'train_ppl': [],
+            'val_loss': [], 'val_token_acc': [], 'val_seq_acc': [], 'val_ppl': [],
+        }
     }
     
-    results = defaultdict(list)
-    
-    # Add learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', patience=20, factor=0.5,
-    )
-    
-    for method_name, train_func in methods.items():
+    # Train with both methods
+    for method_name in ['standard', 'teacher_forcing']:
         print(f"\n{'='*80}")
-        print(f"TRAINING WITH: {method_name.upper()} METHOD")
+        print(f"TRAINING WITH METHOD: {method_name.upper()}")
         print(f"{'='*80}")
         
-        # Reset model and optimizer for fair comparison
-        model.apply(weight_reset)
-        optimizer = optim.AdamW(model.parameters(), lr=optimizer.param_groups[0]['lr'], weight_decay=1e-4)
+        # Reset optimizer for each method
+        optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', patience=args.patience // 2, factor=0.5,
+        )
         
-        method_results = {
-            'train_loss': [], 'train_acc': [], 'train_ppl': [],
-            'val_loss': [], 'val_acc': [], 'val_ppl': [],
-            'epoch_times': [], 'learning_rates': []
-        }
-        
-        # Calculate total iterations for more frequent updates
-        total_iterations = epochs * len(train_loader)
-        
-        # Create master progress bar for all iterations
-        master_pbar = tqdm(total=total_iterations, desc=f'{method_name.upper():<8}', 
-                  position=0, leave=False, 
+        total_iterations = args.epochs * len(train_loader)
+        master_pbar = tqdm(total=total_iterations, desc=f'TRAINING ({method_name.upper()})', 
+                  position=0, leave=True, 
                   bar_format='{desc} {percentage:1.0f}%|{bar:5}| {n_fmt}/{total_fmt} {postfix}',
                   ncols=120)
         
         best_val_loss = float('inf')
         patience_counter = 0
-        patience = 100
         
-        for epoch in range(epochs):
+        for epoch in range(args.epochs):
             epoch_start = time.time()
             
-            # Training with per-batch updates
-            train_loss, train_acc, train_ppl = train_func(model, train_loader, optimizer, 
-                                                         criterion, device, master_pbar, epoch)
+            # Training with current method
+            if method_name == 'teacher_forcing':
+                train_loss, train_token_acc, train_seq_acc, train_ppl = train_epoch_teacher_forcing(
+                    model, train_loader, optimizer, criterion, device, master_pbar, epoch, args.teacher_forcing_ratio)
+            else:
+                train_loss, train_token_acc, train_seq_acc, train_ppl = train_epoch_standard(
+                    model, train_loader, optimizer, criterion, device, master_pbar, epoch)
             
             # Validation
-            val_loss, val_acc, val_ppl = validate_epoch(model, val_loader, criterion, device)
+            val_loss, val_token_acc, val_seq_acc, val_ppl = validate_epoch(model, val_loader, criterion, device)
             
             # Learning rate scheduling
             scheduler.step(val_loss)
             current_lr = optimizer.param_groups[0]['lr']
-            
             epoch_time = time.time() - epoch_start
             
             # Store results
-            method_results['train_loss'].append(train_loss)
-            method_results['train_acc'].append(train_acc)
-            method_results['train_ppl'].append(train_ppl)
-            method_results['val_loss'].append(val_loss)
-            method_results['val_acc'].append(val_acc)
-            method_results['val_ppl'].append(val_ppl)
-            method_results['epoch_times'].append(epoch_time)
-            method_results['learning_rates'].append(current_lr)
+            results[method_name]['train_loss'].append(train_loss)
+            results[method_name]['train_token_acc'].append(train_token_acc)
+            results[method_name]['train_seq_acc'].append(train_seq_acc)
+            results[method_name]['train_ppl'].append(train_ppl)
+            results[method_name]['val_loss'].append(val_loss)
+            results[method_name]['val_token_acc'].append(val_token_acc)
+            results[method_name]['val_seq_acc'].append(val_seq_acc)
+            results[method_name]['val_ppl'].append(val_ppl)
             
             # Early stopping check
-            #if val_loss < best_val_loss:
-            #    best_val_loss = val_loss
-            #    patience_counter = 0
-            #else:
-            #    patience_counter += 1
-            # 
-            #if patience_counter >= patience:
-            #    print(f"\nEarly stopping at epoch {epoch+1}")
-            #    break
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
             
-            # Calculate moving averages (last 3 epochs)
-            window = min(3, epoch + 1)
-            mov_avg_train_loss = np.mean(method_results['train_loss'][-window:])
-            mov_avg_train_acc = np.mean(method_results['train_acc'][-window:])
-            mov_avg_train_ppl = np.mean(method_results['train_ppl'][-window:])
-            mov_avg_val_loss = np.mean(method_results['val_loss'][-window:])
-            mov_avg_val_acc = np.mean(method_results['val_acc'][-window:])
-            mov_avg_val_ppl = np.mean(method_results['val_ppl'][-window:])
+            if patience_counter >= args.patience:
+                print(f"\nEarly stopping at epoch {epoch+1}")
+                break
             
-            # Update master progress bar with epoch summary
             master_pbar.set_postfix({
-                'Epoch': f'{epoch+1}/{epochs}',
-                'Trn_L': f'{mov_avg_train_loss:.2f}',
-                #'Trn_A': f'{mov_avg_train_acc:.4f}', 
-                #'Trn_P': f'{mov_avg_train_ppl:.4f}',
-                #'Val_L': f'{mov_avg_val_loss:.4f}',
-                'Val_A': f'{mov_avg_val_acc:.2f}',
-                'Val_P': f'{mov_avg_val_ppl:.2f}',
+                'Epoch': f'{epoch+1}/{args.epochs}',
+                'Trn_Tok': f'{train_token_acc:.2f}',
+                'Trn_Seq': f'{train_seq_acc:.2f}',
+                'Val_Tok': f'{val_token_acc:.2f}',
+                'Val_Seq': f'{val_seq_acc:.2f}',
+                'Val_PPL': f'{val_ppl:.2f}',
                 'LR': f'{current_lr:.2e}',
                 'Time': f'{epoch_time:.1f}s'
             }, refresh=False)
         
         master_pbar.close()
-        results[method_name] = method_results
         
-        # Print final epoch results for this method
-        print(f"\nFINAL RESULTS - {method_name.upper()}:")
-        print(f"Train Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, PPL: {train_ppl:.4f}")
-        print(f"Val Loss:   {val_loss:.4f}, Acc: {val_acc:.4f}, PPL: {val_ppl:.4f}")
+        print(f"\n{method_name.upper()} RESULTS:")
+        print(f"Train - Token Acc: {train_token_acc:.4f}, Seq Acc: {train_seq_acc:.4f}, PPL: {train_ppl:.4f}")
+        print(f"Val   - Token Acc: {val_token_acc:.4f}, Seq Acc: {val_seq_acc:.4f}, PPL: {val_ppl:.4f}")
         print(f"Best Val Loss: {best_val_loss:.4f}")
-        print(f"Avg Epoch Time: {np.mean(method_results['epoch_times']):.1f}s")
     
     return results
 
 
-def print_comparison_report(results):
-    """Print comparison table with proper f-string formatting"""
-    print(f"\n{'='*100}")
-    print("FINAL COMPARISON REPORT")
-    print(f"{'='*100}")
-    
-    headers = ["Method", "Train Acc", "Val Acc", "Train PPL", "Val PPL", "Best Val Acc", "Best Val Loss", "Avg Time"]
-    print(f"{headers[0]:<15} {headers[1]:<12} {headers[2]:<12} {headers[3]:<12} {headers[4]:<12} {headers[5]:<12} {headers[6]:<12} {headers[7]:<10}")
-    print("-" * 110)
-    
-    for method_name, method_results in results.items():
-        # Handle both list and single value formats
-        def get_last_value(data):
-            if isinstance(data, (list, np.ndarray)):
-                return data[-1] if len(data) > 0 else 0.0
-            else:
-                return data
-        
-        def get_max_value(data):
-            if isinstance(data, (list, np.ndarray)):
-                return max(data) if len(data) > 0 else 0.0
-            else:
-                return data
-        
-        def get_min_value(data):
-            if isinstance(data, (list, np.ndarray)):
-                return min(data) if len(data) > 0 else 0.0
-            else:
-                return data
-        
-        def get_avg_value(data):
-            if isinstance(data, (list, np.ndarray)):
-                return np.mean(data) if len(data) > 0 else 0.0
-            else:
-                return data
-        
-        final_train_acc = get_last_value(method_results['train_acc'])
-        final_val_acc = get_last_value(method_results['val_acc'])
-        final_train_ppl = get_last_value(method_results['train_ppl'])
-        final_val_ppl = get_last_value(method_results['val_ppl'])
-        best_val_acc = get_max_value(method_results['val_acc'])
-        best_val_loss = get_min_value(method_results['val_loss'])
-        avg_epoch_time = get_avg_value(method_results['epoch_times'])
-        
-        print(f"{method_name:<15} {final_train_acc:12.4f} {final_val_acc:12.4f} "
-              f"{final_train_ppl:12.4f} {final_val_ppl:12.4f} "
-              f"{best_val_acc:12.4f} {best_val_loss:12.4f} {avg_epoch_time:10.1f}")
-
-
-def run_comparison_experiment(args, device):
-    # Calculate global time split for strict temporal splitting
-    if args.split_method == 'strict_temporal':
-        # Load full data to calculate global split time
-        temp_dataset = AGEDataset(
-            sequence_length=args.sequence_length,
-            data_url=args.data_url,
-            data_dir=args.data_dir,
-            max_transactions=args.max_transactions,
-            split_type='all',
-            split_ratio=args.train_ratio,
-            split_method='strict_temporal'
-        )
-        global_time_split = temp_dataset.df.sort_values('transaction_datetime').iloc[
-            int(len(temp_dataset.df) * args.train_ratio)
-        ]['transaction_datetime']
-        print(f"Using global time split: {global_time_split}")
-    else:
-        global_time_split = None
-
+def run_experiment(args, device):
     # Create training dataset
     print("Creating training dataset...")
     train_dataset = AGEDataset(
-        sequence_length=args.sequence_length,
+        max_seq_length=args.max_seq_length,
+        min_seq_length=args.min_seq_length,
         data_url=args.data_url,
         data_dir=args.data_dir,
         max_transactions=args.max_transactions,
         split_type='train',
         split_ratio=args.train_ratio,
-        split_method=args.split_method,
-        cross_session=args.cross_session,
-        min_frequency=args.min_frequency,
-        global_time_split=global_time_split
+        min_frequency=args.min_frequency
     )
     
     # Create validation dataset using training vocab and scaler
     print("Creating validation dataset...")
     val_dataset = AGEDataset(
-        sequence_length=args.sequence_length,
+        max_seq_length=args.max_seq_length,
+        min_seq_length=args.min_seq_length,
         data_url=args.data_url,
         data_dir=args.data_dir,
         max_transactions=args.max_transactions,
         split_type='val',
         split_ratio=args.train_ratio,
-        split_method=args.split_method,
-        cross_session=args.cross_session,
         scaler=train_dataset.amount_scaler,
         vocab=train_dataset.vocab,
-        min_frequency=args.min_frequency,
-        global_time_split=global_time_split
+        min_frequency=args.min_frequency
     )
     
+    # Statistics
+    print(f"\nDATASET STATISTICS:")
     print(f"Training sequences: {len(train_dataset)}")
     print(f"Validation sequences: {len(val_dataset)}")
+    print(f"Max sequence length: {args.max_seq_length}")
+    print(f"Min sequence length: {args.min_seq_length}")
+    print(f"Vocabulary size: {train_dataset.vocab_size}")
     
     if len(train_dataset) == 0 or len(val_dataset) == 0:
         print("ERROR: One of the datasets is empty!")
         return {}
     
-    train_seq_lengths = [len(seq) for seq in train_dataset.sequences]
-    val_seq_lengths = [len(seq) for seq in val_dataset.sequences]
+    # Calculate baselines
+    baselines = calculate_baselines(train_dataset, val_dataset)
     
-    print(f"\nSequence Lengths:")
-    print(f"TRAIN - All sequences: {set(train_seq_lengths)}")
-    print(f"VAL   - All sequences: {set(val_seq_lengths)}")
-    
-    # Calculate mode baseline
-    mode_baseline_results = calculate_mode_baseline(train_dataset, val_dataset)
-    
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    
-    # Create model with smaller capacity
+    # Create model
     model = NextTokenRNN(
         vocab_size=train_dataset.vocab_size,
         hidden_dim=args.hidden_dim,
@@ -1079,23 +944,69 @@ def run_comparison_experiment(args, device):
         dropout=args.dropout
     ).to(device)
     
-    # Use AdamW with weight decay
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = nn.CrossEntropyLoss()
-    
-    print(f"Model: {args.rnn_type.upper()}")
-    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # Run comparison
-    results = compare_training_methods(
-        model, train_loader, val_loader, optimizer, criterion, device, 
-        epochs=args.epochs, teacher_forcing_ratio=args.teacher_forcing_ratio
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=False,
+        collate_fn=collate_fn
     )
     
-    # Add mode baseline to results
-    results['mode_baseline'] = mode_baseline_results
+    # Use AdamW with weight decay
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding tokens
     
-    return results
+    print(f"\nMODEL CONFIGURATION:")
+    print(f"Model: {args.rnn_type.upper()}")
+    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Teacher forcing ratio: {args.teacher_forcing_ratio}")
+    print(f"Early stopping patience: {args.patience}")
+    
+    # Train model with both methods
+    results = train_model(model, train_loader, val_loader, optimizer, criterion, device, args)
+    
+    # Prepare final report
+    final_results = {
+        'rnn_results': results,
+        'baselines': baselines
+    }
+    
+    return final_results
+
+
+def print_final_report(results, baselines):
+    """Print final comparison table"""
+    print(f"\n{'='*100}")
+    print("FINAL RESULTS COMPARISON")
+    print(f"{'='*100}")
+    
+    headers = ["Method", "Token Acc", "Seq Acc", "Perplexity"]
+    print(f"{headers[0]:<25} {headers[1]:<12} {headers[2]:<12} {headers[3]:<12}")
+    print("-" * 65)
+    
+    # RNN Models
+    for method_name in ['standard', 'teacher_forcing']:
+        if method_name in results:
+            rnn_results = results[method_name]
+            token_acc = rnn_results['val_token_acc'][-1] if rnn_results['val_token_acc'] else 0
+            seq_acc = rnn_results['val_seq_acc'][-1] if rnn_results['val_seq_acc'] else 0
+            ppl = rnn_results['val_ppl'][-1] if rnn_results['val_ppl'] else 0
+            print(f"{method_name.upper():<25} {token_acc:12.4f} {seq_acc:12.4f} {ppl:12.4f}")
+    
+    # Baselines
+    for baseline_name in ['mode', 'random', 'previous']:
+        if baseline_name in baselines:
+            baseline = baselines[baseline_name]
+            token_acc = baseline['token_acc'][0] if 'token_acc' in baseline else 0
+            seq_acc = baseline['seq_acc'][0] if 'seq_acc' in baseline else 0
+            ppl = baseline['ppl'][0] if 'ppl' in baseline else 0
+            print(f"{baseline_name.capitalize() + ' Baseline':<25} {token_acc:12.4f} {seq_acc:12.4f} {ppl:12.4f}")
 
 
 def main():
@@ -1105,7 +1016,7 @@ def main():
         os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
     
     print("=" * 80)
-    print("NEXT TOKEN PREDICTION BASELINE FOR AGE FINANCIAL TRANSACTIONS")
+    print("FULL AUTOREGRESSIVE NEXT TOKEN PREDICTION FOR AGE FINANCIAL TRANSACTIONS")
     print("=" * 80)
     print("Arguments:")
     for arg, value in vars(args).items():
@@ -1115,11 +1026,11 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     print(f"Using device: {device}")
     
-    print("Starting comparison experiment...")
-    results = run_comparison_experiment(args, device)
+    print("Starting experiment...")
+    results = run_experiment(args, device)
     
     if results:
-        print_comparison_report(results)
+        print_final_report(results['rnn_results'], results['baselines'])
 
 
 if __name__ == "__main__":
