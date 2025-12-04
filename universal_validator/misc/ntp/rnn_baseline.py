@@ -53,15 +53,6 @@ def parse_args():
     return parser.parse_args()
 
 
-import pandas as pd
-import numpy as np
-import torch
-from torch.utils.data import Dataset
-import time
-from collections import Counter
-from sklearn.preprocessing import StandardScaler
-import ast
-
 class AGEDataset(Dataset):
     def __init__(self, max_seq_length=10, min_seq_length=2, parquet_path='embeddings_age_coles.parquet', 
                  max_clients=None, split_type='train', split_ratio=0.8,
@@ -115,10 +106,7 @@ class AGEDataset(Dataset):
         print(f"Loaded {len(self.df)} client records")
         if self.embeddings:
             print(f"Loaded embeddings for {len(self.embeddings)} clients")
-        
-        # Parse array columns
-        self._parse_post_arrays()
-        
+              
         # Apply client split
         self.df = self._apply_client_split()
         
@@ -169,17 +157,6 @@ class AGEDataset(Dataset):
             print(f"Sequence length stats: min={min(self.sequence_lengths)}, "
                   f"max={max(self.sequence_lengths)}, "
                   f"avg={np.mean(self.sequence_lengths):.1f}")
-    
-    def _parse_post_arrays(self):
-        """Parse post array columns if stored as strings"""
-        post_columns = ['post_trans_date', 'post_amount', 'post_small_group']
-        
-        for col in post_columns:
-            if col in self.df.columns:
-                if len(self.df) > 0 and isinstance(self.df[col].iloc[0], str):
-                    self.df[col] = self.df[col].apply(
-                        lambda x: ast.literal_eval(x) if pd.notna(x) else []
-                    )
     
     def _apply_client_split(self):
         """Split clients into train/validation sets"""
@@ -425,14 +402,14 @@ class NextTokenRNN(nn.Module):
         
         # MLP for continuous features
         self.continuous_mlp = nn.Sequential(
-            nn.Linear(continuous_dim, 32),
+            nn.Linear(continuous_dim, hidden_dim//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, 16)
+            nn.Linear(hidden_dim//2, hidden_dim//4)
         )
         
         # Calculate total input dimension to RNN
-        total_input_dim = embedding_dim + 16
+        total_input_dim = embedding_dim + hidden_dim//4
         
         # RNN layer
         if self.rnn_type == 'gru':
