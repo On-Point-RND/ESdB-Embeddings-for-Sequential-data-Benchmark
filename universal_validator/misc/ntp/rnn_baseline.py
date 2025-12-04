@@ -88,7 +88,7 @@ class AGEDataset(Dataset):
         
         # Store embeddings separately if they exist
         self.embeddings = {}
-        self.embedding_dim = None
+        self.embedding_dim = 128
         if 'embedding' in self.df.columns:
             for idx, row in self.df.iterrows():
                 client_id = row['client_id']
@@ -351,21 +351,23 @@ class AGEDataset(Dataset):
         features = self.features[idx]
         seq_len = self.sequence_lengths[idx]
         client_id = self.client_ids[idx]
-        
+
         # Convert tokens to indices
         seq_indices = [self.vocab.get(token, self.vocab['<OOV>']) for token in sequence]
-        
+
         # Input: <START> + sequence[:-1]
         # Target: sequence (shifted by 1)
         input_indices = [self.vocab['<START>']] + seq_indices[:-1]
         target_indices = seq_indices
-        
+
         # Get embedding if available
         embedding = None
         if self.use_embeddings and client_id in self.embeddings:
             embedding = torch.tensor(self.embeddings[client_id], dtype=torch.float)
         else:
-            embedding = -torch.ones(self.embedding_dim, dtype=torch.float)
+            # Create zero embedding of correct dimension
+            embedding = torch.zeros(self.embedding_dim, dtype=torch.float)
+
         return (
             torch.tensor(input_indices, dtype=torch.long),
             torch.tensor(target_indices, dtype=torch.long),
@@ -389,13 +391,16 @@ class AGEDataset(Dataset):
 class NextTokenRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=64, embedding_dim=64, 
                  continuous_dim=2, rnn_type='lstm', num_layers=1, 
-                 dropout=0.5):
+                 dropout=0.5, use_embeddings=False, client_embedding_dim=128):  # ADD THIS PARAMETER
         super(NextTokenRNN, self).__init__()
         
         self.vocab_size = vocab_size
         self.hidden_dim = hidden_dim
         self.continuous_dim = continuous_dim
         self.rnn_type = rnn_type.lower()
+        self.use_embeddings = use_embeddings
+        self.num_layers = num_layers
+        self.client_embedding_dim = client_embedding_dim  # ADD THIS
         
         # Embedding layer for categorical tokens
         self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
@@ -422,6 +427,14 @@ class NextTokenRNN(nn.Module):
             self.rnn = nn.RNN(total_input_dim, hidden_dim, num_layers,
                              batch_first=True, dropout=dropout if num_layers > 1 else 0)
         
+        # Linear layer to project embedding to hidden state
+        if use_embeddings:
+            # For LSTM: need to project to both h and c states
+            if self.rnn_type == 'lstm':
+                self.embedding_to_hidden = nn.Linear(client_embedding_dim, 2 * num_layers * hidden_dim)  # USE client_embedding_dim
+            else:
+                self.embedding_to_hidden = nn.Linear(client_embedding_dim, num_layers * hidden_dim)  # USE client_embedding_dim
+        
         # Output layer
         self.output_proj = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -432,7 +445,8 @@ class NextTokenRNN(nn.Module):
         
         self.dropout = nn.Dropout(dropout)
     
-    def forward(self, category_sequence, continuous_features, lengths=None, hidden=None):
+    def forward(self, category_sequence, continuous_features, lengths=None, 
+                hidden=None, client_embeddings=None):
         batch_size, seq_len = category_sequence.shape
         
         # 1. Process categorical sequence through embedding
@@ -445,34 +459,59 @@ class NextTokenRNN(nn.Module):
         rnn_input = torch.cat([cat_emb, cont_emb], dim=-1)
         rnn_input = self.dropout(rnn_input)
         
-        # 4. Pack sequences if lengths are provided
+        # 4. Initialize hidden state from embeddings if provided
+        if self.use_embeddings and client_embeddings is not None and hidden is None:
+            hidden = self._init_hidden_from_embedding(client_embeddings, batch_size)
+        
+        # 5. Pack sequences if lengths are provided
         if lengths is not None:
-            # Move lengths to CPU for pack_padded_sequence
             lengths_cpu = lengths.cpu()
             rnn_input = pack_padded_sequence(rnn_input, lengths_cpu, batch_first=True, enforce_sorted=False)
         
-        # 5. Process through RNN
+        # 6. Process through RNN
         rnn_output, hidden = self.rnn(rnn_input, hidden)
         
-        # 6. Unpack if packed
+        # 7. Unpack if packed
         if lengths is not None:
             rnn_output, _ = pad_packed_sequence(rnn_output, batch_first=True)
         
         rnn_output = self.dropout(rnn_output)
         
-        # 7. Project to vocabulary
+        # 8. Project to vocabulary
         logits = self.output_proj(rnn_output)
         
         return logits, hidden
     
-    def init_hidden(self, batch_size, device):
-        """Initialize hidden state"""
+    def _init_hidden_from_embedding(self, client_embeddings, batch_size):
+        """Initialize hidden state from client embeddings"""
+        device = client_embeddings.device
+        
+        if not self.use_embeddings or client_embeddings is None:
+            return self.init_hidden(batch_size, device)
+        
+        # Project embedding to hidden state dimensions
+        projected = self.embedding_to_hidden(client_embeddings)
+        
         if self.rnn_type == 'lstm':
-            h = torch.zeros(self.rnn.num_layers, batch_size, self.hidden_dim, device=device)
-            c = torch.zeros(self.rnn.num_layers, batch_size, self.hidden_dim, device=device)
+            # Split for h and c states
+            projected = projected.view(batch_size, 2 * self.num_layers, self.hidden_dim)
+            h0 = projected[:, :self.num_layers, :].transpose(0, 1).contiguous()
+            c0 = projected[:, self.num_layers:, :].transpose(0, 1).contiguous()
+            return (h0, c0)
+        else:
+            # For GRU/RNN
+            h0 = projected.view(batch_size, self.num_layers, self.hidden_dim).transpose(0, 1).contiguous()
+            return h0
+    
+    def init_hidden(self, batch_size, device):
+        """Initialize hidden state to zeros (fallback)"""
+        if self.rnn_type == 'lstm':
+            h = torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
+            c = torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
             return (h, c)
         else:
-            return torch.zeros(self.rnn.num_layers, batch_size, self.hidden_dim, device=device)
+            return torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
+
 
 
 def collate_fn(batch):
@@ -485,7 +524,13 @@ def collate_fn(batch):
     features_padded = pad_sequence(features, batch_first=True, padding_value=0.0)
     
     # Stack embeddings (they should all have same shape)
-    embeddings_tensor = torch.stack(embeddings) if embeddings[0].numel() > 0 else torch.zeros(len(batch), 1)
+    # Handle case when embeddings might be -1 (placeholder)
+    embedding_dim = embeddings[0].shape[0]
+    if embedding_dim > 0:
+        embeddings_tensor = torch.stack(embeddings)
+    else:
+        # Create dummy embeddings
+        embeddings_tensor = torch.zeros(len(embeddings), 1)
     
     # Convert lengths to tensor
     lengths_tensor = torch.tensor(lengths, dtype=torch.long)
@@ -530,17 +575,22 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
     total_loss, total_tokens_correct, total_tokens = 0, 0, 0
     total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
-    
+    use_embeddings = dataloader.dataset.use_embeddings
     for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
+        if not use_embeddings:
+            embeddings = None
+        else:
+            embeddings = embeddings.to(device)
         
         batch_size, seq_len = inputs.shape
         
         optimizer.zero_grad()
         
         # Forward pass through the entire sequence
-        logits, _ = model(inputs, features, lengths.cpu())
+        
+        logits, _ = model(inputs, features, lengths.cpu(), client_embeddings=embeddings)
         
         # Print detailed example for first sequence of first batch
         if batch_idx == 0 and epoch == 0:
@@ -648,6 +698,7 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
     for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
+        embeddings = embeddings.to(device)  # ADD THIS
         
         batch_size, max_seq_len = inputs.shape
         
@@ -658,8 +709,11 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
         batch_tokens = 0
         batch_sequences_correct = 0
         
-        # Initialize hidden state
-        hidden = model.init_hidden(batch_size, device)
+        # Initialize hidden state from embeddings (MODIFIED)
+        if model.use_embeddings and embeddings is not None:
+            hidden = model._init_hidden_from_embedding(embeddings, batch_size)
+        else:
+            hidden = model.init_hidden(batch_size, device)
         
         # Start with <START> token for all sequences
         current_input = inputs[:, :1]  # [batch_size, 1] - just the <START> token
@@ -673,7 +727,7 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
             # Get actual length for each sequence
             active_mask = (t < lengths).unsqueeze(1)  # [batch_size, 1]
             
-            # Forward pass
+            # Forward pass (KEEP hidden state across time steps)
             logits, hidden = model(current_input, current_features, hidden=hidden)
             last_logits = logits[:, -1, :]  # [batch_size, vocab_size]
             
@@ -780,11 +834,18 @@ def validate_epoch(model, dataloader, criterion, device):
         for inputs, targets, features, lengths, embeddings in dataloader:
             inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
             lengths = lengths.to(device)
+            embeddings = embeddings.to(device) 
             
             batch_size, max_seq_len = inputs.shape
             
+            # Initialize hidden state from embeddings (MODIFIED)
+            if model.use_embeddings and embeddings is not None:
+                hidden = model._init_hidden_from_embedding(embeddings, batch_size)
+            else:
+                hidden = model.init_hidden(batch_size, device)
+            
             # Forward pass through the entire sequence
-            logits, _ = model(inputs, features, lengths.cpu())
+            logits, _ = model(inputs, features, lengths.cpu(), hidden=hidden)  # PASS hidden
             
             # Calculate metrics
             batch_tokens_correct = 0
@@ -953,7 +1014,7 @@ def train_model(train_loader, val_loader, device, args):
         print(f"\n{'='*80}")
         print(f"TRAINING WITH METHOD: {method_name.upper()}")
         print(f"{'='*80}")
-        
+        use_embeddings = 'embd' in method_name
         # Reset model and optimizer for each method
         model = NextTokenRNN(
             vocab_size=train_loader.dataset.vocab_size,
@@ -962,14 +1023,19 @@ def train_model(train_loader, val_loader, device, args):
             continuous_dim=2,
             rnn_type=args.rnn_type,
             num_layers=args.num_layers,
-            dropout=args.dropout
+            use_embeddings=use_embeddings,
+            dropout=args.dropout,
+            client_embedding_dim=train_loader.dataset.embedding_dim  # ADD THIS
         ).to(device)
         # Use AdamW with weight decay
         optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', patience=args.patience // 2, factor=0.5,
         )
-        use_embeddings = 'embd' in method_name
+        
+        train_loader.dataset.use_embeddings = use_embeddings
+        val_loader.dataset.use_embeddings = use_embeddings
+        
         if method_idx == 0:
             print(f"\nMODEL CONFIGURATION:")
             print(f"Model: {args.rnn_type.upper()}")
