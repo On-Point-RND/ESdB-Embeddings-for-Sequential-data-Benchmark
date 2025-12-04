@@ -196,8 +196,8 @@ class AGEDataset(Dataset):
             if 'post_amount' in row and isinstance(row['post_amount'], (list, np.ndarray)):
                 post_amounts = list(row['post_amount'])
             
-            if 'post_small_group' in row and isinstance(row['post_small_group'], (list, np.ndarray)):
-                post_groups = list(row['post_small_group'])
+            if 'post_group' in row and isinstance(row['post_group'], (list, np.ndarray)):
+                post_groups = list(row['post_group'])
             
             # Ensure all arrays have same length
             min_len = min(len(post_dates), len(post_amounts), len(post_groups))
@@ -215,7 +215,7 @@ class AGEDataset(Dataset):
         return client_sequences
     
     def _create_vocab_from_post_sequences(self):
-        """Create vocabulary from post_small_group sequences"""
+        """Create vocabulary from post_group sequences"""
         all_items = []
         
         for seq in self.client_sequences:
