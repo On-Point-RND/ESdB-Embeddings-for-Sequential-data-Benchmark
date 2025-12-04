@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument('--min-frequency', type=int, default=10, help='Minimum frequency for vocabulary items')
     
     # Model parameters
-    parser.add_argument('-rnn', '--rnn_type', type=str, default='lstm', choices=['rnn', 'gru', 'lstm'], 
+    parser.add_argument('-rnn', '--rnn-type', type=str, default='lstm', choices=['rnn', 'gru', 'lstm'], 
                        help='Type of RNN to use')
     parser.add_argument('--hidden-dim', type=int, default=64, help='Hidden dimension size')
     parser.add_argument('--embedding-dim', type=int, default=64, help='Embedding dimension size')
@@ -38,9 +38,9 @@ def parse_args():
     parser.add_argument('--use-embeddings', action='store_true', help='Use embeddings')
     
     # Training parameters
-    parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
+    parser.add_argument('-ep', '--epochs', type=int, default=100, help='Number of training epochs')
+    parser.add_argument('-bs', '--batch-size', type=int, default=64, help='Batch size')
+    parser.add_argument('-lr', '--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')
     parser.add_argument('--patience', type=int, default=20, help='Patience for early stopping')
     parser.add_argument('--teacher-forcing-ratio', type=float, default=0.5,
