@@ -943,31 +943,40 @@ def calculate_baselines(train_dataset, val_dataset):
     }
 
 
-def train_model(model, train_loader, val_loader, optimizer, criterion, device, args):
+def train_model(train_loader, val_loader, device, args):
     """Train with both standard and teacher forcing methods"""
-    results = {
-        'standard': {
-            'train_loss': [], 'train_token_acc': [], 'train_seq_acc': [], 'train_ppl': [],
-            'val_loss': [], 'val_token_acc': [], 'val_seq_acc': [], 'val_ppl': [],
-        },
-        'teacher_forcing': {
-            'train_loss': [], 'train_token_acc': [], 'train_seq_acc': [], 'train_ppl': [],
-            'val_loss': [], 'val_token_acc': [], 'val_seq_acc': [], 'val_ppl': [],
-        }
-    }
-    
+    results = defaultdict(lambda: defaultdict(list))
+    criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding tokens
     # Train with both methods
-    for method_name in ['standard', 'teacher_forcing']:
+    methods = ['standard', 'teacher_forcing', 'standard_embd', 'teacher_forcing_embd']
+    for method_idx, method_name in enumerate(methods):
         print(f"\n{'='*80}")
         print(f"TRAINING WITH METHOD: {method_name.upper()}")
         print(f"{'='*80}")
         
-        # Reset optimizer for each method
+        # Reset model and optimizer for each method
+        model = NextTokenRNN(
+            vocab_size=train_loader.dataset.vocab_size,
+            hidden_dim=args.hidden_dim,
+            embedding_dim=args.embedding_dim,
+            continuous_dim=2,
+            rnn_type=args.rnn_type,
+            num_layers=args.num_layers,
+            dropout=args.dropout
+        ).to(device)
+        # Use AdamW with weight decay
         optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', patience=args.patience // 2, factor=0.5,
         )
-        
+        use_embeddings = 'embd' in method_name
+        if method_idx == 0:
+            print(f"\nMODEL CONFIGURATION:")
+            print(f"Model: {args.rnn_type.upper()}")
+            print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+            print(f"Teacher forcing ratio: {args.teacher_forcing_ratio}")
+            print(f"Early stopping patience: {args.patience}")
+
         total_iterations = args.epochs * len(train_loader)
         master_pbar = tqdm(total=total_iterations, desc=f'TRAINING ({method_name.upper()})', 
                   position=0, leave=True, 
@@ -1082,17 +1091,6 @@ def run_experiment(args, device):
     # Calculate baselines
     baselines = calculate_baselines(train_dataset, val_dataset)
     
-    # Create model
-    model = NextTokenRNN(
-        vocab_size=train_dataset.vocab_size,
-        hidden_dim=args.hidden_dim,
-        embedding_dim=args.embedding_dim,
-        continuous_dim=2,
-        rnn_type=args.rnn_type,
-        num_layers=args.num_layers,
-        dropout=args.dropout
-    ).to(device)
-    
     # Create data loaders
     train_loader = DataLoader(
         train_dataset, 
@@ -1107,18 +1105,8 @@ def run_experiment(args, device):
         collate_fn=collate_fn
     )
     
-    # Use AdamW with weight decay
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding tokens
-    
-    print(f"\nMODEL CONFIGURATION:")
-    print(f"Model: {args.rnn_type.upper()}")
-    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
-    print(f"Teacher forcing ratio: {args.teacher_forcing_ratio}")
-    print(f"Early stopping patience: {args.patience}")
-    
     # Train model with both methods
-    results = train_model(model, train_loader, val_loader, optimizer, criterion, device, args)
+    results = train_model(train_loader, val_loader, device, args)
     
     # Prepare final report
     final_results = {
@@ -1140,7 +1128,7 @@ def print_final_report(results, baselines):
     print("-" * 65)
     
     # RNN Models
-    for method_name in ['standard', 'teacher_forcing']:
+    for method_name in ['standard', 'teacher_forcing', 'standard_embd', 'teacher_forcing_embd']:
         if method_name in results:
             rnn_results = results[method_name]
             token_acc = rnn_results['val_token_acc'][-1] if rnn_results['val_token_acc'] else 0
