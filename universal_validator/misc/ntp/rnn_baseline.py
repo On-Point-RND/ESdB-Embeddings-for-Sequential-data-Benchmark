@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import warnings
+import datetime
 warnings.filterwarnings('ignore')
 
 
@@ -22,6 +23,7 @@ def parse_args():
     
     # Data parameters
     parser.add_argument('-pp','--parquet-path', type=str, default='embeddings_age_coles.parquet', help='Path to cache data directory in parquet format')
+    parser.add_argument('-md','--model-dir', type=str, default='./pt/', help='Path to save pt models')
     parser.add_argument('-mx', '--max-clients', type=int, default=None, help='Maximum number of clients to use')
     parser.add_argument('--max-seq-length', type=int, default=10, help='Maximum sequence length')
     parser.add_argument('--min-seq-length', type=int, default=2, help='Minimum sequence length to include')
@@ -1071,13 +1073,17 @@ def set_seed(seed):
     # Optional: Set environment variable for hash randomization
     os.environ['PYTHONHASHSEED'] = str(seed)
 
+    
+def list_factory():
+    return defaultdict(list)
+
 
 def train_model(train_loader, val_loader, device, args):
     """Train with both standard and teacher forcing methods"""
     results = defaultdict(lambda: defaultdict(list))
     criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding tokens
-    
-    # Train with both methods
+    os.makedirs(args.model_dir, exist_ok=True)
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     methods = ['standard', 'teacher_forcing', 'standard_embd', 'teacher_forcing_embd']
     for method_idx, method_name in enumerate(methods):
         print(f"\n{'='*80}")
@@ -1125,6 +1131,7 @@ def train_model(train_loader, val_loader, device, args):
                   ncols=120)
         
         best_val_loss = float('inf')
+        best_model_state = None
         patience_counter = 0
         
         for epoch in range(args.epochs):
@@ -1164,6 +1171,25 @@ def train_model(train_loader, val_loader, device, args):
             # Early stopping check
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_model_state = model.state_dict()
+                if best_model_state is not None:
+                    model_filename = f"{args.rnn_type}_{method_name}_{current_time}.pth"
+                    model_path = f"{args.model_dir}/{model_filename}"
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    # Prepare checkpoint
+                    results_dict = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in results.items()}
+                    checkpoint = {
+                        'model_state_dict': best_model_state,
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'val_loss': best_val_loss,
+                        'args': vars(args),
+                        'method': method_name,
+                        'timestamp': timestamp,
+                        'results': results_dict,
+                        'vocab_size': train_loader.dataset.vocab_size,
+                    }
+                    torch.save(checkpoint, model_path)
                 patience_counter = 0
             else:
                 patience_counter += 1
