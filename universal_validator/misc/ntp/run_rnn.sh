@@ -8,7 +8,7 @@ sl=60
 pt=200
 rnn="lstm"
 pp="../../../embeddings_age_coles.parquet"
-pp="../../../embeddings_age_x5.parquet"
+#pp="../../../embeddings_x5_coles.parquet"
 
 
 python rnn_baseline.py \

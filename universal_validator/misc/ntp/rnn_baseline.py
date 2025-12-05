@@ -58,7 +58,7 @@ def parse_args():
     return parser.parse_args()
 
 
-class AGEDataset(Dataset):
+class EmbdDataset(Dataset):
     def __init__(self, max_seq_length=10, min_seq_length=2, parquet_path='embeddings_age_coles.parquet', 
                  max_clients=None, split_type='train', split_ratio=0.8,
                  base_date='2023-01-01', seed=42,
@@ -92,7 +92,7 @@ class AGEDataset(Dataset):
         start_time = time.time()
         
         # Load data
-        print(f"Loading AGE dataset from {parquet_path}...")
+        print(f"Loading dataset from {parquet_path}...")
         self.df = pd.read_parquet(parquet_path)
         
         # Store embeddings separately if they exist
@@ -203,6 +203,52 @@ class AGEDataset(Dataset):
         print(f"{self.split_type.upper()} split: {len(result)} clients")
         return result
     
+    def _date_to_timestamp(self, date):
+        """Convert various date formats to timestamp"""
+        # Handle numpy.datetime64 FIRST
+        if isinstance(date, np.datetime64):
+            # Convert numpy.datetime64 to pandas Timestamp
+            return pd.Timestamp(date).timestamp()
+        # Handle integer/float (sequential days)
+        elif isinstance(date, (int, float, np.integer, np.floating)):
+            # Integer format: treat as sequential days
+            transaction_date = self.base_date + pd.to_timedelta(date - 1, unit='D')
+            return transaction_date.timestamp()
+        # Handle datetime objects
+        elif isinstance(date, (datetime.datetime, pd.Timestamp)):
+            # Already a datetime object
+            if isinstance(date, pd.Timestamp):
+                return date.timestamp()
+            else:
+                return pd.Timestamp(date).timestamp()
+        # Handle string dates
+        elif isinstance(date, str):
+            # String format - try to parse
+            try:
+                # Try parsing as datetime first
+                dt = pd.to_datetime(date)
+                return dt.timestamp()
+            except (ValueError, TypeError):
+                # If that fails, try as integer
+                try:
+                    day_num = int(date)
+                    transaction_date = self.base_date + pd.to_timedelta(day_num - 1, unit='D')
+                    return transaction_date.timestamp()
+                except (ValueError, TypeError):
+                    # If still fails, use 0
+                    print(f"Warning: Could not parse date string: {date}")
+                    return 0.0
+        # Handle pandas Period or other types
+        elif hasattr(date, 'to_timestamp'):
+            # Handle pandas Period objects
+            try:
+                return date.to_timestamp().timestamp()
+            except:
+                pass
+        # Unknown format
+        print(f"Warning: Unknown date type {type(date)}: {date}")
+        return 0.0
+
     def _extract_post_sequences(self):
         """Extract sequences from post columns"""
         client_sequences = []
@@ -212,7 +258,7 @@ class AGEDataset(Dataset):
         
         for _, row in sorted_df.iterrows():
             client_id = row['client_id']
-            
+
             # Get post sequences
             post_dates = []
             post_amounts = []
@@ -229,7 +275,6 @@ class AGEDataset(Dataset):
             
             # Ensure all arrays have same length
             min_len = min(len(post_dates), len(post_amounts), len(post_groups))
-            
             if min_len >= self.min_seq_length:
                 client_sequences.append({
                     'client_id': client_id,
@@ -297,10 +342,7 @@ class AGEDataset(Dataset):
 
             # Convert dates to timestamps (sequential days)
             base_date = self.base_date
-            timestamps = []
-            for date in post_dates:
-                transaction_date = base_date + pd.to_timedelta(date - 1, unit='D')
-                timestamps.append(transaction_date.timestamp())
+            timestamps = [self._date_to_timestamp(date) for date in post_dates]
 
             # Determine number of sequences for this client
             max_possible_sequences = n - self.min_seq_length + 1
@@ -1225,7 +1267,7 @@ def run_experiment(args, device):
     
     # Create training dataset
     print("Creating training dataset...")
-    train_dataset = AGEDataset(
+    train_dataset = EmbdDataset(
         max_seq_length=args.max_seq_length,
         min_seq_length=args.min_seq_length,
         parquet_path=args.parquet_path,
@@ -1239,7 +1281,7 @@ def run_experiment(args, device):
     
     # Create validation dataset using training vocab and scaler
     print("Creating validation dataset...")
-    val_dataset = AGEDataset(
+    val_dataset = EmbdDataset(
         max_seq_length=args.max_seq_length,
         min_seq_length=args.min_seq_length,
         parquet_path=args.parquet_path,
