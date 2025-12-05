@@ -46,6 +46,9 @@ def parse_args():
     parser.add_argument('--teacher-forcing-ratio', type=float, default=0.5,
                        help='Teacher forcing ratio (used for teacher forcing method)')
     
+    # Reproducibility parameters
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    
     # System parameters
     parser.add_argument('--cuda-devices', type=str, default='0', help='CUDA visible devices')
     parser.add_argument('--no-cuda', action='store_true', help='Disable CUDA')
@@ -56,7 +59,7 @@ def parse_args():
 class AGEDataset(Dataset):
     def __init__(self, max_seq_length=10, min_seq_length=2, parquet_path='embeddings_age_coles.parquet', 
                  max_clients=None, split_type='train', split_ratio=0.8,
-                 base_date='2023-01-01',
+                 base_date='2023-01-01', seed=42,
                  scaler=None, vocab=None, min_frequency=10, use_embeddings=False):
         """
         Args:
@@ -79,6 +82,10 @@ class AGEDataset(Dataset):
         self.min_frequency = min_frequency
         self.use_embeddings = use_embeddings
         self.base_date = pd.Timestamp(base_date)
+        self.seed = seed
+        
+        # Initialize all RNGs with deterministic seeds
+        self._initialize_rngs()
         
         start_time = time.time()
         
@@ -158,14 +165,30 @@ class AGEDataset(Dataset):
                   f"max={max(self.sequence_lengths)}, "
                   f"avg={np.mean(self.sequence_lengths):.1f}")
     
+    def _initialize_rngs(self):
+        """Initialize all random number generators with deterministic seeds"""
+        # Main RNG for dataset operations
+        self.rng = np.random.default_rng(self.seed)
+        
+        # Create a deterministic seed for split type (replaces hash())
+        split_type_seed = self.seed + sum(ord(c) for c in self.split_type) % 10000
+        
+        # RNG for sequence creation (deterministic based on split type)
+        self.sequence_rng = np.random.default_rng(split_type_seed)
+        
+        # Also seed Python's random module if used
+        import random
+        random.seed(self.seed)
+    
     def _apply_client_split(self):
-        """Split clients into train/validation sets"""
+        """Split clients into train/validation sets deterministically"""
         if self.split_type == 'all':
             return self.df
         
-        clients = self.df['client_id'].unique()
-        np.random.seed(42)
-        shuffled_clients = np.random.permutation(clients)
+        clients = sorted(self.df['client_id'].unique())  # Sort for deterministic order
+        
+        # Use dataset's RNG for permutation (not affected by hash())
+        shuffled_clients = self.rng.permutation(clients)
         
         split_idx = int(len(shuffled_clients) * self.split_ratio)
         
@@ -182,7 +205,10 @@ class AGEDataset(Dataset):
         """Extract sequences from post columns"""
         client_sequences = []
         
-        for _, row in self.df.iterrows():
+        # Sort by client_id for deterministic order
+        sorted_df = self.df.sort_values('client_id')
+        
+        for _, row in sorted_df.iterrows():
             client_id = row['client_id']
             
             # Get post sequences
@@ -232,114 +258,122 @@ class AGEDataset(Dataset):
         vocab['<START>'] = idx; idx += 1
         vocab['<END>'] = idx; idx += 1
         
-        # Add frequent items
-        for item, count in counter.most_common():
+        # Add frequent items in deterministic order
+        for item, count in sorted(counter.items()):  # Sort for deterministic order
             if count >= self.min_frequency:
                 vocab[str(item)] = idx
                 idx += 1
         
         print(f"Vocabulary from post sequences: {len(vocab)} items (filtered from {len(counter)})")
         if counter:
-            print(f"Most common post items: {list(counter.most_common(5))}")
+            top_items = sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:5]  # Sort for deterministic order
+            print(f"Most common post items: {top_items}")
         
         return vocab
     
     def _create_variable_length_sequences_from_post(self, samples_per_client=32):
-        """Create training sequences from post data"""
+        """Create training sequences from post data deterministically"""
         if not self.client_sequences:
             return
-        
-        seed = 42 + hash(self.split_type) % 1000
-        np.random.seed(seed)
         
         sequences_created = 0
         sequences_skipped_oov = 0
         
-        for client_seq in self.client_sequences:
+        # Process clients in sorted order for reproducibility
+        sorted_client_seqs = sorted(self.client_sequences, key=lambda x: x['client_id'])
+        
+        for client_seq in sorted_client_seqs:
             client_id = client_seq['client_id']
             post_groups = [str(item) for item in client_seq['post_groups']]
             post_amounts = client_seq['post_amounts']
             post_dates = client_seq['post_dates']
-            
+
             n = len(post_groups)
-            
+
             if n < self.min_seq_length:
                 continue
-            
+
             # Convert dates to timestamps (sequential days)
             base_date = self.base_date
             timestamps = []
             for date in post_dates:
                 transaction_date = base_date + pd.to_timedelta(date - 1, unit='D')
                 timestamps.append(transaction_date.timestamp())
-            
+
             # Determine number of sequences for this client
             max_possible_sequences = n - self.min_seq_length + 1
             num_sequences = min(samples_per_client, max_possible_sequences)
-            
+
             # Always include sequence starting at position 0
             start_positions = [0]
-            
-            # Add random positions
+
+            # Add random positions using a deterministic RNG
             if num_sequences > 1:
                 available_positions = list(range(1, max_possible_sequences))
                 if available_positions:
-                    rng = np.random.RandomState(seed + hash(client_id) % 1000)
-                    random_positions = rng.choice(
+                    # Create deterministic seed for this client (not using hash())
+                    client_seed = self.seed + int(client_id) if isinstance(client_id, (int, float)) else \
+                                 self.seed + sum(ord(c) for c in str(client_id))
+                    client_rng = np.random.default_rng(client_seed)
+
+                    random_positions = client_rng.choice(
                         available_positions,
                         size=min(num_sequences - 1, len(available_positions)),
                         replace=False
                     )
                     start_positions.extend(sorted(random_positions.tolist()))
-            
+
             # Create sequences
             for start_idx in start_positions:
                 max_len = min(self.max_seq_length, n - start_idx)
-                
+
                 if max_len < self.min_seq_length:
                     continue
+
+                # Generate deterministic sequence length
+                length_seed = self.seed + int(client_id) + start_idx * 1000 if isinstance(client_id, (int, float)) else \
+                             self.seed + sum(ord(c) for c in str(client_id)) + start_idx * 1000
+                length_rng = np.random.default_rng(length_seed)
                 
-                length_seed = seed + hash(str(client_id) + str(start_idx)) % 1000
-                length_rng = np.random.RandomState(length_seed)
-                seq_len = length_rng.randint(self.min_seq_length, max_len + 1)
-                
+                seq_len = length_rng.integers(self.min_seq_length, max_len + 1)
+
                 end_idx = start_idx + seq_len
-                
+
                 seq_items = post_groups[start_idx:end_idx]
                 seq_timestamps = timestamps[start_idx:end_idx]
                 seq_amounts = post_amounts[start_idx:end_idx]
-                
+
                 # Skip OOV sequences
                 if self.is_using_training_vocab:
                     if any(item not in self.vocab for item in seq_items):
                         sequences_skipped_oov += 1
                         continue
-                
+
                 # Calculate time deltas
                 time_deltas = [0.0]  # First position
                 for j in range(1, len(seq_timestamps)):
                     delta_seconds = seq_timestamps[j] - seq_timestamps[j-1]
                     time_deltas.append(delta_seconds)
-                
+
                 log_time_deltas = np.log1p(time_deltas)
-                
+
                 # Normalize amounts
                 norm_amounts = self.amount_scaler.transform(
                     np.array(seq_amounts).reshape(-1, 1)
                 ).flatten()
-                
+
                 # Create features tensor
                 features_tensor = torch.tensor(
                     list(zip(log_time_deltas, norm_amounts)), 
                     dtype=torch.float
                 )
-                
+
                 self.sequences.append(seq_items)
                 self.features.append(features_tensor)
                 self.sequence_lengths.append(seq_len)
                 self.client_ids.append(client_id)
                 sequences_created += 1
-        
+
         print(f"Created {sequences_created} sequences from post data (sampled), "
               f"skipped {sequences_skipped_oov} due to OOV")
     
@@ -391,7 +425,7 @@ class AGEDataset(Dataset):
 class NextTokenRNN(nn.Module):
     def __init__(self, vocab_size, hidden_dim=64, embedding_dim=64, 
                  continuous_dim=2, rnn_type='lstm', num_layers=1, 
-                 dropout=0.5, use_embeddings=False, client_embedding_dim=128):  # ADD THIS PARAMETER
+                 dropout=0.5, use_embeddings=False, client_embedding_dim=128):
         super(NextTokenRNN, self).__init__()
         
         self.vocab_size = vocab_size
@@ -400,7 +434,7 @@ class NextTokenRNN(nn.Module):
         self.rnn_type = rnn_type.lower()
         self.use_embeddings = use_embeddings
         self.num_layers = num_layers
-        self.client_embedding_dim = client_embedding_dim  # ADD THIS
+        self.client_embedding_dim = client_embedding_dim
         
         # Embedding layer for categorical tokens
         self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
@@ -431,9 +465,9 @@ class NextTokenRNN(nn.Module):
         if use_embeddings:
             # For LSTM: need to project to both h and c states
             if self.rnn_type == 'lstm':
-                self.embedding_to_hidden = nn.Linear(client_embedding_dim, 2 * num_layers * hidden_dim)  # USE client_embedding_dim
+                self.embedding_to_hidden = nn.Linear(client_embedding_dim, 2 * num_layers * hidden_dim)
             else:
-                self.embedding_to_hidden = nn.Linear(client_embedding_dim, num_layers * hidden_dim)  # USE client_embedding_dim
+                self.embedding_to_hidden = nn.Linear(client_embedding_dim, num_layers * hidden_dim)
         
         # Output layer
         self.output_proj = nn.Sequential(
@@ -513,7 +547,6 @@ class NextTokenRNN(nn.Module):
             return torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
 
 
-
 def collate_fn(batch):
     """Simpler collate function assuming consistent embedding size"""
     inputs, targets, features, lengths, embeddings = zip(*batch)
@@ -576,6 +609,7 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
     total_sequences_correct, total_sequences = 0, 0
     total_log_ppl = 0
     use_embeddings = dataloader.dataset.use_embeddings
+    
     for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
@@ -589,7 +623,6 @@ def train_epoch_standard(model, dataloader, optimizer, criterion, device, master
         optimizer.zero_grad()
         
         # Forward pass through the entire sequence
-        
         logits, _ = model(inputs, features, lengths.cpu(), client_embeddings=embeddings)
         
         # Print detailed example for first sequence of first batch
@@ -698,7 +731,7 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
     for batch_idx, (inputs, targets, features, lengths, embeddings) in enumerate(dataloader):
         inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
         lengths = lengths.to(device)
-        embeddings = embeddings.to(device)  # ADD THIS
+        embeddings = embeddings.to(device)
         
         batch_size, max_seq_len = inputs.shape
         
@@ -709,7 +742,7 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
         batch_tokens = 0
         batch_sequences_correct = 0
         
-        # Initialize hidden state from embeddings (MODIFIED)
+        # Initialize hidden state from embeddings
         if model.use_embeddings and embeddings is not None:
             hidden = model._init_hidden_from_embedding(embeddings, batch_size)
         else:
@@ -758,7 +791,9 @@ def train_epoch_teacher_forcing(model, dataloader, optimizer, criterion, device,
                 total_log_ppl += active_log_ppl.item()
             
             # Teacher forcing: decide next input
-            use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
+            # Use deterministic teacher forcing based on batch_idx and t
+            # This ensures reproducibility
+            use_teacher_forcing = ((batch_idx * max_seq_len + t) % 10) < (teacher_forcing_ratio * 10)
             
             if use_teacher_forcing:
                 # Use ground truth as next input
@@ -834,18 +869,18 @@ def validate_epoch(model, dataloader, criterion, device):
         for inputs, targets, features, lengths, embeddings in dataloader:
             inputs, targets, features = inputs.to(device), targets.to(device), features.to(device)
             lengths = lengths.to(device)
-            embeddings = embeddings.to(device) 
+            embeddings = embeddings.to(device)
             
             batch_size, max_seq_len = inputs.shape
             
-            # Initialize hidden state from embeddings (MODIFIED)
+            # Initialize hidden state from embeddings
             if model.use_embeddings and embeddings is not None:
                 hidden = model._init_hidden_from_embedding(embeddings, batch_size)
             else:
                 hidden = model.init_hidden(batch_size, device)
             
             # Forward pass through the entire sequence
-            logits, _ = model(inputs, features, lengths.cpu(), hidden=hidden)  # PASS hidden
+            logits, _ = model(inputs, features, lengths.cpu(), hidden=hidden)
             
             # Calculate metrics
             batch_tokens_correct = 0
@@ -895,8 +930,8 @@ def validate_epoch(model, dataloader, criterion, device):
     return avg_loss, token_accuracy, sequence_accuracy, perplexity
 
 
-def calculate_baselines(train_dataset, val_dataset):
-    """Calculate baselines for full sequence prediction"""
+def calculate_baselines(train_dataset, val_dataset, seed=42):
+    """Calculate baselines for full sequence prediction deterministically"""
     # Get vocabulary info
     vocab = train_dataset.vocab
     vocab_size = len(vocab)
@@ -907,9 +942,10 @@ def calculate_baselines(train_dataset, val_dataset):
         all_train_tokens.extend(seq)
     token_counter = Counter(all_train_tokens)
     
-    # Most frequent token
-    most_frequent_token = token_counter.most_common(1)[0][0]
-    most_frequent_count = token_counter[most_frequent_token]
+    # Most frequent token (use deterministic tie-breaking)
+    most_common = sorted(token_counter.items(), key=lambda x: (-x[1], x[0]))  # Sort by count, then token
+    most_frequent_token = most_common[0][0]
+    most_frequent_count = most_common[0][1]
     
     # Calculate probabilities for random baseline
     total_tokens = len(all_train_tokens)
@@ -926,8 +962,13 @@ def calculate_baselines(train_dataset, val_dataset):
     total_val_tokens = 0
     total_val_sequences = len(val_dataset.sequences)
     
-    # Process validation sequences
-    for seq in val_dataset.sequences:
+    # Create deterministic RNG for baseline calculations
+    rng = np.random.default_rng(seed)
+    
+    # Process validation sequences in deterministic order
+    sorted_val_sequences = sorted(val_dataset.sequences, key=lambda x: (len(x), str(x)))
+    
+    for seq_idx, seq in enumerate(sorted_val_sequences):
         seq_len = len(seq)
         total_val_tokens += seq_len
         
@@ -939,10 +980,18 @@ def calculate_baselines(train_dataset, val_dataset):
             mode_sequence_correct += 1
         
         # Random baseline: predict random tokens based on training distribution
-        random_predictions = np.random.choice(
-            list(token_probs.keys()), 
+        # Use deterministic RNG with sequence-specific seed
+        seq_seed = seed + seq_idx * 1000
+        seq_rng = np.random.default_rng(seq_seed)
+        
+        # Get tokens and probabilities in deterministic order
+        sorted_tokens = sorted(token_probs.keys())
+        sorted_probs = [token_probs[token] for token in sorted_tokens]
+        
+        random_predictions = seq_rng.choice(
+            sorted_tokens, 
             size=seq_len,
-            p=list(token_probs.values())
+            p=sorted_probs
         )
         random_token_match = sum(1 for pred, true in zip(random_predictions, seq) if pred == true)
         random_token_correct += random_token_match
@@ -1004,10 +1053,30 @@ def calculate_baselines(train_dataset, val_dataset):
     }
 
 
+def set_seed(seed):
+    """Set all random seeds for reproducibility"""
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # Set deterministic CuDNN
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    # Seed Python's random module
+    import random
+    random.seed(seed)
+    
+    # Optional: Set environment variable for hash randomization
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+
 def train_model(train_loader, val_loader, device, args):
     """Train with both standard and teacher forcing methods"""
     results = defaultdict(lambda: defaultdict(list))
     criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding tokens
+    
     # Train with both methods
     methods = ['standard', 'teacher_forcing', 'standard_embd', 'teacher_forcing_embd']
     for method_idx, method_name in enumerate(methods):
@@ -1015,6 +1084,11 @@ def train_model(train_loader, val_loader, device, args):
         print(f"TRAINING WITH METHOD: {method_name.upper()}")
         print(f"{'='*80}")
         use_embeddings = 'embd' in method_name
+        
+        # Set seed for this method (different seed for each method)
+        method_seed = args.seed + method_idx * 1000
+        set_seed(method_seed)
+        
         # Reset model and optimizer for each method
         model = NextTokenRNN(
             vocab_size=train_loader.dataset.vocab_size,
@@ -1025,8 +1099,9 @@ def train_model(train_loader, val_loader, device, args):
             num_layers=args.num_layers,
             use_embeddings=use_embeddings,
             dropout=args.dropout,
-            client_embedding_dim=train_loader.dataset.embedding_dim  # ADD THIS
+            client_embedding_dim=train_loader.dataset.embedding_dim
         ).to(device)
+        
         # Use AdamW with weight decay
         optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -1055,8 +1130,13 @@ def train_model(train_loader, val_loader, device, args):
         for epoch in range(args.epochs):
             epoch_start = time.time()
             
+            # Set epoch-specific seed for teacher forcing (if needed)
+            if method_name in ['teacher_forcing', 'teacher_forcing_embd']:
+                epoch_seed = method_seed + epoch * 100
+                set_seed(epoch_seed)
+            
             # Training with current method
-            if method_name == 'teacher_forcing':
+            if method_name in ['teacher_forcing', 'teacher_forcing_embd']:
                 train_loss, train_token_acc, train_seq_acc, train_ppl = train_epoch_teacher_forcing(
                     model, train_loader, optimizer, criterion, device, master_pbar, epoch, args.teacher_forcing_ratio)
             else:
@@ -1114,6 +1194,9 @@ def train_model(train_loader, val_loader, device, args):
 
 
 def run_experiment(args, device):
+    # Set global seed at the beginning
+    set_seed(args.seed)
+    
     # Create training dataset
     print("Creating training dataset...")
     train_dataset = AGEDataset(
@@ -1124,7 +1207,8 @@ def run_experiment(args, device):
         split_type='train',
         split_ratio=args.train_ratio,
         use_embeddings=args.use_embeddings,
-        min_frequency=args.min_frequency
+        min_frequency=args.min_frequency,
+        seed=args.seed  # Pass the seed
     )
     
     # Create validation dataset using training vocab and scaler
@@ -1139,7 +1223,8 @@ def run_experiment(args, device):
         scaler=train_dataset.amount_scaler,
         vocab=train_dataset.vocab,
         use_embeddings=args.use_embeddings,
-        min_frequency=args.min_frequency
+        min_frequency=args.min_frequency,
+        seed=args.seed + 1  # Different but deterministic seed
     )
     
     # Statistics
@@ -1155,14 +1240,15 @@ def run_experiment(args, device):
         return {}
     
     # Calculate baselines
-    baselines = calculate_baselines(train_dataset, val_dataset)
+    baselines = calculate_baselines(train_dataset, val_dataset, seed=args.seed + 2)
     
     # Create data loaders
     train_loader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size, 
         shuffle=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        generator=torch.Generator().manual_seed(args.seed + 3)  # Seed for DataLoader shuffling
     )
     val_loader = DataLoader(
         val_dataset, 
