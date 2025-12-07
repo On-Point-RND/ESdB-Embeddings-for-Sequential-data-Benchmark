@@ -19,7 +19,7 @@ class AnomalyDetectionTask(BaseTask):
     def __init__(self, config: DictConfig):
         super().__init__(config)
         self.optuna_config = config.get('optuna', {})
-        self.use_optuna = False #self.optuna_config.get('enabled', False)
+        self.use_optuna = self.optuna_config.get('enabled', False)
         
         # Define models including CatBoost with class weights
         self.models = {
