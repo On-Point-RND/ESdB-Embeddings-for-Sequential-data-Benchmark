@@ -58,6 +58,36 @@ def parse_args():
     return parser.parse_args()
 
 
+# Create vocabulary from ALL data first, then split
+def create_global_vocab(parquet_path, min_frequency=10):
+    """Create vocabulary from entire dataset before splitting"""
+    print("Create vocabulary from entire dataset before splitting")
+    df = pd.read_parquet(parquet_path)
+    
+    all_items = []
+    for _, row in df.iterrows():
+        if 'post_group' in row and isinstance(row['post_group'], (list, np.ndarray)):
+            all_items.extend([str(item) for item in row['post_group']])
+    
+    counter = Counter(all_items)
+    vocab = {}
+    idx = 0
+    
+    # Add special tokens
+    vocab['<PAD>'] = idx; idx += 1
+    vocab['<OOV>'] = idx; idx += 1
+    vocab['<START>'] = idx; idx += 1
+    vocab['<END>'] = idx; idx += 1
+    
+    # Add frequent items
+    for item, count in sorted(counter.items()):
+        if count >= min_frequency:
+            vocab[str(item)] = idx
+            idx += 1
+    
+    return vocab
+
+
 class EmbdDataset(Dataset):
     def __init__(self, max_seq_length=10, min_seq_length=2, parquet_path='embeddings_age_coles.parquet', 
                  max_clients=None, split_type='train', split_ratio=0.8,
@@ -166,7 +196,7 @@ class EmbdDataset(Dataset):
             print(f"Sequence length stats: min={min(self.sequence_lengths)}, "
                   f"max={max(self.sequence_lengths)}, "
                   f"avg={np.mean(self.sequence_lengths):.1f}")
-    
+
     def _initialize_rngs(self):
         """Initialize all random number generators with deterministic seeds"""
         # Main RNG for dataset operations
@@ -1266,6 +1296,7 @@ def run_experiment(args, device):
     set_seed(args.seed)
     
     # Create training dataset
+    global_vocab = create_global_vocab(args.parquet_path, args.min_frequency)
     print("Creating training dataset...")
     train_dataset = EmbdDataset(
         max_seq_length=args.max_seq_length,
@@ -1276,7 +1307,8 @@ def run_experiment(args, device):
         split_ratio=args.train_ratio,
         use_embeddings=args.use_embeddings,
         min_frequency=args.min_frequency,
-        seed=args.seed  # Pass the seed
+        seed=args.seed,
+        vocab=global_vocab,
     )
     
     # Create validation dataset using training vocab and scaler
