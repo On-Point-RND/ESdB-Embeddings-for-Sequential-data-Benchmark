@@ -17,6 +17,8 @@ from ..tasks.regression_task import RegressionTask
 from ..tasks.forecast_task import ForecastTask
 from ..tasks.anomaly_detection_task import AnomalyDetectionTask
 from .task_router import TaskRouter
+from scipy.stats import boxcox
+
 
 class UniversalValidator:
     """Main class that orchestrates the entire validation pipeline with task routing"""
@@ -75,7 +77,7 @@ class UniversalValidator:
         
         # Get task configuration from router
         task_config = self.task_router.get_task_configuration(dataset_name, task_type.value)
-        
+        print('embeddings_path',embeddings_path)
         # Use configured embedder/splitter or defaults
         if embedder_name is None:
             embedder_name = task_config.get('embedder', self.task_router.get_default_embedder())
@@ -101,16 +103,22 @@ class UniversalValidator:
             if task_type == TaskType.CLASSIFICATION:
                 targets_df = embeddings_df['post_target'].copy()
             elif task_type == TaskType.FORECAST:
-                targets_df = embeddings_df['post_target'].copy()
+                targets_df = embeddings_df['post_forecast_target'].copy()
             elif task_type == TaskType.ANOMALY_DETECTION:
                 targets_df = embeddings_df['post_anomaly_target'].copy()
             elif task_type == TaskType.REGRESSION:
-                amount_col = [col for col in embeddings_df.columns if 'post_amount' in col]
-                assert len(amount_col) == 1
+                amount_col = sorted([col for col in embeddings_df.columns if 'post_amount' in col])
+                assert len(amount_col) > 0
                 amount_col = amount_col[0]
                 target_values = embeddings_df[amount_col].values
                 if hasattr(target_values[0], '__len__'):
-                    targets_df = pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
+                    if 'age' in dataset_name:
+                        targets_df = pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
+                    else:
+                        if 'zvuk' in dataset_name:
+                            targets_df = pd.DataFrame([np.nanmedian(v) for v in target_values], columns=['target'])
+                        else:
+                            targets_df = pd.DataFrame([np.log1p(np.nanmedian(v)) for v in target_values], columns=['target'])
                 else:
                     targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
             else:
