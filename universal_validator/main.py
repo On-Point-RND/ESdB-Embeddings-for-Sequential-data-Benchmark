@@ -27,7 +27,7 @@ def main():
     parser.add_argument('--run-all', action='store_true', help='Run all configured experiments')
     parser.add_argument('--use-existing-embeddings', action='store_true', help='Use existing embeddings')
     parser.add_argument('--list-configs', action='store_true', help='List available configurations')
-    
+    parser.add_argument('-pp','--parquet-path', type=str, default=None, help='Path to cache data directory in parquet format')
     # Splitter configuration overrides
     parser.add_argument('--splitter', type=str, choices=['standard', 'last_date', 'client'], help='Override splitter type')
     parser.add_argument('--test-size', type=float, help='Override test size ratio')
@@ -79,7 +79,8 @@ def main():
                 dataset_name=dataset,
                 splitter_name=config.task_router.default_splitter,
                 task_type=TaskType(task_type),
-                use_existing_embeddings=args.use_existing_embeddings
+                use_existing_embeddings=args.use_existing_embeddings,
+                embeddings_path=args.parquet_path,
             )
             reports = [report]
         
