@@ -33,7 +33,7 @@ downstream:
     - "mlp"
   optuna:
     enabled: True
-    n_trials: 30
+    n_trials: 10
     cv: 3
     n_jobs: 4           # Number of parallel jobs for scikit-learn
     max_threads: 4      # Maximum threads per model
@@ -59,6 +59,45 @@ task_router:
   default_splitter: "standard"
   dataset_tasks:
     age:
+      - type: "classification"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "regression"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "anomaly_detection"
+        embedder: "coles"
+        splitter: "client"
+      - type: "forecast"
+        embedder: "coles"
+        splitter: "client"
+    x5:
+      - type: "classification"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "regression"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "anomaly_detection"
+        embedder: "coles"
+        splitter: "client"
+      - type: "forecast"
+        embedder: "coles"
+        splitter: "client"
+    zvuk:
+      - type: "classification"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "regression"
+        embedder: "coles"
+        splitter: "standard"
+      - type: "anomaly_detection"
+        embedder: "coles"
+        splitter: "client"
+      - type: "forecast"
+        embedder: "coles"
+        splitter: "client"
+    taobao:
       - type: "classification"
         embedder: "coles"
         splitter: "standard"
