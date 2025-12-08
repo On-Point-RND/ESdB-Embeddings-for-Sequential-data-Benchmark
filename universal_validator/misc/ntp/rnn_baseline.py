@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Full Autoregressive Next Token Prediction for AGE Financial Transactions')
+    parser = argparse.ArgumentParser(description='Full Autoregressive Next Token Prediction')
     
     # Data parameters
     parser.add_argument('-pp','--parquet-path', type=str, default='embeddings_age_coles.parquet', help='Path to cache data directory in parquet format')
@@ -1404,9 +1404,7 @@ def main():
     if not args.no_cuda:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
     
-    print("=" * 80)
-    print("FULL AUTOREGRESSIVE NEXT TOKEN PREDICTION FOR AGE FINANCIAL TRANSACTIONS")
-    print("=" * 80)
+    print(f"FULL AUTOREGRESSIVE NEXT TOKEN PREDICTION FOR {args.parquet_path}")
     print("Arguments:")
     for arg, value in vars(args).items():
         print(f"  {arg}: {value}")
