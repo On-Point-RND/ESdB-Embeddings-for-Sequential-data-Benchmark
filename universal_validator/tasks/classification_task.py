@@ -22,7 +22,7 @@ class ClassificationTask(BaseTask):
         super().__init__(config)
         self.optuna_config = config.get('optuna', {})
         self.use_optuna = self.optuna_config.get('enabled', False)
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        optuna.logging.set_verbosity(optuna.logging.ERROR)
         
         # Define models including CatBoost
         self.models = {
