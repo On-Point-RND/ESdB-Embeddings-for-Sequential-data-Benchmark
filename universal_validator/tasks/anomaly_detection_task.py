@@ -53,7 +53,7 @@ class AnomalyDetectionTask(BaseTask):
                 'class_weight': ['balanced', None]
             },
             'mlp': {
-                'hidden_layer_sizes': [(64,), (128,), (256,), (64, 64), (128, 64), (128, 128)],
+                'hidden_layer_sizes': [64, 128, 256],
                 'alpha': [0.0001, 0.001, 0.01, 0.1, 0.5],
                 'learning_rate_init': [0.001, 0.01, 0.1, 0.2],
                 'batch_size': [32, 64, 128, 256],
