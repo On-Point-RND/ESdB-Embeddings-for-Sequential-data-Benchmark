@@ -1,22 +1,26 @@
 #!/bin/bash
 
-h=64
-mx=1000
-ep=500
+h=128
+mx=3000
+ep=3000
 bs=128
 sl=60
-pt=200
+minsl=2
+pt=9999999
+nl=3
+mf=10
 rnn="lstm"
-pp="../../../embeddings_age_coles.parquet"
-#pp="../../../embeddings_x5_coles.parquet"
-
+ds="${1:-age}"  # dataset name, default "age"
+dpp="../../../embeddings_${ds}_coles.parquet"  # default path
+pp="${2:-$dpp}"  # actual path, use $dpp if $2 is not provided
+md="./pt_${ds}"
 
 python rnn_baseline.py \
     --rnn-type $rnn \
-    --min-frequency 100 \
+    --min-frequency $mf \
     --hidden-dim $h \
     --embedding-dim $h \
-    --num-layers 2 \
+    --num-layers $nl \
     --dropout 0.5 \
     --weight-decay 1e-4 \
     --batch-size $bs \
@@ -24,9 +28,10 @@ python rnn_baseline.py \
     --epochs $ep \
     --max-clients $mx \
     --max-seq-length $sl \
-    --min-seq-length 2 \
+    --min-seq-length $minsl \
     --train-ratio 0.8 \
-    --teacher-forcing-ratio 0.9 \
+    --teacher-forcing-ratio 1.0 \
     --parquet-path $pp \
     --patience $pt \
-    --cuda-devices 2
+    --model-dir $md \
+    --cuda-devices 3
