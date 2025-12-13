@@ -31,26 +31,6 @@ class ClassificationTask(BaseTask):
             'catboost': CatBoostClassifier(random_state=42, verbose=False, thread_count=1)
         }
         
-        # Search spaces for hyperparameter optimization (kept for reference)
-        self.search_spaces = {
-            'random_forest': {
-                'n_estimators': [50, 100, 150, 200],
-                'max_depth': [3, 5, 10, 15, 20, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4],
-            },
-            'mlp': {
-                'hidden_layer_sizes': [64, 128],
-                'alpha': [0.0001, 0.001, 0.01, 0.1],
-                'learning_rate_init': [0.001, 0.01, 0.1],
-            },
-            'catboost': {
-                'iterations': [50, 100, 150, 200],
-                'depth': [4, 6, 8, 10],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'l2_leaf_reg': [1, 3, 5, 7, 9],
-            }
-        }
 
     def _create_search_model(self, model_name, base_model):
         """Create Optuna study instead of RandomizedSearchCV"""
@@ -120,7 +100,7 @@ class ClassificationTask(BaseTask):
                         }
                     elif model_name == 'mlp':
                         params = {
-                            'hidden_layer_sizes': trial.suggest_categorical('hidden_layer_sizes', [(64,), (128,), (64, 64), (128, 64)]),
+                            'hidden_layer_sizes': trial.suggest_categorical('hidden_layer_sizes', [64, 128]),
                             'alpha': trial.suggest_float('alpha', 0.0001, 0.1, log=True),
                             'learning_rate_init': trial.suggest_float('learning_rate_init', 0.001, 0.1, log=True),
                         }
