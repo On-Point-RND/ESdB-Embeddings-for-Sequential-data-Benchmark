@@ -40,7 +40,7 @@ class ClassificationTask(BaseTask):
                 'min_samples_leaf': [1, 2, 4],
             },
             'mlp': {
-                'hidden_layer_sizes': [(64,), (128,), (64, 64), (128, 64)],
+                'hidden_layer_sizes': [64, 128],
                 'alpha': [0.0001, 0.001, 0.01, 0.1],
                 'learning_rate_init': [0.001, 0.01, 0.1],
             },
