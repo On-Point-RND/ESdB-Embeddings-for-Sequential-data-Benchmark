@@ -118,7 +118,7 @@ class UniversalValidator:
                         if 'zvuk' in dataset_name:
                             targets_df = pd.DataFrame([np.nanmedian(v) for v in target_values], columns=['target'])
                         else:
-                            targets_df = pd.DataFrame([np.log1p(np.nanmedian(v)) for v in target_values], columns=['target'])
+                            targets_df = pd.DataFrame([np.log1p(np.nanmedian(v+1e-10)) for v in target_values], columns=['target'])
                 else:
                     targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
             else:
