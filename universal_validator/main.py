@@ -84,11 +84,6 @@ def main():
             )
             reports = [report]
         
-        # Print summary
-        print(f"\n{'='*80}")
-        print("EXPERIMENT(S) COMPLETED")
-        print(f"{'='*80}")
-        
         for report in reports:
             task_type = report['task_type']
             metric = {
@@ -99,7 +94,7 @@ def main():
             }.get(task_type, 'accuracy')
 
             print(f"{report['dataset']} ({task_type}): {report['best_model']} - {metric}: {report[f'best_{metric}']:.4f}")
-
+        print()
         return reports
         
     except Exception as e:
