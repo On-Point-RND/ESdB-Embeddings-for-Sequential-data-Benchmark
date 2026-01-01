@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
+import pandas as pd
 from torch import nn
 from torcheval.metrics import Mean, Metric
 from tqdm.autonotebook import tqdm
@@ -102,6 +103,7 @@ class Trainer:
         self._model = None
         if model is not None:
             self._model = model.to(device)
+
 
         self._loss = None
         if loss is not None:
@@ -286,7 +288,6 @@ class Trainer:
             batch.to(self._device)
             inp = batch
             gt = batch.pop_target()
-
             pred = self._model(inp)
             loss = self._loss(pred, gt)
             if torch.isnan(loss).any():
@@ -356,6 +357,44 @@ class Trainer:
 
         return self.compute_metrics("val")
 
+
+    def df_gatherer(self, loader):
+        """
+        Iterates through loader and gathers DataFrame with:
+        data, embedding (headless), prediction (full model), target
+        """
+        embedding_model = nn.Sequential(*list(self._model.children())[:-1])
+        # for easy methods only
+        assert self._model is not None
+        assert embedding_model is not None
+        if loader is None:
+            raise ValueError("Incorrect loader for embeddings generation")
+        logger.info("Embedding generation on one of the loaders started")
+
+        records = []
+        for batch in tqdm(loader, disable=not self._verbose):
+            batch.to(self._device)
+            target = batch.pop_target()
+
+            with torch.no_grad():
+                emb = embedding_model(batch)
+                pred = self._model(batch)
+
+            emb_list = emb.cpu().numpy().tolist()
+            pred_list = pred.cpu().numpy().tolist()
+            target_list = target.cpu().numpy().tolist()
+            index_data = batch.extract_indexes_from_batch()
+
+            for i in range(len(emb)):
+                record = {
+                    "embedding": emb_list[i],
+                    "index": index_data[i],
+                }
+                records.append(record)
+        df = pd.DataFrame(records)
+        logger.info("Embedding generation finished")
+        return df
+
     def compute_metrics(self, phase: Literal["train", "val"]) -> dict[str, Any]:
         """Compute and log metrics.
 
@@ -363,7 +402,7 @@ class Trainer:
         metrics is epoch, so when the metrics are not None, the epoch is not None to.
 
         Args:
-            phase: wether the metrics were collected during train or validatoin.
+            phase: whether the metrics were collected during train or validatoin.
         """
 
         self._metric_values = {}
@@ -396,7 +435,7 @@ class Trainer:
         assert self._model is not None
 
         logger.info("run %s started", self._run_name)
-
+        logger.info("the given iters number is %s", self._total_iters)
         if self._ckpt_resume is not None:
             logger.info("Resuming from checkpoint '%s'", str(self._ckpt_resume))
             self.load_ckpt(self._ckpt_resume)
@@ -431,6 +470,7 @@ class Trainer:
                 self._total_iters - self._last_iter,
                 self._iters_per_epoch,
             )
+            logger.info("the rest iters number is %s", self._total_iters - self._last_iter)
 
             self._metric_values = None
             self.train(train_iters)

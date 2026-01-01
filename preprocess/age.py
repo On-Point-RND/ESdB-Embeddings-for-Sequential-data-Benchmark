@@ -55,7 +55,7 @@ def main():
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    spark = SparkSession.builder.master("local[32]").getOrCreate()  # pyright: ignore
+    spark = SparkSession.builder.master("local[4]").getOrCreate()  # pyright: ignore
     df, df_kag_train, df_kag_test = None, None, None
 
     if args.which_split in ("train", "union"):

@@ -47,13 +47,11 @@ class SeriesDataset(IterableDataset):
             loop: whether to loop the dataset.
             random_seed: seed to initialize the random generator for shuffling.
         """
-
         if batch_size < 1:
             raise ValueError("Batch size must be positive")
 
         if query:
             data = data.query(query)
-
         self._data = data
         self._bs = batch_size
         self._drop_last = drop_incomplete

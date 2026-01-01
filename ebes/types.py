@@ -81,6 +81,16 @@ class Batch:
         self.target = None
         return target
 
+    def extract_indexes_from_batch(self):
+        
+        idx=None
+        if self.index is not None:
+            idx = self.index
+            if isinstance(idx, torch.Tensor):
+                idx = idx.cpu().tolist()
+        
+        return idx
+
 
 @dataclass(kw_only=True)
 class Seq:

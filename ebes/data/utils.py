@@ -35,7 +35,6 @@ def get_collator(
     batch_transforms: list[Mapping[str, Any] | str] | None = None,
     padding_type: str = "zeros",
 ) -> SequenceCollator:
-
     tfs = None
     if batch_transforms is not None:
         tfs = []

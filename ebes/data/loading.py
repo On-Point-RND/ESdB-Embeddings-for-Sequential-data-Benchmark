@@ -56,7 +56,7 @@ class SequenceCollator:
         for b, s in enumerate(seqs):
             sl = min(s["_seq_len"], ml)  # type: ignore
             seq_lens[b] = sl
-
+            
             if num_names is not None:
                 for i, name in enumerate(num_names):
                     assert num_features is not None
@@ -137,5 +137,4 @@ class SequenceCollator:
         if self.batch_transforms is not None:
             for tf in self.batch_transforms:
                 tf(batch)
-
         return batch

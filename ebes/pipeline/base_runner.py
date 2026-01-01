@@ -224,7 +224,11 @@ class Runner(ABC):
         with open(log_file.parent / "config.yaml", "w") as file:
             yaml.dump(config, file, sort_keys=False)
         with log_to_file(log_file, **config["logging"]):
-            return self.pipeline(config)
+            metrics, df_all = self.pipeline(config)
+
+        embed_file = log_file.parent / "embeddings.parquet"
+        df_all.to_parquet(embed_file, index=False)
+        return metrics
 
     @abstractmethod
     def pipeline(self, config: Mapping) -> dict[str, float]:

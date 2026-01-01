@@ -20,4 +20,4 @@ unsupervised_loss:
   params:
     margin: 0.7449117372206818  # 40%, >= 0.5
 unsupervised_trainer:
-  total_iters: 100000  # 100%
+  total_iters: 0  # 100%

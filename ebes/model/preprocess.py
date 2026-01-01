@@ -46,13 +46,11 @@ class Batch2Seq(BaseModel):
     ):
         super().__init__()
         cat_cardinalities = cat_cardinalities if cat_cardinalities is not None else {}
-
         if num_count is None:
             if num_features is not None:
                 num_count = len(num_features)
             else:
                 num_count = 0
-
         if time_process != "none":
             assert time_process in [
                 "diff",
