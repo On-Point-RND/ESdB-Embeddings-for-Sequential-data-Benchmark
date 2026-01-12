@@ -6,7 +6,7 @@ data:
     unsupervised_train:
       split_idx: 0
       preprocessing: contrastive_pipeline
-      batch_size: 10
+      batch_size: 128
       drop_incomplete: true
       shuffle: true
       num_workers: 4
@@ -14,7 +14,7 @@ data:
     unsupervised_train_val:
       split_idx: 1
       preprocessing: contrastive_pipeline
-      batch_size: 10
+      batch_size: 128
       num_workers: 4
       labeled: False
 
@@ -48,6 +48,7 @@ model:
     params:
       cat_cardinalities: ${cc}
       num_features: ${nn}
+      emb_dimensionalities: ${ee}
       cat_emb_dim: 118
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"

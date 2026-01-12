@@ -343,6 +343,7 @@ class RandomSlices(BatchTransform):
         times = []
         nums = []
         cats = []
+        embs = {k: [] for k in batch.emb_features} if batch.emb_features else None
         inds = []
         targets = []
         max_len = 0
@@ -355,8 +356,15 @@ class RandomSlices(BatchTransform):
             inds.append(batch.index[i])
             if batch.num_features is not None:
                 nums.append(batch.num_features[start:end, i])
+                # Not (len_x, 1, all_features) but (len_x, all_features)
+                # is added for many intervals for same batch, that transits farther
             if batch.cat_features is not None:
                 cats.append(batch.cat_features[start:end, i])
+            if batch.emb_features is not None:
+                for k in batch.emb_features:
+                    embs[k].append(batch.emb_features[k][:, start:end, i].permute(1, 0))
+                    # reminder: emb_features[k] is (emb_dim, len)
+                    # becomes (small_seq_len (time), emb_dim) and is agregated in []
             if batch.target is not None:
                 targets.append(batch.target[i])
 
@@ -392,12 +400,27 @@ class RandomSlices(BatchTransform):
                 add_slice(i, sp, ln)
 
         def cat_pad(tensors, dtype):
-            t0 = tensors[0]
+            t0 = tensors[0]  # (len_x of the first small seq, features)
             res = torch.zeros(max_len, len(tensors), *t0.shape[1:], dtype=dtype)
-            for i, ten in enumerate(tensors):
-                res[: ten.shape[0], i] = ten
-                res[ten.shape[0] :, i] = ten[-1]
+            #  (max_len, number of small seqs, features)
+            for k, ten in enumerate(tensors):
+                res[: ten.shape[0], k] = ten
+                res[ten.shape[0] :, k] = ten[-1]
             return res
+
+        def cat_pad_emb(ten_dict, dtype):
+            res_dict = {}
+            for s in ten_dict:
+                # ten_dict[s]: list [] of new batch length of tensors (len_seq, emb_dim)
+                # meme unpacking?
+                res = torch.zeros(max_len, len(ten_dict[s]), *ten_dict[s][0].shape[1:], dtype=dtype)
+                #  (max_len, number_of_small_seqs, emb_dim)
+                for k, ten in enumerate(ten_dict[s]):
+                    res[: ten.shape[0], k] = ten
+                    res[ten.shape[0] :, k] = ten[-1]
+                res_dict[s] = res.permute(2, 0, 1)
+
+            return res_dict
 
         batch.lengths = torch.tensor(lens)
         if batch.target is not None:
@@ -412,6 +435,8 @@ class RandomSlices(BatchTransform):
             batch.cat_features = cat_pad(cats, batch.cat_features.dtype)
         if batch.num_features is not None:
             batch.num_features = cat_pad(nums, batch.num_features.dtype)
+        if batch.emb_features is not None:
+            batch.emb_features = cat_pad_emb(embs, dtype = list(batch.emb_features.values())[0].dtype)
 
 
 @dataclass

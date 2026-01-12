@@ -28,6 +28,7 @@ def get_accessor(
 def get_collator(
     time_name: str,
     cat_cardinalities: Mapping[str, int] | None = None,
+    emb_dimensionalities: Mapping[str, int] | None = None,
     num_names: list[str] | None = None,
     index_name: str | None = None,
     target_name: str | list[str] | None = None,
@@ -56,6 +57,7 @@ def get_collator(
     return SequenceCollator(
         time_name=time_name,
         cat_cardinalities=cat_cardinalities,
+        emb_dimensionalities=emb_dimensionalities,
         num_names=num_names,
         index_name=index_name,
         target_name=target_name,

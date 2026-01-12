@@ -3,15 +3,14 @@ from pathlib import Path
 
 import pyspark.sql.functions as F
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import Window
 from pyspark.sql.types import LongType, StringType, TimestampType, FloatType
 
 from common import cat_freq, collect_lists, train_test_split
 
 
 CAT_FEATURES = []
-INDEX_COLUMNS = ["store_nbr"]
-ORDERING_COLUMNS = ["date"]
+INDEX_COLUMNS = ["user_id"]
+ORDERING_COLUMNS = ["datetime"]
 TARGET_VALS = [0, 1]
 TEST_FRACTION = 0.5
 
@@ -57,143 +56,70 @@ def main():
         type=int,
         default=42,
     )
-
     args = parser.parse_args()
-
     mode = "overwrite" if args.overwrite else "error"
 
-    spark = (
-        SparkSession.builder
-            .master("local[32]")
-            .config("spark.driver.memory", "110g")
-            .config("spark.driver.maxResultSize", "0")
-            .config("spark.sql.shuffle.partitions", 1000)
-            .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-            .config("spark.memory.fraction", "0.8")
-            .config("spark.memory.storageFraction", "0.3")
-            .config(
-            "spark.driver.extraJavaOptions",
-            "-XX:+UseG1GC "
-            "-XX:InitiatingHeapOccupancyPercent=35 "
-            "-XX:+ExplicitGCInvokesConcurrent"
-            "-Xss16m"
-        )
-            .config("spark.sql.adaptive.enabled", "true")
-            .getOrCreate()
-    )
+    spark = SparkSession.builder.master("local[32]").getOrCreate()  # pyright: ignore
 
-    # ---------- READ ----------
-    data_dir = args.data_path.as_posix()
+    base_path = args.data_path
 
+    interactions_path = base_path / "zvuk-interactions.parquet"
+    embeddings_path = base_path / "zvuk-track_artist_embedding.parquet"
+
+    # --- load interactions ---
     df = (
-        spark.read
-            .option("header", True)
-            .option("inferSchema", True)
-            .csv(f"{data_dir}/train.csv")  # <-- имя файла руками
+        spark.read.parquet(interactions_path.as_posix())
             .select(
-            F.col("store_nbr").cast("int"),
-            F.col("item_nbr").cast("int"),
-            F.col("date").cast("date"),
-            F.col("unit_sales").cast("double"),
+            F.col("user_id").cast(StringType()),
+            F.col("track_id").cast(LongType()),
+            F.col("play_duration").cast(FloatType()),
+            F.col("datetime").cast(TimestampType()),
         )
     )
 
-    cls_df = (
-        spark.read
-            .option("header", True)
-            .option("inferSchema", True)
-            .csv(f"{data_dir}/items.csv")  # <-- второе имя файла руками
+    # --- load embeddings ---
+    emb_df = (
+        spark.read.parquet(embeddings_path.as_posix())
             .select(
-            F.col("item_nbr").cast("int"),
-            F.col("class").cast("int").alias("class_id"),
+            F.col("track_id").cast(LongType()),
+            F.col("artist_id"),
+            F.col("cluster_id"),
+            F.col("vector"),
         )
     )
 
-    # ---------- MAP TO CLASS + AGGREGATE ----------
-    df_cls = (
-        df.join(cls_df, on="item_nbr", how="inner")
-            .groupBy("store_nbr", "class_id", "date")
-            .agg(F.sum("unit_sales").alias("unit_sales"))
-    )
-
-    CAT_FEATURES = ["class_id"]
-    vcs = cat_freq(df_cls, CAT_FEATURES)
-    for vc in vcs:
-        df_cls = vc.encode(df_cls)
-        if args.cat_codes_path is not None:
-            vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
-
-    # ---------- DIMENSIONS ----------
-    stores = df_cls.select("store_nbr").distinct()
-    classes = df_cls.select("class_id").distinct()
-    dates = df_cls.select("date").distinct()
-
-    # ---------- GRID ----------
-    full_grid = (
-        stores
-            .crossJoin(classes)
-            .crossJoin(dates)
-            .repartition("store_nbr")
-    )
-
-    # ---------- JOIN + ZERO FILL ----------
-    df_full = (
-        full_grid.join(
-            df_cls,
-            on=["store_nbr", "class_id", "date"],
-            how="left"
-        )
-            .withColumn("unit_sales", F.coalesce(F.col("unit_sales"), F.lit(0.0)))
-    )
-
-    # ---------- TS COLLECT ----------
-    sales_ts = (
-        df_full
-            .groupBy("store_nbr", "class_id")
-            .agg(
-            F.sort_array(
-                F.collect_list(F.struct("date", "unit_sales"))
-            ).alias("tmp")
-        )
-            .select(
-            "store_nbr",
-            "class_id",
-            F.expr("transform(tmp, x -> x.unit_sales)").alias("sales_ts")
+    # --- join ---
+    df = (
+        df.join(
+            emb_df,
+            on="track_id",
+            how="left",
         )
     )
 
-    # ---------- PIVOT ----------
-    pivot_df = (
-        sales_ts
-            .groupBy("store_nbr")
-            .pivot("class_id")
-            .agg(F.first("sales_ts"))
+
+
+    rows_df = collect_lists(
+        df,
+        group_by=["user_id"],  # одна строка на пользователя
+        order_by=["datetime"]  # сортировка внутри последовательности
     )
 
-    for c in pivot_df.columns:
-        if c != "store_nbr":
-            pivot_df = pivot_df.withColumnRenamed(c, f"class_{c}_sales")
-
-    # ---------- DATE ARRAY ----------
-    date_array = (
-        dates.orderBy("date")
-            .agg(F.collect_list("date").alias("date"))
-            .first()["date"]
-    )
-
-    full_df = pivot_df.withColumn("date", F.lit(date_array))
-
+    for col_name in rows_df.columns:
+        if col_name.endswith("_list"):
+            rows_df = rows_df.withColumnRenamed(col_name, col_name.replace("_list", ""))
+    full_df = rows_df
 
     ###########################
     full_df = full_df.withColumn(
         "used_in_train",
-        F.when(F.col("date").isNotNull() & (F.size("date") < 600),
+        F.when(F.col("datetime").isNotNull() & (F.size("datetime") < 400),
                F.lit(-1)
                ).otherwise(F.lit(0))
     )
     # Здесь удалили все не подходящие начисто
     full_df = full_df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 400  # или любое другое
+    MAX_LEN = 300  # или любое другое
     full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
     full_df = full_df.withColumn(
         "mock_target",
@@ -227,7 +153,7 @@ def main():
     train_df, test_df = train_test_split(
         df=cut_df,
         test_frac=TEST_FRACTION,
-        index_col="store_nbr",
+        index_col="user_id",
         stratify_col="mock_target",
         stratify_col_vals=list(range(len(TARGET_VALS))),
         random_seed=args.split_seed,
@@ -236,17 +162,17 @@ def main():
     train_df = train_df.withColumn("used_in_train", F.lit(1))
     test_df = test_df.withColumn("used_in_train", F.lit(0))
 
-    train_df.repartition(50).write.parquet(
+    train_df.repartition(args.train_partitions).write.parquet(
         (args.save_path / "train").as_posix(), mode=mode
     )
-    test_df.repartition(50).write.parquet(
+    test_df.repartition(args.test_partitions).write.parquet(
         (args.save_path / "test").as_posix(), mode=mode
     )
     ###############################################################################
     full_base_df = train_df.unionByName(test_df)
     post_cols = [c for c, t in cut_last_df.dtypes if c.startswith("post_")]
     if post_cols:
-        join_keys = ["store_nbr"]
+        join_keys = ["user_id"]
         post_df = cut_last_df.select(*(join_keys + post_cols))
         full_base_df = full_base_df.join(post_df, on=join_keys, how="left")
     else:
@@ -266,7 +192,7 @@ def main():
         F.lit(MAX_LEN) + F.size(F.col(seq_post))
     )
     ################################################################################
-    full_base_df.repartition(50).write.parquet(
+    full_base_df.repartition(args.test_partitions).write.parquet(
         (args.save_path / "full_ntp").as_posix(), mode=mode
     )
 if __name__ == "__main__":

@@ -10,19 +10,28 @@ class Batch:
     lengths: torch.Tensor  # (batch,)
     time: np.ndarray | torch.Tensor  # (len, batch)
     index: torch.Tensor | np.ndarray | None = None  # (batch,)
+    target: torch.Tensor | None = None  # (batch,), (len, batch) or (batch, n_targets)
     num_features: torch.Tensor | None = None  # (len, batch, features)
     cat_features: torch.Tensor | None = None  # (len, batch, features)
-    target: torch.Tensor | None = None  # (batch,), (len, batch) or (batch, n_targets)
+    emb_features: dict[str, torch.Tensor] | None = None  # {feature_name: (emb_dim, len, batch)}
     cat_features_names: list[str] | None = None
     num_features_names: list[str] | None = None
+    emb_features_names: list[str] | None = None
     cat_mask: torch.Tensor | None = None  # (len, batch, features)
     num_mask: torch.Tensor | None = None  # (len, batch, features)
+    emb_mask: torch.Tensor | None = None  # (len, batch, features)
 
     def to(self, device: str):
         for field in fields(self):
             f = getattr(self, field.name)
             if isinstance(f, torch.Tensor):
                 setattr(self, field.name, f.to(device))
+            elif field.name == "emb_features" and f is not None:
+                setattr(
+                    self,
+                    field.name,
+                    {k: v.to(device) for k, v in f.items()}
+                )
 
         return self
 
@@ -42,11 +51,18 @@ class Batch:
                 pass
             else:
                 return self.num_features, num_idx
-
+        #########################################################################
+        if self.emb_features_names and feature_name in self.emb_features_names:
+            raise TypeError(
+                f"'{feature_name}' is an embedding feature; "
+                "use batch.emb_features[...]"
+            )
+        ##########################################################################
         raise ValueError(
             f"Cannot access feature by name {feature_name}."
             f" Known cat names are: {self.cat_features_names}."
             f" Known num names are: {self.num_features_names}."
+            f" Known emb names are: {self.emb_features_names}."
         )
 
     def __len__(self) -> int:
@@ -55,13 +71,18 @@ class Batch:
         return len(self.lengths)
 
     def __setitem__(self, feature_name: str, value: Any):
-        tensor, idx = self._find_tensor_and_idx(feature_name)
-        tensor[:, :, idx] = value
+        if self.emb_features is not None and feature_name in self.emb_features:
+            self.emb_features[feature_name] = value
+        else:
+            tensor, idx = self._find_tensor_and_idx(feature_name)
+            tensor[:, :, idx] = value
 
     def __getitem__(
         self,
         feature_name: str,
-    ) -> torch.Tensor:  # of shape (len, batch)
+    ) -> torch.Tensor:  # of shape (len, batch) or (emb_dim, len, batch)
+        if self.emb_features is not None and feature_name in self.emb_features:
+            return self.emb_features[feature_name]
         tensor, idx = self._find_tensor_and_idx(feature_name)
         return tensor[:, :, idx]
 
