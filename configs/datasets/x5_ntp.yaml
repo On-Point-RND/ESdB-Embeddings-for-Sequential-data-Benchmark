@@ -22,6 +22,7 @@ nn:
   - regular_points_spent
   - express_points_spent
   - purchase_sum
+ee:
 data:
   dataset:
     parquet_path: "data/x5-retail/preprocessed_ntp/train"

@@ -183,7 +183,9 @@ def train_test_split(
         index = df.select(index_col).coalesce(1).sort(index_col).cache()
         test_index = index.sample(fraction=test_frac, seed=random_seed).cache()
         test_df = df.join(test_index, on=index_col)
-        train_index = index.select(index_col).subtract(test_index)
+        train_index = index.select(index_col).join(
+                test_index, on=index_col, how="left_anti"
+            )
         train_df = df.join(train_index, on=index_col)
         return train_df, test_df
 
@@ -206,7 +208,9 @@ def train_test_split(
     )
     test_df = df.join(test_index, on=index_col)
 
-    train_index = index.select(index_col).subtract(test_index)
+    train_index = index.select(index_col).join(
+            test_index, on=index_col, how="left_anti"
+        )
     train_df = df.join(train_index, on=index_col)
 
     return train_df, test_df

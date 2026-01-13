@@ -41,10 +41,11 @@ class SequenceCollator:
                 ml, bs, len(self.cat_cardinalities), dtype=torch.long
             )
 
-        emb_features = {}
+        emb_features = None
         emb_dimensionalities = {}
         emb_names = None
         if self.emb_dimensionalities is not None:
+            emb_features={}
             emb_dimensionalities = self.emb_dimensionalities
             emb_names = list(self.emb_dimensionalities.keys())
         if self.emb_dimensionalities:

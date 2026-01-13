@@ -6,7 +6,7 @@ data:
     unsupervised_train:
       split_idx: 0
       preprocessing: contrastive_pipeline
-      batch_size: 128
+      batch_size: 2
       drop_incomplete: true
       shuffle: true
       num_workers: 4
@@ -14,7 +14,7 @@ data:
     unsupervised_train_val:
       split_idx: 1
       preprocessing: contrastive_pipeline
-      batch_size: 128
+      batch_size: 2
       num_workers: 4
       labeled: False
 

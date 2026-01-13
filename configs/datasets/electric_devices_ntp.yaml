@@ -5,6 +5,7 @@ main_metric: MulticlassAccuracy
 main_loss: 
   name: nn.CrossEntropyLoss
 
+ee:
 cc: 
 nn:
   - sequence

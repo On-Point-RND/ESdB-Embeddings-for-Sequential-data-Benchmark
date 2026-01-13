@@ -65,7 +65,7 @@ def main():
     spark = (
         SparkSession.builder
             .master("local[32]")
-            .config("spark.driver.memory", "110g")
+            .config("spark.driver.memory", "50g")
             .config("spark.driver.maxResultSize", "0")
             .config("spark.sql.shuffle.partitions", 1000)
             .config("spark.sql.execution.arrow.pyspark.enabled", "true")
@@ -93,7 +93,7 @@ def main():
             .select(
             F.col("store_nbr").cast("int"),
             F.col("item_nbr").cast("int"),
-            F.col("date").cast("date"),
+            F.col("date").cast(TimestampType()),
             F.col("unit_sales").cast("double"),
         )
     )
@@ -174,6 +174,12 @@ def main():
         if c != "store_nbr":
             pivot_df = pivot_df.withColumnRenamed(c, f"class_{c}_sales")
 
+        # ---------- MATERIALIZE PIVOT ----------
+    # переписываем pivot в parquet с большим числом партиций
+    pivot_df.repartition(50).write.mode("overwrite").parquet("/tmp/pivot_cached")
+
+    # читаем обратно — теперь lineage короткий, а партиций 50
+    pivot_df = spark.read.parquet("/tmp/pivot_cached")
     # ---------- DATE ARRAY ----------
     date_array = (
         dates.orderBy("date")
@@ -183,6 +189,9 @@ def main():
 
     full_df = pivot_df.withColumn("date", F.lit(date_array))
 
+    full_df = pivot_df.withColumn("date", F.lit(date_array))
+    full_df = full_df.repartition("store_nbr").cache()
+    full_df.count()
 
     ###########################
     full_df = full_df.withColumn(
@@ -224,6 +233,8 @@ def main():
     #cut_df = cut_df.withColumn("_seq_len", F.lit(MAX_LEN))
     ###########################
     # stratified splitting on train and test
+    cut_df = cut_df.repartition("store_nbr").cache()
+    cut_df.count()
     train_df, test_df = train_test_split(
         df=cut_df,
         test_frac=TEST_FRACTION,

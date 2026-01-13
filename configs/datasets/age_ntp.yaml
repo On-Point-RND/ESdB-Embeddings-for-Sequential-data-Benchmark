@@ -7,6 +7,8 @@ main_loss:
 
 cc: 
   small_group: 202
+ee:
+
 nn:
   - amount_rur
 
