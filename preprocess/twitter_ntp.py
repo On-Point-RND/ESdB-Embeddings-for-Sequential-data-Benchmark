@@ -160,6 +160,20 @@ def main():
     train_df["used_in_train"] = 1
     test_df["used_in_train"] = 0
 
+    keep_cols = [
+        "tweet_id",
+        "char",
+        "char_number",
+        "sentiment",
+        "likes",
+        "retweets",
+        "_seq_len",
+        "post_char",
+        "post_char_number",
+    ]
+    train_df = train_df[keep_cols]
+    test_df = test_df[keep_cols]
+
     if args.which_split in ("train", "union"):
         _save_partitioned_parquet(train_df, args.save_path / "train", 20)
     if args.which_split in ("test", "union"):
