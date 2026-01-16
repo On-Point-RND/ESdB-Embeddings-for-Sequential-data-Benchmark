@@ -23,7 +23,7 @@ class RegressionTask(BaseTask):
         
         # Define models including CatBoost
         self.models = {
-            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42),
+            # 'random_forest': RandomForestRegressor(n_estimators=100, random_state=42),
             'mlp': MLPRegressor(hidden_layer_sizes=(100, 50), random_state=42, max_iter=1000),
             'catboost': CatBoostRegressor(
                 iterations=100,
