@@ -13,6 +13,19 @@ LEN_SPLITTER = 50
 LOWER_BOUND = 80
 UPPER_BOUND = 150
 
+def get_reg_target(data):
+    return data["mentions"]
+
+def get_anomaly_target(data):
+    data['punct_ratio'] = data["clean_tweet"].astype(str).map(punctuation_ratio)
+    return (data['punct_ratio'] > 0.1).astype(np.int64)
+
+def get_clf_target(data):
+    return data['sentiment']
+
+def get_forecast_target(data):
+    return data["post_char"].apply(lambda x: x[0])
+
 
 def _stratified_split(df: pd.DataFrame, test_frac: float, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(seed)
@@ -102,7 +115,6 @@ def main():
     df["sentiment"] = df["sentiment"].astype(np.int64)
 
     df["text"] = df["text"].astype(str)
-
     df[["mentions", "clean_tweet"]] = df["text"].apply(
        lambda x: pd.Series(find_sobaka(x))
     )
@@ -134,14 +146,11 @@ def main():
     df["char_number"] = df["char_number"].map(lambda x: x[:LEN_SPLITTER])
     df["_seq_len"] = LEN_SPLITTER
     
-    breakpoint()
-    df["post_amount"] = df["mentions"]
 
-    df['punct_ratio'] = df["clean_tweet"].astype(str).map(punctuation_ratio)
-    df['post_anomaly_target'] = (df['punct_ratio'] > 0.1).astype(np.int64)
-    df['post_target'] = df['sentiment']
-
-    df['post_forecast_target'] = df["post_char"].apply(lambda x: x[0])
+    df["post_amount"] = get_reg_target(df)
+    df['post_anomaly_target'] = get_anomaly_target(df)
+    df['post_target'] = get_clf_target(df)
+    df['post_forecast_target'] = get_forecast_target(df)
 
     train_df, test_df = _stratified_split(df, TEST_FRACTION, args.split_seed)
     train_df = train_df.copy()
@@ -161,6 +170,7 @@ def main():
         "post_target",
         "post_forecast_target"
     ]
+
     train_df = train_df[keep_cols]
     test_df = test_df[keep_cols]
 
