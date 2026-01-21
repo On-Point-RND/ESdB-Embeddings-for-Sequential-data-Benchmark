@@ -2,7 +2,7 @@
 
 h=128
 mx=3000
-ep=3000
+ep=10
 bs=128
 sl=60
 minsl=2
@@ -11,8 +11,10 @@ nl=3
 mf=10
 rnn="lstm"
 ds="${1:-age}"  # dataset name, default "age"
+default_device="3"
+device="${3:-$default_device}"
 dpp="../../../embeddings_${ds}_coles.parquet"  # default path
-pp="${2:-$dpp}"  # actual path, use $dpp if $2 is not provided
+pp="${3:-$dpp}"  # actual path, use $dpp if $2 is not provided
 md="./pt_${ds}"
 
 python rnn_baseline.py \
@@ -34,4 +36,4 @@ python rnn_baseline.py \
     --parquet-path $pp \
     --patience $pt \
     --model-dir $md \
-    --cuda-devices 3
+    --cuda-devices $device
