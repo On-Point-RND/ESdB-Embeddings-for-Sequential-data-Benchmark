@@ -1,0 +1,352 @@
+from argparse import ArgumentParser
+from pathlib import Path
+
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.types import TimestampType
+
+import numpy as np
+import pandas as pd
+from ..common import cat_freq
+from .common_pandas import (
+    add_shift_columns,
+    duplicate_target_by_shifts,
+    fill_train_targets,
+    pandas_train_test_split,
+    save_partitioned_parquet,
+)
+
+CAT_FEATURES = []
+INDEX_COLUMNS = ["store_nbr"]
+ORDERING_COLUMNS = ["date"]
+TARGET_VALS = [0, 1]
+TEST_FRACTION = 0.5
+
+def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30) -> list[float]:
+    d = np.asarray(row["date"])
+    out = []
+    for s in row["shifts"]:
+        s = int(s)
+        if len(d) == 0 or s >= len(d):
+            out.append(0.0)
+            continue
+        delta = (d - d[s]) / np.timedelta64(1, "D")
+        mask = (delta > 0) & (delta <= horizon)
+        total = 0.0
+        for c in sales_cols:
+            arr = np.asarray(row[c])
+            if len(arr) == 0:
+                continue
+            assert len(arr) == len(d), "sales and date arrays must have the same length"
+            total += arr[mask].sum()
+        out.append(float(np.log1p(total)))
+    return out
+
+
+def get_forecast_target(row: pd.Series, sales_cols: list[str]) -> list[float]:
+    out = []
+    for s in row["shifts"]:
+        s = int(s)
+        total = 0.0
+        for c in sales_cols:
+            arr = row[c]
+            if len(arr) > s:
+                total += float(arr[s])
+        out.append(total)
+    return out
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--data-path",
+        help="Path CSV train user",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--save-path",
+        help="Where to save preprocessed parquets",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--cat-codes-path",
+        help="Path where to save codes for categorical features",
+        type=Path,
+    )
+    parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
+    )
+    parser.add_argument(
+        "--train-partitions",
+        help="Number of parquet partitions for train dataset",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--test-partitions",
+        help="Number of parquet partitions for test dataset",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--split-seed",
+        help="Random seed for train-test split",
+        type=int,
+        default=42,
+    )
+    parser.add_argument(
+        "--num-shifts",
+        help="How many shifts to sample per test store",
+        type=int,
+        default=5,
+    )
+    parser.add_argument(
+        "--shift-seed",
+        help="Random seed for shifts",
+        type=int,
+        default=0,
+    )
+
+    args = parser.parse_args()
+
+    mode = "overwrite" if args.overwrite else "error"
+
+    spark = (
+        SparkSession.builder
+            .master("local[32]") # type: ignore[attr-defined]
+            .config("spark.driver.memory", "50g")
+            .config("spark.driver.maxResultSize", "0")
+            .config("spark.sql.shuffle.partitions", 1000)
+            .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+            .config("spark.memory.fraction", "0.8")
+            .config("spark.memory.storageFraction", "0.3")
+            .config(
+            "spark.driver.extraJavaOptions",
+            "-XX:+UseG1GC "
+            "-XX:InitiatingHeapOccupancyPercent=35 "
+            "-XX:+ExplicitGCInvokesConcurrent"
+            "-Xss16m"
+        )
+            .config("spark.sql.adaptive.enabled", "true")
+            .getOrCreate()
+    )
+
+    # ---------- READ ----------
+    data_dir = args.data_path.as_posix()
+
+    df = (
+        spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .csv(f"{data_dir}/train.csv")  # <-- имя файла руками
+            .select(
+            F.col("store_nbr").cast("int"),
+            F.col("item_nbr").cast("int"),
+            F.col("date").cast(TimestampType()),
+            F.col("unit_sales").cast("double"),
+        )
+    )
+
+    cls_df = (
+        spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .csv(f"{data_dir}/items.csv")  # <-- второе имя файла руками
+            .select(
+            F.col("item_nbr").cast("int"),
+            F.col("class").cast("int").alias("class_id"),
+        )
+    )
+
+    # ---------- MAP TO CLASS + AGGREGATE ----------
+    df_cls = (
+        df.join(cls_df, on="item_nbr", how="inner")
+            .groupBy("store_nbr", "class_id", "date")
+            .agg(F.sum("unit_sales").alias("unit_sales"))
+    )
+
+    CAT_FEATURES = ["class_id"]
+    vcs = cat_freq(df_cls, CAT_FEATURES)
+    for vc in vcs:
+        df_cls = vc.encode(df_cls)
+        if args.cat_codes_path is not None:
+            vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
+
+    # ---------- DIMENSIONS ----------
+    stores = df_cls.select("store_nbr").distinct()
+    classes = df_cls.select("class_id").distinct()
+    dates = df_cls.select("date").distinct()
+
+    # ---------- GRID ----------
+    full_grid = (
+        stores
+            .crossJoin(classes)
+            .crossJoin(dates)
+            .repartition("store_nbr")
+    )
+
+    # ---------- JOIN + ZERO FILL ----------
+    df_full = (
+        full_grid.join(
+            df_cls,
+            on=["store_nbr", "class_id", "date"],
+            how="left"
+        )
+            .withColumn("unit_sales", F.coalesce(F.col("unit_sales"), F.lit(0.0)))
+    )
+
+    # ---------- TS COLLECT ----------
+    sales_ts = (
+        df_full
+            .groupBy("store_nbr", "class_id")
+            .agg(
+            F.sort_array(
+                F.collect_list(F.struct("date", "unit_sales"))
+            ).alias("tmp")
+        )
+            .select(
+            "store_nbr",
+            "class_id",
+            F.expr("transform(tmp, x -> x.unit_sales)").alias("sales_ts")
+        )
+    )
+
+    # ---------- PIVOT ----------
+    pivot_df = (
+        sales_ts
+            .groupBy("store_nbr")
+            .pivot("class_id")
+            .agg(F.first("sales_ts"))
+    )
+
+    for c in pivot_df.columns:
+        if c != "store_nbr":
+            pivot_df = pivot_df.withColumnRenamed(c, f"class_{c}_sales")
+
+        # ---------- MATERIALIZE PIVOT ----------
+    # переписываем pivot в parquet с большим числом партиций
+    pivot_df.repartition(50).write.mode("overwrite").parquet("/tmp/pivot_cached")
+
+    # читаем обратно — теперь lineage короткий, а партиций 50
+    pivot_df = spark.read.parquet("/tmp/pivot_cached")
+
+    row = dates.orderBy("date").agg(F.collect_list("date").alias("date")).first()
+    assert row is not None, "dates is empty"
+    date_array = row["date"]
+
+    full_df = pivot_df.withColumn("date", F.lit(date_array))
+    full_df = full_df.repartition("store_nbr").cache()
+    full_df.count()
+
+    ###########################
+    full_df = full_df.withColumn(
+        "used_in_train",
+        F.when(F.col("date").isNotNull() & (F.size("date") < 600),
+               F.lit(-1)
+               ).otherwise(F.lit(0))
+    )
+    # Здесь удалили все не подходящие начисто
+    full_df = full_df.filter(F.col("used_in_train") != -1)
+    MAX_LEN = 400  # или любое другое
+    full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
+    full_df = full_df.withColumn(
+        "mock_target",
+        (F.rand() < 0.5).cast("int")
+    )
+    
+
+    full_df.repartition(50).write.parquet(
+        (args.save_path / "temp").as_posix(), mode=mode
+    )
+
+    df = pd.read_parquet(args.save_path / "temp")
+    stores_df = pd.read_csv(args.data_path / "stores.csv")
+
+    df = df.merge(
+        stores_df,
+        on="store_nbr",
+        how="left",
+    )
+
+    stratify_col, stratify_col_vals = None, None
+    stratify_col = "mock_target"
+    stratify_col_vals = TARGET_VALS
+
+    train_df, test_df = pandas_train_test_split(
+        df=df,
+        test_frac=TEST_FRACTION,
+        index_col="store_nbr",
+        stratify_col=stratify_col,
+        stratify_col_vals=stratify_col_vals,
+        random_seed=args.split_seed
+    )
+
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    train_df["used_in_train"] = 1
+    test_df["used_in_train"] = 0
+
+    sales_cols = [c for c in df.columns if c.endswith("_sales")]
+
+    REAL_MONTH = 30  # Checked that it is real month
+    # df['days_since_first_tx'] = df['date'].apply(lambda x: (x - x[0]) / np.timedelta64(1, "D"))
+    test_df = add_shift_columns(
+        test_df,
+        shift_start=MAX_LEN,
+        shift_end=test_df["date"].map(len) - 1 - REAL_MONTH,
+        num_shifts=args.num_shifts,
+        seed=args.shift_seed,
+    )
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all(), "Some rows have shift_end < shift_start"
+
+    type_codes = pd.Categorical(df["type"]).codes
+    df["type_code"] = type_codes
+    assert (df["type_code"] >= 0).all(), "Found missing type values; fill or drop before coding"
+    test_df["post_target"] = duplicate_target_by_shifts(test_df, "type_code")
+
+    anomaly_cities = stores_df.city.value_counts()[stores_df.city.value_counts() == 1].index.tolist()
+    test_df["post_anomaly_target"] = test_df.apply(
+        lambda r: [int(r["city"] in anomaly_cities)] * len(r["shifts"]), axis=1
+    )
+
+    test_df["post_amount"] = test_df.apply(
+        lambda r: get_reg_target_row(r, sales_cols, horizon=30), axis=1
+    )
+    test_df["post_forecast_target"] = test_df.apply(
+        lambda r: get_forecast_target(r, sales_cols), axis=1
+    )
+
+    train_df = fill_train_targets(
+        train_df,
+        [
+            "shifts",
+            "post_target",
+            "post_anomaly_target",
+            "post_amount",
+            "post_forecast_target",
+        ],
+        value=-1,
+    )
+
+    keep_cols = [
+        "store_nbr",
+        "date",
+        "used_in_train",
+        "shifts",
+        "post_amount",
+        "post_target",
+        "post_forecast_target",
+        "post_anomaly_target",
+    ] + sales_cols
+
+    full_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
+    full_df = full_df[keep_cols]
+
+    save_partitioned_parquet(full_df, args.save_path / "full_ntp", 20)
+if __name__ == "__main__":
+    main()
