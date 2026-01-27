@@ -2,17 +2,17 @@
 
 h=128
 mx=3000
-ep=10
+ep=3000
 bs=128
-sl=60
+sl=120
 minsl=2
 pt=9999999
 nl=3
-mf=10
+mf=100
 rnn="lstm"
 ds="${1:-age}"  # dataset name, default "age"
 default_device="3"
-device="${3:-$default_device}"
+device="${2:-$default_device}"
 dpp="../../../embeddings_${ds}_coles.parquet"  # default path
 pp="${3:-$dpp}"  # actual path, use $dpp if $2 is not provided
 md="./pt_${ds}"
