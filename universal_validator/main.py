@@ -24,7 +24,6 @@ def main():
     parser.add_argument('--dataset', type=str, help='Specific dataset to run')
     parser.add_argument('--task-type', type=str, choices=['classification', 'regression', 'anomaly_detection', 'forecast'], help='Specific task type')
     parser.add_argument('--run-all', action='store_true', help='Run all configured experiments')
-    parser.add_argument('--use-existing-embeddings', action='store_true', help='Use existing embeddings')
     parser.add_argument('--list-configs', action='store_true', help='List available configurations')
     parser.add_argument('-pp','--parquet-path', type=str, default=None, help='Path to cache data directory in parquet format')
     # Splitter configuration overrides
@@ -60,7 +59,6 @@ def main():
                 dataset_name=dataset,
                 splitter_name="standard",
                 task_type=TaskType(task_type),
-                use_existing_embeddings=args.use_existing_embeddings,
                 embeddings_path=args.parquet_path,
             )
             reports = [report]

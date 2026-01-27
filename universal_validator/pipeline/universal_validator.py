@@ -7,8 +7,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from ..core.types import TaskType
 from ..core.base_classes import BaseDataset, BaseEmbedder, BaseSplitter, BaseTask
-from ..datasets.age_dataset import AgeDataset
-from ..embedders.coles_embedder import CoLESEmbedder
 from ..splitters.standard_splitter import StandardSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
@@ -22,27 +20,8 @@ class UniversalValidator:
 
     def __init__(self, config: DictConfig):
         self.config = config
-        self.dataset_registry = self._initialize_datasets()
-        self.embedder_registry = self._initialize_embedders()
         self.splitter_registry = self._initialize_splitters()
         self.task_registry = self._initialize_tasks()
-
-    def _initialize_datasets(self) -> Dict[str, BaseDataset]:
-        """Initialize all available datasets"""
-        datasets = {}
-        dataset_configs = self.config.get('datasets', {})
-        
-        # Age dataset
-        if 'age' in dataset_configs:
-            datasets['age'] = AgeDataset(dataset_configs.age)
-        
-        return datasets
-
-    def _initialize_embedders(self) -> Dict[str, BaseEmbedder]:
-        """Initialize all available embedders"""
-        return {
-            'coles': CoLESEmbedder(self.config.embedding)
-        }
 
     def _initialize_splitters(self) -> Dict[str, BaseSplitter]:
         """Initialize all available data splitters"""
@@ -62,25 +41,19 @@ class UniversalValidator:
     def run_pipeline(self,
                     dataset_name: str = 'age',
                     task_type: TaskType = TaskType.CLASSIFICATION,
-                    embedder_name: str = None,
                     splitter_name: str = None,
-                    use_existing_embeddings: bool = False,
                     embeddings_path: str = None) -> Dict[str, Any]:
         """Run complete validation pipeline with task routing"""
         
-        # Get task configuration from router
-        print('embeddings_path',embeddings_path)
         if embeddings_path is None:
             embeddings_path = f'embeddings_{dataset_name}_coles.parquet'
-
+        print('embeddings_path', embeddings_path)
         print(f"Starting {dataset_name} pipeline")
         print(f"  Task: {task_type.value}")
-        print(f"  Embedder: {embedder_name}")
         print(f"  Splitter: {splitter_name}")
         print("=" * 60)
 
-
-        if use_existing_embeddings and os.path.exists(embeddings_path):
+        if os.path.exists(embeddings_path):
             print(f"Loading existing embeddings from {embeddings_path}")
             parquet_df = pd.read_parquet(embeddings_path).dropna()
             embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']), axis=0))
@@ -111,21 +84,9 @@ class UniversalValidator:
             else:
                 raise NotImplimentedError
         else:
-            print("Generating new embeddings...")
-            # 1. Load and preprocess dataset
-            dataset = self.dataset_registry[dataset_name]
-            if not dataset.check():
-                raise ValueError(f"Dataset {dataset_name} check failed")
-
-            sequences_df, targets_df = dataset.load()
-            sequences_df, targets_df = dataset.preprocess(sequences_df, targets_df)
-
-            # 2. Generate or load embeddings
-            embedder = self.embedder_registry[embedder_name]
-            embeddings_df = embedder.fit_transform(sequences_df)
-            # Save embeddings for future use
-            embedder.save_embeddings(embeddings_df, embeddings_path)
-
+            print(f"No embeddings existits {embeddings_path}")
+            return
+        
         # 3. Split data
         splitter = self.splitter_registry[splitter_name]
         split_data = splitter.split(embeddings_df, targets_df, task_type)
