@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(current_dir))
 try:
     from universal_validator.config import load_config
     from universal_validator.pipeline.universal_validator import UniversalValidator
-    from universal_validator.pipeline.task_router import TaskRouter
     from universal_validator.core.types import TaskType
 except ImportError as e:
     print(f"Import error: {e}")
@@ -48,26 +47,14 @@ def main():
         
         # Initialize validator and task router
         validator = UniversalValidator(config)
-        task_router = TaskRouter(config)
-        
-        if args.list_configs:
-            task_router.print_available_configurations()
-            return
-        
+             
         if args.run_all:
             # Run all configured experiments
-            reports = validator.run_all_configured_experiments(
-                use_existing_embeddings=args.use_existing_embeddings
-            )
+            raise NotImplementedError
         else:
             # Run specific experiment
             dataset = args.dataset or 'age'
             task_type = args.task_type or 'classification'
-            
-            if not task_router.validate_dataset_task(dataset, task_type):
-                print(f"Error: Task '{task_type}' not configured for dataset '{dataset}'")
-                task_router.print_available_configurations()
-                return
             
             report = validator.run_pipeline(
                 dataset_name=dataset,

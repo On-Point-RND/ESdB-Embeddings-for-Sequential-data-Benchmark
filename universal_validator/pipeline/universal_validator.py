@@ -14,7 +14,6 @@ from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
 from ..tasks.forecast_task import ForecastTask
 from ..tasks.anomaly_detection_task import AnomalyDetectionTask
-from .task_router import TaskRouter
 from scipy.stats import boxcox
 
 
@@ -23,7 +22,6 @@ class UniversalValidator:
 
     def __init__(self, config: DictConfig):
         self.config = config
-        self.task_router = TaskRouter(config) # seems not yet used properly
         self.dataset_registry = self._initialize_datasets()
         self.embedder_registry = self._initialize_embedders()
         self.splitter_registry = self._initialize_splitters()
@@ -71,13 +69,7 @@ class UniversalValidator:
         """Run complete validation pipeline with task routing"""
         
         # Get task configuration from router
-        task_config = self.task_router.get_task_configuration(dataset_name, task_type.value)
         print('embeddings_path',embeddings_path)
-        # Use configured embedder/splitter or defaults
-        if embedder_name is None:
-            embedder_name = task_config.get('embedder', self.task_router.get_default_embedder())
-        if splitter_name is None:
-            splitter_name = task_config.get('splitter', self.task_router.get_default_splitter())
         if embeddings_path is None:
             embeddings_path = f'embeddings_{dataset_name}_coles.parquet'
 
@@ -150,36 +142,8 @@ class UniversalValidator:
 
     def run_all_configured_experiments(self, use_existing_embeddings: bool = False) -> List[Dict[str, Any]]:
         """Run all experiments configured in task router"""
-        experiments = self.task_router.generate_experiments()
-        all_reports = []
-        
-        print("Running all configured experiments from task router:")
-        self.task_router.print_available_configurations()
-        
-        for exp_config in experiments:
-            try:
-                print(f"\n{'='*80}")
-                print(f"Experiment: {exp_config['dataset']} - {exp_config['task_type'].value}")
-                print(f"Embedder: {exp_config['embedder']}, Splitter: {exp_config['splitter']}")
-                print(f"{'='*80}")
-
-                report = self.run_pipeline(
-                    dataset_name=exp_config['dataset'],
-                    task_type=exp_config['task_type'],
-                    embedder_name=exp_config['embedder'],
-                    splitter_name=exp_config['splitter'],
-                    use_existing_embeddings=use_existing_embeddings
-                )
-                all_reports.append(report)
-
-            except Exception as e:
-                print(f"Experiment failed: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-
-        return all_reports
-
+        pass
+    
     def _generate_report(self, dataset_name: str, embedder_name: str, splitter_name: str,
                         task_type: TaskType, results: Dict[str, Any]) -> Dict[str, Any]:
         """Generate comprehensive validation report"""
