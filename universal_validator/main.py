@@ -29,7 +29,6 @@ def main():
     parser.add_argument('--list-configs', action='store_true', help='List available configurations')
     parser.add_argument('-pp','--parquet-path', type=str, default=None, help='Path to cache data directory in parquet format')
     # Splitter configuration overrides
-    parser.add_argument('--splitter', type=str, choices=['standard', 'last_date', 'client'], help='Override splitter type')
     parser.add_argument('--test-size', type=float, help='Override test size ratio')
     parser.add_argument('--random-state', type=int, help='Override random state')
     
@@ -38,12 +37,7 @@ def main():
     try:
         # Load configuration - use default if not specified
         config = load_config(args.config)
-        
-        # Override splitter config values from command line
-        if args.splitter:
-            config.task_router.default_splitter = args.splitter
-            print(f"Overriding splitter to: {args.splitter}")
-        
+          
         if args.test_size is not None:
             config.splitting.test_size = args.test_size
             print(f"Overriding test_size to: {args.test_size}")
@@ -77,7 +71,7 @@ def main():
             
             report = validator.run_pipeline(
                 dataset_name=dataset,
-                splitter_name=config.task_router.default_splitter,
+                splitter_name="standard",
                 task_type=TaskType(task_type),
                 use_existing_embeddings=args.use_existing_embeddings,
                 embeddings_path=args.parquet_path,

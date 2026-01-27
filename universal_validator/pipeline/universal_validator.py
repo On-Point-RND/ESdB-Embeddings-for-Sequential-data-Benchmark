@@ -10,8 +10,6 @@ from ..core.base_classes import BaseDataset, BaseEmbedder, BaseSplitter, BaseTas
 from ..datasets.age_dataset import AgeDataset
 from ..embedders.coles_embedder import CoLESEmbedder
 from ..splitters.standard_splitter import StandardSplitter
-from ..splitters.lastdate_splitter import LastDateSplitter
-from ..splitters.client_splitter import ClientSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
 from ..tasks.forecast_task import ForecastTask
@@ -52,9 +50,6 @@ class UniversalValidator:
         """Initialize all available data splitters"""
         return {
             'standard': StandardSplitter(self.config.splitting),
-            'last_date': LastDateSplitter(self.config.splitting),
-            'client': ClientSplitter(self.config.splitting),
-            
         }
 
     def _initialize_tasks(self) -> Dict[TaskType, BaseTask]:
