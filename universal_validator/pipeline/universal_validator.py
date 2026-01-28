@@ -96,7 +96,7 @@ class UniversalValidator:
         results = task.execute(split_data, task_type)
 
         # 5. Generate report
-        report = self._generate_report(dataset_name, embedder_name, splitter_name, task_type, results)
+        report = self._generate_report(dataset_name , splitter_name, task_type, results)
 
         print("Pipeline completed successfully!")
         return report
@@ -105,7 +105,7 @@ class UniversalValidator:
         """Run all experiments configured in task router"""
         pass
     
-    def _generate_report(self, dataset_name: str, embedder_name: str, splitter_name: str,
+    def _generate_report(self, dataset_name: str, splitter_name: str,
                         task_type: TaskType, results: Dict[str, Any]) -> Dict[str, Any]:
         """Generate comprehensive validation report"""
 
@@ -130,7 +130,6 @@ class UniversalValidator:
 
         return {
             'dataset': dataset_name,
-            'embedder': embedder_name,
             'splitter': splitter_name,
             'task_type': task_type.value,
             'best_model': best_model,
