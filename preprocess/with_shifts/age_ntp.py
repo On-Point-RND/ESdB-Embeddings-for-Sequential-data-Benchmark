@@ -10,6 +10,7 @@ from pyspark.sql.types import LongType, FloatType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
+    global_time_split,
     duplicate_target_by_shifts,
     fill_train_targets,
     save_partitioned_parquet,
@@ -22,7 +23,7 @@ NUM_FEATURES = ["amount_rur"]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
 TARGET_VALS = [0, 1, 2, 3]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 
 def log_log_transform(y, epsilon=1e-10):
@@ -111,7 +112,7 @@ def main():
     parser.add_argument(
         "--num-shifts",
         help="How many shifts to sample per test user",
-        default=5,
+        default=10,
         type=int,
     )
     parser.add_argument(
@@ -158,70 +159,71 @@ def main():
         order_by=ORDERING_COLUMNS,
     )
 
-    stratify_col, stratify_col_vals = None, None
-    stratify_col = "age"
-    stratify_col_vals = TARGET_VALS
-
-    # stratified splitting on train and test
-
-    ###########################
     df = df.withColumn(
-        "used_in_train", # it means just use - no literally in train.
+        "filtered", # it means just use - no literally in train.
         F.when(F.col("trans_date").isNotNull() & (F.size("trans_date") < 400),
                F.lit(-1)
                ).otherwise(F.lit(0))
     )
     # Здесь удалили все не подходящие начисто
-    df = df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 300  # или любое другое
+    df = df.filter(F.col("filtered") != -1)
 
 
-    # Appendix
     df = df.sort("client_id").toPandas()
 
-    train_df, test_df = pandas_train_test_split(
-        df=df,
+    def compute_shift_end(arr, horizon):
+        arr = np.asarray(arr)
+        return (arr[-1] - arr > horizon).sum() - 1 if len(arr) else -1
+
+    horizon_days = 30
+    df['shift_end'] = df['trans_date'].map(lambda x: compute_shift_end(x, horizon_days))
+
+    train_df, test_df = global_time_split(
+        data=df, 
         test_frac=TEST_FRACTION,
-        index_col="client_id",
-        stratify_col=stratify_col,
-        stratify_col_vals=stratify_col_vals,
-        random_seed=args.split_seed,
+        min_shift_start=2,
+        time_col='trans_date',
+        seqlen_col='_seq_len'
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["used_in_train"] = 1
-    test_df["used_in_train"] = 0
-
-    test_df = add_shift_columns(
-        test_df,
-        shift_start=MAX_LEN,
-        shift_end=test_df["trans_date"].apply(
-            lambda x: (np.asarray(x)[-1] - np.asarray(x) > 30).sum()
-        ),
-        num_shifts=args.num_shifts,
-        seed=args.shift_seed,
+    train_df["shift_end"] = train_df['trans_date'].map(
+        lambda x: compute_shift_end(x, horizon_days)
     )
-    assert (test_df["shift_end"] >= test_df["shift_start"]).all(), "Some rows have shift_end < shift_start"
+
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
+    n_shifts = args.num_shifts
+    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
+    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
+    test_n_shifts = max(1, test_n_shifts)
+    train_n_shifts = max(1, train_n_shifts)
+
+    test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
+    train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
     test_df['post_reg_target'] = test_df.apply(reg_target_row, axis=1)
     test_df['post_target'] = duplicate_target_by_shifts(test_df, "age")
     test_df['post_forecast_target'] = test_df.apply(get_forecast_target, axis=1)
     test_df["post_anomaly_target"] = get_anomaly_target(test_df)
 
-    train_df = fill_train_targets(
-        train_df,
-        [
-            "shifts",
-            "post_reg_target",
-            "post_target",
-            "post_forecast_target",
-            "post_anomaly_target",
-        ],
-        value=-1,
-    )
+    train_df['post_reg_target'] = train_df.apply(reg_target_row, axis=1)
+    train_df['post_target'] = duplicate_target_by_shifts(train_df, "age")
+    train_df['post_forecast_target'] = train_df.apply(get_forecast_target, axis=1)
+    train_df["post_anomaly_target"] = get_anomaly_target(train_df)
 
+    # debug: map shifts to timestamps
+    test_df["debug_f"] = test_df.apply(
+        lambda r: [r["trans_date"][int(s)] if 0 <= int(s) < len(r["trans_date"]) else None for s in r["shifts"]],
+        axis=1,
+    )
+    train_df["debug_f"] = train_df.apply(
+        lambda r: [r["trans_date"][int(s)] if 0 <= int(s) < len(r["trans_date"]) else None for s in r["shifts"]],
+        axis=1,
+    )
     keep_cols = [
         "client_id",
         "age",
@@ -229,17 +231,16 @@ def main():
         "small_group",
         "amount_rur",
         "_seq_len",
-        "used_in_train",
         "shifts",
         "post_reg_target",
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "debug_f",
     ]
 
-    full_df = pd.concat([train_df, test_df], ignore_index=True)
-    full_df = full_df[keep_cols]
-    save_partitioned_parquet(full_df, args.save_path / "full_ntp", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
 
 
 if __name__ == "__main__":
