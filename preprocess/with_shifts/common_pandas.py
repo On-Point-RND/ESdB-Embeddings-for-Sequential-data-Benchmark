@@ -3,8 +3,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+TEST_FRAC = 0.1
+MIN_SHIFT_START = 2
+HORIZON_DAYS = 30
 
-def save_partitioned_parquet(df: pd.DataFrame, save_path: Path, num_shards: int) -> None:
+
+def save_partitioned_parquet(
+    df: pd.DataFrame, save_path: Path, num_shards: int
+) -> None:
     df = df.copy()
     df["shard"] = np.arange(len(df)) % num_shards
     save_path.mkdir(parents=True, exist_ok=True)
@@ -45,7 +51,7 @@ def pandas_train_test_split(
 def sample_shifts(
     row: pd.Series,
     rng: np.random.Generator,
-    n: int,
+    num_shifts: int,
     start_col: str = "shift_start",
     end_col: str = "shift_end",
 ) -> list[int]:
@@ -54,30 +60,79 @@ def sample_shifts(
     if hi < lo:
         return []
     vals = np.arange(lo, hi + 1)
-    replace = n > len(vals)
-    shifts = rng.choice(vals, size=n, replace=replace)
+    num_shifts = min(len(vals), num_shifts)
+    shifts = rng.choice(vals, size=num_shifts, replace=False)
     return np.sort(shifts).tolist()
 
 
 def add_shift_columns(
     df: pd.DataFrame,
-    shift_start,
-    shift_end,
     num_shifts: int,
     seed: int,
-    start_col: str = "shift_start",
-    end_col: str = "shift_end",
     shifts_col: str = "shifts",
 ) -> pd.DataFrame:
-    df = df.copy()
-    df[start_col] = shift_start
-    df[end_col] = shift_end
     rng = np.random.default_rng(seed)
-    df[shifts_col] = df.apply(
-        lambda r: sample_shifts(r, rng, num_shifts, start_col=start_col, end_col=end_col),
-        axis=1,
-    )
+    df[shifts_col] = df.apply(lambda r: sample_shifts(r, rng, num_shifts), axis=1)
     return df
+
+
+def first_true(m):
+    idx = np.flatnonzero(m)
+    return int(idx[0]) if len(idx) else -1
+
+
+def global_time_split(
+    data: pd.DataFrame,
+    test_frac: float,
+    min_shift_start: int = MIN_SHIFT_START,
+    time_col: str = "trans_date",
+    seqlen_col: str = "_seq_len",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+    trans_date = data[time_col].map(np.asarray)
+    shift_end_full = data['shift_end'] # index of last valid element
+
+    valid_times = np.concatenate(
+        [a[: int(e) +1] for a, e in zip(trans_date, shift_end_full) if e >= 0]
+    )
+    assert len(valid_times) > 0, "No valid times for split"
+
+    T = np.quantile(valid_times, 1 - test_frac)
+    is_test = trans_date.map(lambda x: x >= T)
+
+    train = data.copy()
+    array_cols = [
+        c for c in train.columns if isinstance(train[c].iloc[0], (list, np.ndarray))
+    ]
+
+    def trim_row(row):
+        mask = np.asarray(row[time_col]) < T
+        for c in array_cols:
+            row[c] = np.asarray(row[c])[mask]
+        return row
+
+    train = pd.DataFrame(train.apply(trim_row, axis=1, result_type="expand"))
+
+    train["shift_start"] = min_shift_start
+
+    test_mask = pd.Series(
+        [
+            np.any(m[: e+1]) if e >= 0 else False
+            for m, e in zip(is_test, shift_end_full)
+        ],
+        index=data.index,
+    )
+
+    test = data[test_mask].copy()
+
+    test["shift_start"] = is_test.loc[test.index].map(
+        lambda m: max(first_true(m), min_shift_start)
+    )
+
+    train[seqlen_col] = train[time_col].map(len)
+    test[seqlen_col] = test[time_col].map(len)
+
+    return train, test
 
 
 def fill_train_targets(
