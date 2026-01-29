@@ -4,9 +4,19 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
 from typing import Dict, Any
 from omegaconf import DictConfig
+from abc import ABC, abstractmethod
+from ..types import TaskType
 
-from ..core.base_classes import BaseSplitter
-from ..core.types import TaskType
+class BaseSplitter(ABC):
+    """Abstract base class for data splitting strategies"""
+    
+    def __init__(self, config: DictConfig):
+        self.config = config
+    
+    @abstractmethod
+    def split(self, embeddings: pd.DataFrame, targets: pd.DataFrame, task_type: TaskType) -> Dict[str, Any]:
+        """Split data into train/test sets"""
+        pass
 
 class StandardSplitter(BaseSplitter):
     """Standard data splitting pipeline"""

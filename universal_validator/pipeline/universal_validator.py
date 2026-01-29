@@ -5,15 +5,14 @@ import pandas as pd
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from ..core.types import TaskType
-from ..core.base_classes import BaseDataset, BaseEmbedder, BaseSplitter, BaseTask
+
 from ..splitters.standard_splitter import StandardSplitter
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
 from ..tasks.forecast_task import ForecastTask
 from ..tasks.anomaly_detection_task import AnomalyDetectionTask
 from scipy.stats import boxcox
-
+from ..types import TaskType
 
 class UniversalValidator:
     """Main class that orchestrates the entire validation pipeline with task routing"""
@@ -23,13 +22,13 @@ class UniversalValidator:
         self.splitter_registry = self._initialize_splitters()
         self.task_registry = self._initialize_tasks()
 
-    def _initialize_splitters(self) -> Dict[str, BaseSplitter]:
+    def _initialize_splitters(self) -> Dict:
         """Initialize all available data splitters"""
         return {
             'standard': StandardSplitter(self.config.splitting),
         }
 
-    def _initialize_tasks(self) -> Dict[TaskType, BaseTask]:
+    def _initialize_tasks(self) -> Dict:
         """Initialize all available tasks"""
         return {
             TaskType.CLASSIFICATION: ClassificationTask(self.config.downstream),

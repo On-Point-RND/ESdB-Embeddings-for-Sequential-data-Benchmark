@@ -7,9 +7,8 @@ from sklearn.metrics import mean_squared_error, r2_score
 from typing import Dict, Any
 from omegaconf import DictConfig
 import numpy as np
-
-from ..core.base_classes import BaseTask
-from ..core.types import TaskType
+from abc import ABC, abstractmethod
+from ..types import TaskType
 
 from catboost import CatBoostRegressor
 

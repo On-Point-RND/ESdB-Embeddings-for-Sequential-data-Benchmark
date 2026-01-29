@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(current_dir))
 try:
     from universal_validator.config import load_config
     from universal_validator.pipeline.universal_validator import UniversalValidator
-    from universal_validator.core.types import TaskType
+    from universal_validator.types import TaskType
 except ImportError as e:
     print(f"Import error: {e}")
     print("Make sure you're running from the directory that contains universal_validator/")

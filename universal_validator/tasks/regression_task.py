@@ -6,12 +6,22 @@ from sklearn.metrics import mean_squared_error, r2_score
 from typing import Dict, Any
 from omegaconf import DictConfig
 import numpy as np
-
-from ..core.base_classes import BaseTask
-from ..core.types import TaskType
+from abc import ABC, abstractmethod
+from ..types import TaskType
 
 # Import CatBoost
 from catboost import CatBoostRegressor
+
+class BaseTask(ABC):
+    """Abstract base class for all downstream tasks"""
+    
+    def __init__(self, config: DictConfig):
+        self.config = config
+    
+    @abstractmethod
+    def execute(self, split_data: Any, task_type: TaskType) -> Dict[str, Any]:
+        """Execute downstream task"""
+        pass
 
 class RegressionTask(BaseTask):
     """Regression task implementation"""
