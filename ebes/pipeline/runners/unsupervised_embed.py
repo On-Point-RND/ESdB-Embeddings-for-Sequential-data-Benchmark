@@ -53,26 +53,28 @@ class UnsupervisedEmbedRunner(Runner):
 
         trainer.load_best_model()
 
-        df_train_1 = self.df_getter(loaders["train"], trainer)
-        df_train_2 = self.df_getter(loaders["train_val"], trainer)
-        df_all = pd.concat([df_train_1, df_train_2], ignore_index=True)
-        df_test = self.df_getter(test_loaders["test"], trainer)
-        df_all = pd.concat([df_all, df_test], ignore_index=True)
+
+        run_type = config["runner"]["run_type"]
+        if run_type == "simple":
+            df_train_1 = self.df_getter(loaders["train"], trainer)
+            df_train_2 = self.df_getter(loaders["train_val"], trainer)
+            df_all = pd.concat([df_train_1, df_train_2], ignore_index=True)
+            df_test = self.df_getter(test_loaders["test"], trainer)
+            df_all = pd.concat([df_all, df_test], ignore_index=True)
+            embed_file = Path(config["log_dir"]) / config["run_name"] / "embeddings_joined"
+            df_all.to_parquet(embed_file, index=False)
 
         del loaders["train"]  # type: ignore
         train_metrics = trainer.validate(loaders["unsupervised_train"])
         del loaders["full_train"]  # type: ignore
         train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
+        train_val_metrics = {k: -v for k, v in test_metrics.items()}
         del loaders["train_val"]  # type: ignore
-        test_metrics = trainer.validate(test_loaders["test"])
+
 
         train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
         # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
         test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
-
-        embed_file = Path(config["log_dir"]) / config["run_name"] / "embeddings_joined"
-        df_all.to_parquet(embed_file, index=False)
-        # print(dict(**train_metrics, **train_val_metrics, **test_metrics))
         return dict(**train_metrics, **train_val_metrics, **test_metrics)
 
     def param_grid(self, trial, config):
@@ -89,6 +91,9 @@ class UnsupervisedEmbedRunner(Runner):
 
         records = []
         for batch in tqdm(loader, disable=not trainer.verbose):
+            ###
+            # Here should be the function which makes batch much bigger, composed out of all the idx we have in data's ""
+            ###
             batch.to(trainer.device)
             with torch.no_grad():
                 emb = embedding_model(batch)
