@@ -171,3 +171,7 @@ cython_debug/
 # Vim
 .vim
 *.swp
+
+notebooks/local/
+universal_validator/catboost_info/
+catboost_info/

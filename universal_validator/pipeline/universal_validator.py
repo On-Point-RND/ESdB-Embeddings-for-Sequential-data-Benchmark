@@ -92,7 +92,6 @@ class UniversalValidator:
         print(f"  Splitter: {splitter_name}")
         print("=" * 60)
 
-
         if use_existing_embeddings and os.path.exists(embeddings_path):
             print(f"Loading existing embeddings from {embeddings_path}")
             parquet_df = pd.read_parquet(embeddings_path).dropna()
@@ -101,26 +100,26 @@ class UniversalValidator:
             parquet_df = parquet_df.drop('embedding', axis=1)
             embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
             if task_type == TaskType.CLASSIFICATION:
-                targets_df = embeddings_df['post_target'].copy()
+                targets_df = pd.DataFrame({'target': embeddings_df['post_target'].copy()})
             elif task_type == TaskType.FORECAST:
-                targets_df = embeddings_df['post_forecast_target'].copy()
+                targets_df = pd.DataFrame({'target': embeddings_df['post_forecast_target'].copy()})
             elif task_type == TaskType.ANOMALY_DETECTION:
-                targets_df = embeddings_df['post_anomaly_target'].copy()
+                targets_df = pd.DataFrame({'target': embeddings_df['post_anomaly_target'].copy()})
             elif task_type == TaskType.REGRESSION:
+
                 amount_col = sorted([col for col in embeddings_df.columns if 'post_amount' in col])
+
                 assert len(amount_col) > 0
                 amount_col = amount_col[0]
                 target_values = embeddings_df[amount_col].values
                 if hasattr(target_values[0], '__len__'):
-                    if 'age' in dataset_name:
-                        targets_df = pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
+                    raise NotImplementedError('Strange things')
+                    if 'zvuk' in dataset_name:
+                        targets_df = pd.DataFrame({'target': [np.nanmedian(v) for v in target_values]})
                     else:
-                        if 'zvuk' in dataset_name:
-                            targets_df = pd.DataFrame([np.nanmedian(v) for v in target_values], columns=['target'])
-                        else:
-                            targets_df = pd.DataFrame([np.log1p(np.nanmedian(v+1e-10)) for v in target_values], columns=['target'])
+                        targets_df = pd.DataFrame({'target': [np.log1p(np.nanmedian(v + 1e-10)) for v in target_values]})
                 else:
-                    targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
+                    targets_df = pd.DataFrame({'target': embeddings_df[amount_col]})
             else:
                 raise NotImplimentedError
         else:

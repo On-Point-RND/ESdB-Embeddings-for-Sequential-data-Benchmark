@@ -175,7 +175,7 @@ task_router:
       - type: "forecast"
         embedder: "coles"
         splitter: "client"
-    30music:
+    favorita:
       - type: "classification"
         embedder: "coles"
         splitter: "standard"

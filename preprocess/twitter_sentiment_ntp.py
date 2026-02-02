@@ -164,7 +164,7 @@ def main():
         "char_number",
         "_seq_len",
         "post_char",
-        "post_char_number",
+        "post_char_number",        
         "post_anomaly_target",
         "post_amount",
         "post_target",

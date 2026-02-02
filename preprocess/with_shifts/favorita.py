@@ -11,8 +11,7 @@ from ..common import cat_freq
 from .common_pandas import (
     add_shift_columns,
     duplicate_target_by_shifts,
-    fill_train_targets,
-    pandas_train_test_split,
+    global_time_split,
     save_partitioned_parquet,
 )
 
@@ -20,7 +19,7 @@ CAT_FEATURES = []
 INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30) -> list[float]:
     d = np.asarray(row["date"])
@@ -272,45 +271,53 @@ def main():
         how="left",
     )
 
-    stratify_col, stratify_col_vals = None, None
-    stratify_col = "mock_target"
-    stratify_col_vals = TARGET_VALS
-
-    train_df, test_df = pandas_train_test_split(
-        df=df,
-        test_frac=TEST_FRACTION,
-        index_col="store_nbr",
-        stratify_col=stratify_col,
-        stratify_col_vals=stratify_col_vals,
-        random_seed=args.split_seed
-    )
-
-    train_df = train_df.copy()
-    test_df = test_df.copy()
-
-    train_df["used_in_train"] = 1
-    test_df["used_in_train"] = 0
+    # ensure datetime64 for global time split
+    df["date"] = df["date"].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
     sales_cols = [c for c in df.columns if c.endswith("_sales")]
 
     REAL_MONTH = 30  # Checked that it is real month
     # df['days_since_first_tx'] = df['date'].apply(lambda x: (x - x[0]) / np.timedelta64(1, "D"))
-    test_df = add_shift_columns(
-        test_df,
-        shift_start=MAX_LEN,
-        shift_end=test_df["date"].map(len) - 1 - REAL_MONTH,
-        num_shifts=args.num_shifts,
-        seed=args.shift_seed,
-    )
-    assert (test_df["shift_end"] >= test_df["shift_start"]).all(), "Some rows have shift_end < shift_start"
+    df["shift_end"] = df["date"].map(lambda x: len(x) - 1 - REAL_MONTH)
 
     type_codes = pd.Categorical(df["type"]).codes
     df["type_code"] = type_codes
     assert (df["type_code"] >= 0).all(), "Found missing type values; fill or drop before coding"
+
+    train_df, test_df = global_time_split(
+        data=df,
+        test_frac=TEST_FRACTION,
+        min_shift_start=2,
+        time_col="date",
+        seqlen_col="_seq_len",
+    )
+
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    # recompute shift_end for train after trimming
+    train_df["shift_end"] = train_df["date"].map(lambda x: len(x) - 1 - REAL_MONTH)
+
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
+    n_shifts = args.num_shifts
+    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
+    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
+    test_n_shifts = max(1, test_n_shifts)
+    train_n_shifts = max(1, train_n_shifts)
+
+    test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
+    train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
+
     test_df["post_target"] = duplicate_target_by_shifts(test_df, "type_code")
+    train_df["post_target"] = duplicate_target_by_shifts(train_df, "type_code")
 
     anomaly_cities = stores_df.city.value_counts()[stores_df.city.value_counts() == 1].index.tolist()
     test_df["post_anomaly_target"] = test_df.apply(
+        lambda r: [int(r["city"] in anomaly_cities)] * len(r["shifts"]), axis=1
+    )
+    train_df["post_anomaly_target"] = train_df.apply(
         lambda r: [int(r["city"] in anomaly_cities)] * len(r["shifts"]), axis=1
     )
 
@@ -321,32 +328,35 @@ def main():
         lambda r: get_forecast_target(r, sales_cols), axis=1
     )
 
-    train_df = fill_train_targets(
-        train_df,
-        [
-            "shifts",
-            "post_target",
-            "post_anomaly_target",
-            "post_amount",
-            "post_forecast_target",
-        ],
-        value=-1,
+    train_df["post_amount"] = train_df.apply(
+        lambda r: get_reg_target_row(r, sales_cols, horizon=30), axis=1
+    )
+    train_df["post_forecast_target"] = train_df.apply(
+        lambda r: get_forecast_target(r, sales_cols), axis=1
+    )
+
+    # debug: map shifts to timestamps
+    test_df["debug_f"] = test_df.apply(
+        lambda r: [r["date"][int(s)] for s in r["shifts"]],
+        axis=1,
+    )
+    train_df["debug_f"] = train_df.apply(
+        lambda r: [r["date"][int(s)] for s in r["shifts"]],
+        axis=1,
     )
 
     keep_cols = [
         "store_nbr",
         "date",
-        "used_in_train",
         "shifts",
         "post_amount",
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "debug_f",
     ] + sales_cols
 
-    full_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
-    full_df = full_df[keep_cols]
-
-    save_partitioned_parquet(full_df, args.save_path / "full_ntp", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
 if __name__ == "__main__":
     main()
