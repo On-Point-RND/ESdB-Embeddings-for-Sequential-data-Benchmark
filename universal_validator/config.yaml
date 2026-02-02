@@ -1,177 +1,158 @@
-embedding:
-  trx_encoder_params:
-    embeddings_noise: 0.003
-    numeric_values:
-      amount_rur: "identity"
-    embeddings:
-      trans_date:
-        in: 800
-        out: 16
-      small_group:
-        in: 250
-        out: 16
-  seq_encoder_params:
-    hidden_size: 128
-    type: "lstm"
-  training:
-    max_epochs: 2
-    batch_size: 128
-    num_workers: 0
-  min_seq_len: 25
+# config.yaml
+downstream:
+  optuna:
+    enabled: true
+    n_trials: 10
+    cv: 3
+    n_jobs: 4
+    max_threads: 4
+    catboost_threads: 4
+    sampler: 'tpe'
+    pruning: true
+    n_startup_trials: 5
+    pruning_startup: 5
+    pruning_warmup: 10
+  
+  # Optuna hyperparameters configuration
+  optuna_params:
+    # Parameters for MLP models
+    mlp:
+      hidden_layer_sizes:
+        type: categorical
+        choices:
+          - [100, 50]
+          - [64, 32]
+          - [128, 64]
+          - [256, 128]
+          - [64]
+          - [128]
+          - [256]
+      alpha:
+        type: float
+        low: 0.0001
+        high: 0.1
+        log: true
+      learning_rate_init:
+        type: categorical
+        choices: [0.001, 0.01, 0.05, 0.1]
+      batch_size:
+        type: categorical
+        choices: [32, 64, 128, 256]
+      early_stopping:
+        type: categorical
+        choices: [true, false]
+      max_iter:
+        type: int
+        low: 500
+        high: 2000
+        step: 100
+    
+    # Parameters for CatBoost (common for all tasks)
+    catboost:
+      iterations:
+        type: int
+        low: 50
+        high: 1000
+      depth:
+        type: int
+        low: 4
+        high: 12
+      learning_rate:
+        type: float
+        low: 0.001
+        high: 0.3
+        log: true
+      l2_leaf_reg:
+        type: int
+        low: 1
+        high: 13
+      border_count:
+        type: categorical
+        choices: [32, 64, 128, 254]
+      random_strength:
+        type: float
+        low: 0.5
+        high: 5
+      bagging_temperature:
+        type: float
+        low: 0
+        high: 2
+      leaf_estimation_iterations:
+        type: int
+        low: 1
+        high: 20
+      grow_policy:
+        type: categorical
+        choices: ['SymmetricTree', 'Depthwise', 'Lossguide']
+      min_data_in_leaf:
+        type: int
+        low: 1
+        high: 50
+    
+    # Specific parameters for classification tasks
+    catboost_classification:
+      auto_class_weights:
+        type: categorical
+        choices: ['Balanced', 'SqrtBalanced']
+    
+    # Specific parameters for regression tasks
+    catboost_regression:
+      loss_function:
+        type: categorical
+        choices: ['RMSE', 'MAE', 'Quantile', 'LogLinQuantile']
+  
+  # Task-specific configurations
+  classification:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPClassifier
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+      catboost:
+        class: catboost.CatBoostClassifier
+        params:
+          iterations: 100
+          random_state: 42
+          verbose: false
+          thread_count: 1
+  
+  anomaly_detection:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPClassifier
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+      catboost:
+        class: catboost.CatBoostClassifier
+        params:
+          iterations: 100
+          random_state: 42
+          verbose: false
+          thread_count: 1
+          auto_class_weights: Balanced
+  
+  regression:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPRegressor
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+      catboost:
+        class: catboost.CatBoostRegressor
+        params:
+          iterations: 100
+          random_state: 42
+          verbose: false
+          thread_count: 1
+  
+  forecast: {}
 
 splitting:
   test_size: 0.2
   random_state: 42
-
-downstream:
-  classification_models:
-    - "random_forest"
-    - "mlp"
-    - "catboost"
-  regression_models:
-    - "random_forest"
-    - "mlp"
-  optuna:
-    enabled: True
-    n_trials: 10
-    cv: 3
-    n_jobs: 4           # Number of parallel jobs for scikit-learn
-    max_threads: 4      # Maximum threads per model
-    catboost_threads: 4 # Threads for CatBoost internal parallelism
-
-datasets:
-  age:
-    name: "age"
-    version: "1.0"
-    task_type: "classification"
-    features:
-      - "amount_rur"
-      - "small_group"
-      - "trans_date"
-    target: "target"
-    sequence_id: "client_id"
-    timestamp_col: "trans_date"
-    transactions_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/transactions_train.csv.gz"
-    targets_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/train_target.csv"
-
-task_router:
-  default_embedder: "coles"
-  default_splitter: "standard"
-  dataset_tasks:
-    age:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    x5:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    zvuk:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    taobao:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    rossman:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    alpha:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    yambda:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    electric_devices:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    twitter:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"

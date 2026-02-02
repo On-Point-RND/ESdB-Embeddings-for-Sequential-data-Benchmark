@@ -1,69 +1,54 @@
 """Forecast task implementation"""
-from .regression_task import RegressionTask
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import mean_squared_error, r2_score
 from typing import Dict, Any
-from omegaconf import DictConfig
-import numpy as np
-from abc import ABC, abstractmethod
+from omegaconf import DictConfig, OmegaConf
+
+from .regression_task import RegressionTask
 from ..types import TaskType
 
-from catboost import CatBoostRegressor
-
 class ForecastTask(RegressionTask):
-    """Forecast task implementation - inherits completely from RegressionTask"""
+    """Forecast task implementation - inherits from RegressionTask"""
     
-    def __init__(self, config: DictConfig):
-        super().__init__(config)
-        # No changes needed - inherits all functionality from RegressionTask
-        self.models = {
-            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42),
-            'mlp': MLPRegressor(hidden_layer_sizes=(100, 50), random_state=42, max_iter=1000),
-            'catboost': CatBoostRegressor(
-                iterations=100,
-                random_state=42, 
-                verbose=False,
-                thread_count=1
-            )
-        }
+    def _get_task_name(self) -> str:
+        """Get task name for config lookup"""
+        return 'forecast'
+    
+    def _get_supported_task_type(self) -> TaskType:
+        return TaskType.FORECAST
+    
+    def _get_task_specific_config(self) -> DictConfig:
+        """Get task-specific configuration with fallback to regression"""
+        task_name = self._get_task_name()
         
-        # Search spaces for hyperparameter optimization
-        self.search_spaces = {
-            'random_forest': {
-                'n_estimators': [50, 100, 150, 200],
-                'max_depth': [3, 5, 10, 15, 20, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4],
-            },
-            'mlp': {
-                'hidden_layer_sizes': [64, 128],
-                'alpha': [0.0001, 0.001, 0.01, 0.1],
-                'learning_rate_init': [0.001, 0.01, 0.1],
-            },
-            'catboost': {
-                'iterations': [50, 100, 150, 200],
-                'depth': [4, 6, 8, 10],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'l2_leaf_reg': [1, 3, 5, 7, 9],
-            }
-        }
-
+        # Сначала пытаемся получить из новой структуры downstream.optuna.<task_name>
+        if OmegaConf.is_dict(self.downstream_config) and 'optuna' in self.downstream_config:
+            task_config = self.downstream_config.optuna.get(task_name, OmegaConf.create({}))
+            if task_config and OmegaConf.is_dict(task_config) and len(task_config) > 0:
+                return task_config
+        
+        # Если нет, пытаемся получить из старой структуры (прямо в downstream)
+        task_config = self.downstream_config.get(task_name, OmegaConf.create({}))
+        if task_config and OmegaConf.is_dict(task_config) and len(task_config) > 0:
+            return task_config
+        
+        # Если конфиг для forecast пустой, используем конфиг regression
+        regression_config = self.downstream_config.get('regression', OmegaConf.create({}))
+        if regression_config and OmegaConf.is_dict(regression_config) and len(regression_config) > 0:
+            return regression_config
+        
+        # Если и regression конфиг пустой, возвращаем пустой
+        return OmegaConf.create({})
     
     def execute(self, split_data: Dict[str, Any], task_type: TaskType) -> Dict[str, Any]:
-        """Execute forecast task"""
+        """Execute forecast task - add forecast identifier"""
         if task_type != TaskType.FORECAST:
-            raise ValueError("This task only supports forecasting")
+            raise ValueError(f"This task only supports forecasting")
         
         print("Running forecast task...")
-        print("Note: Using regression models for forecasting with different target variables")
         
-        # Call parent's execute method, passing REGRESSION as the task type
-        # since all the models and logic are the same
+        # Use parent's execute method
         results = super().execute(split_data, TaskType.REGRESSION)
         
-        # Add forecast identifier to results
+        # Add forecast identifier
         for name in results:
             results[name]['task_type'] = 'forecast'
             
