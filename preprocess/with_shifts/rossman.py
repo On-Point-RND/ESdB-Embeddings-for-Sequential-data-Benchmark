@@ -7,12 +7,11 @@ import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, FloatType
 
-from common import cat_freq, collect_lists
+from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     duplicate_target_by_shifts,
-    fill_train_targets,
-    pandas_train_test_split,
+    global_time_split,
     save_partitioned_parquet,
 )
 
@@ -23,7 +22,7 @@ ORDERING_COLUMNS = ["Date"]
 INDEX = INDEX_COLUMNS[0]
 TM = ORDERING_COLUMNS[0]
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 def reg_sums_list(row: pd.Series, horizon: int = 30) -> list[float]:
     sales = np.asarray(row["Sales"])
@@ -95,7 +94,7 @@ def main():
     parser.add_argument(
         "--split-seed",
         help="Random seed used to split the data on train and test",
-        default=0,
+        default=1,
         type=int,
     )
     parser.add_argument(
@@ -121,7 +120,7 @@ def main():
     spark = SparkSession.builder.master("local[32]").getOrCreate()  # type: ignore[attr-defined]
 
     df = (
-        spark.read.csv(args.data_path.as_posix(), header=True)
+        spark.read.csv((args.data_path / 'data/train.csv').as_posix(), header=True)
         .withColumn(
             # Переставляем dd.MM.yyyy → yyyy.MM.dd сразу в regexp
             "Date_str",
@@ -176,51 +175,52 @@ def main():
     )
     # Здесь удалили все не подходящие начисто
     full_df = full_df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 300  # или любое другое
-    full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
     full_df = full_df.withColumn(
         "mock_target",
         (F.rand() < 0.5).cast("int")
     )
 
     full_df = full_df.toPandas()
-    store_info_df = pd.read_csv(args.data_path / "store.csv")
+    store_info_df = pd.read_csv(args.data_path / "data/store.csv")
     store_type_map = dict(zip(store_info_df[INDEX], store_info_df["StoreType"]))
     full_df["store_type_letter"] = full_df[INDEX].map(store_type_map)
     type_codes = pd.Categorical(full_df["store_type_letter"]).codes
     assert (type_codes >= 0).all(), "Found missing store_type values; fill or drop before coding"
     full_df["type_code"] = type_codes
 
-    stratify_col, stratify_col_vals = None, None
-    stratify_col = "mock_target"
-    stratify_col_vals = TARGET_VALS
+    # ensure datetime64 for global time split
+    full_df[TM] = full_df[TM].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
-    train_df, test_df = pandas_train_test_split(
-        df=full_df,
+    horizon_reg = 30
+    horizon_anom = 60
+
+    full_df["shift_end"] = full_df[TM].map(lambda x: len(x) - 1 - horizon_anom)
+
+    train_df, test_df = global_time_split(
+        data=full_df,
         test_frac=TEST_FRACTION,
-        index_col=INDEX,
-        stratify_col=stratify_col,
-        stratify_col_vals=stratify_col_vals,
-        random_seed=args.split_seed
+        min_shift_start=2,
+        time_col=TM,
+        seqlen_col="_seq_len",
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["used_in_train"] = 1
-    test_df["used_in_train"] = 0
+    # recompute shift_end for train after trimming
+    train_df["shift_end"] = train_df[TM].map(lambda x: len(x) - 1 - horizon_anom)
 
-    shift_start = MAX_LEN
-    horizon_reg = 30
-    horizon_anom = 60
-    test_df = add_shift_columns(
-        test_df,
-        shift_start=shift_start,
-        shift_end=test_df[TM].map(len) - 1 - horizon_anom,
-        num_shifts=args.num_shifts,
-        seed=args.shift_seed,
-    )
-    assert (test_df["shift_end"] >= test_df["shift_start"]).all(), "Some rows have shift_end < shift_start"
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
+    n_shifts = args.num_shifts
+    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
+    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
+    test_n_shifts = max(1, test_n_shifts)
+    train_n_shifts = max(1, train_n_shifts)
+
+    test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
+    train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
     test_df["post_amount"] = get_reg_target(test_df, horizon=horizon_reg)
     test_df["post_forecast_target"] = test_df.apply(forecast_list, axis=1)
@@ -228,33 +228,33 @@ def main():
     test_df["post_anomaly_target"] = get_anomaly_target(test_df, horizon=horizon_anom, q=0.95)
     test_df["post_target"] = duplicate_target_by_shifts(test_df, "type_code")
 
-    train_df["shift_start"] = -1
-    train_df["shift_end"] = -1
-    train_df = fill_train_targets(
-        train_df,
-        [
-            "shifts",
-            "post_amount",
-            "post_forecast_target",
-            "post_anomaly_target",
-            "post_target",
-        ],
-        value=-1,
+    train_df["post_amount"] = get_reg_target(train_df, horizon=horizon_reg)
+    train_df["post_forecast_target"] = train_df.apply(forecast_list, axis=1)
+    train_df["post_anomaly_target"] = get_anomaly_target(train_df, horizon=horizon_anom, q=0.95)
+    train_df["post_target"] = duplicate_target_by_shifts(train_df, "type_code")
+
+    # debug: map shifts to timestamps
+    test_df["debug_f"] = test_df.apply(
+        lambda r: [r[TM][int(s)] for s in r["shifts"]],
+        axis=1,
+    )
+    train_df["debug_f"] = train_df.apply(
+        lambda r: [r[TM][int(s)] for s in r["shifts"]],
+        axis=1,
     )
 
     keep_cols = INDEX_COLUMNS + [
         TM,
-        "used_in_train",
         "shifts",
         "post_amount",
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "debug_f",
     ] + CAT_FEATURES + NUM_FEATURES
 
-    full_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
-    full_df = full_df[keep_cols]
-    save_partitioned_parquet(full_df, args.save_path / "full_ntp", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
 
 if __name__ == "__main__":
     main()

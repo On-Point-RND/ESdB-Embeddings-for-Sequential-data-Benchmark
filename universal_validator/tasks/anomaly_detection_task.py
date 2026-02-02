@@ -23,11 +23,11 @@ class AnomalyDetectionTask(BaseTask):
         
         # Define models including CatBoost with class weights
         self.models = {
-            'random_forest': RandomForestClassifier(
-                n_estimators=100, 
-                random_state=42,
-                class_weight='balanced'
-            ),
+            # 'random_forest': RandomForestClassifier(
+            #     n_estimators=100, 
+            #     random_state=42,
+            #     class_weight='balanced'
+            # ),
             'mlp': MLPClassifier(
                 hidden_layer_sizes=(100, 50), 
                 random_state=42, 

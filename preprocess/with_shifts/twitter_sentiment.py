@@ -9,7 +9,7 @@ from .common_pandas import save_partitioned_parquet
 
 CAT_FEATURES = ["char"]
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 LOWER_BOUND = 80
 UPPER_BOUND = 150
 
@@ -148,13 +148,9 @@ def main():
     df["char"] = df["char"].map(lambda x: [int(code_map[c]) for c in x])
     df["char_number"] = df["char"].map(lambda x: np.arange(len(x), dtype=np.float32))
 
-    df["used_in_train"] = 0
-
     train_df, test_df = _stratified_split(df, TEST_FRACTION, args.split_seed)
     train_df = train_df.copy()
     test_df = test_df.copy()
-    train_df["used_in_train"] = 1
-    test_df["used_in_train"] = 0
     train_df["shifts"] = [[-1] for _ in range(len(train_df))]
     test_df["shifts"] = [[-1] for _ in range(len(test_df))]
 
@@ -170,7 +166,6 @@ def main():
         "char",
         "char_number",
         "shifts",
-        "used_in_train",
         "_seq_len",
         "post_anomaly_target",
         "post_amount",
@@ -181,8 +176,8 @@ def main():
     train_df = train_df[keep_cols]
     test_df = test_df[keep_cols]
 
-    full_base_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
-    save_partitioned_parquet(full_base_df, args.save_path / "full_ntp", 3)
+    save_partitioned_parquet(train_df, args.save_path / "train", 20)
+    save_partitioned_parquet(test_df, args.save_path / "test", 20)
 
 
 if __name__ == "__main__":
