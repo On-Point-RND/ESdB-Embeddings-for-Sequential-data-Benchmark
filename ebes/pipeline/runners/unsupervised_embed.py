@@ -56,11 +56,11 @@ class UnsupervisedEmbedRunner(Runner):
 
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
-            df_train_1 = self.df_getter(loaders["train"], trainer)
-            df_train_2 = self.df_getter(loaders["train_val"], trainer)
+            df_train_1 = self.df_getter(config, loaders["train"], trainer)
+            df_train_2 = self.df_getter(config, loaders["train_val"], trainer)
             df_all = pd.concat([df_train_1, df_train_2], ignore_index=True)
-            df_test = self.df_getter(test_loaders["test"], trainer)
-            df_all = pd.concat([df_all, df_test], ignore_index=True)
+            #df_test = self.df_getter(config, test_loaders["test"], trainer)
+            #df_all = pd.concat([df_all, df_test], ignore_index=True)
             embed_file = Path(config["log_dir"]) / config["run_name"] / "embeddings_joined"
             df_all.to_parquet(embed_file, index=False)
 
@@ -82,18 +82,23 @@ class UnsupervisedEmbedRunner(Runner):
         return trial, config
 
     @staticmethod
-    def df_getter(loader, trainer):
+    def df_getter(config, loader, trainer):
         assert trainer.model is not None
         embedding_model = trainer.model
         if loader is None:
             raise ValueError("Incorrect loader for embeddings generation")
         logger.info("Embedding generation on one of the loaders started")
 
+        shift_transformer = batch_transformer(config)
+
         records = []
-        for batch in tqdm(loader, disable=not trainer.verbose):
+        for batch_old in tqdm(loader, disable=not trainer.verbose):
             ###
-            # Here should be the function which makes batch much bigger, composed out of all the idx we have in data's ""
+            # Here should be the function which makes batch much bigger, composed out of all the idx we have
+            # in data's "shifts" column
             ###
+            batch = shift_transformer.transform(batch_old)
+
             batch.to(trainer.device)
             with torch.no_grad():
                 emb = embedding_model(batch)
@@ -110,3 +115,107 @@ class UnsupervisedEmbedRunner(Runner):
         df = pd.DataFrame(records)
         logger.info("Embedding generation finished")
         return df
+class batch_transformer():
+    def __init__(self, config):
+        data_path = Path(config["data"]["dataset"]["parquet_path"])
+        index_name=config["data"]["preprocessing"]["index_name"]
+        data_df=pd.read_parquet(data_path, columns=[self.index_name, "shifts"])
+        self.shifts_by_index = (
+            data_df
+            .set_index(index_name)["shifts"]
+            .to_dict()
+        )
+
+
+    def transform(self, batch):
+        device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
+        old_len, old_batch = batch.time.shape
+
+        new_num_features = []
+        new_cat_features = []
+        new_times = []
+        new_lengths = []
+        new_indices = []
+        new_targets = []
+        reps=[]
+        if batch.emb_features is not None:
+            new_emb_features = {k: [] for k in batch.emb_features}
+
+        for b in range(old_batch):
+            old_index = batch.index[b]
+            shifts = self.shifts_by_index[old_index]
+            assert batch.cat_mask is None and batch.num_mask is not None and batch.emb_mask is not None, "mask is not implemented here in batch division"
+            for s in shifts:
+                s = int(s)
+
+                # ---- time ----
+                t = batch.time[:, b]
+                new_t = torch.zeros(old_len, device=device)
+                new_t[:s] = t[:s]
+                new_times.append(new_t)
+
+                # ---- num features ----
+                if batch.emb_features is not None:
+                    for name, emb in batch.emb_features.items():
+                        e = emb[:, :, b]
+                        new_e = torch.zeros_like(e)
+                        new_e[:, :s] = e[:, :s]
+                        new_emb_features[name].append(new_e)
+
+                # ---- num features ----
+                if batch.num_features is not None:
+                    nf = batch.num_features[:, b, :]
+                    new_nf = torch.zeros_like(nf)
+                    new_nf[:s] = nf[:s]
+                    new_num_features.append(new_nf)
+
+                # ---- cat features ----
+                if batch.cat_features is not None:
+                    cf = batch.cat_features[:, b, :]
+                    new_cf = torch.zeros_like(cf)
+                    new_cf[:s] = cf[:s]
+                    new_cat_features.append(new_cf)
+
+                # ---- target ----
+                if batch.target is not None:
+                    new_targets.append(batch.target[b])
+                # ---- length ----
+                new_lengths.append(s)
+                # ---- index ----
+                new_indices.append(f"{old_index.item()}__{s}")
+
+        # stack
+        if batch.target is not None:
+            new_target = torch.stack(new_targets, dim=1)
+        new_time = torch.stack(new_times, dim=1)
+        new_lengths = torch.tensor(new_lengths, device=device)
+        new_index = new_indices
+
+        batch.emb_features = ({
+            name: torch.stack(lst, dim=2)
+            for name, lst in new_emb_features.items()
+        } if batch.emb_features is not None else None)
+
+        new_num_features = (
+            torch.stack(new_num_features, dim=1)
+            if batch.num_features is not None else None
+        )
+
+        new_cat_features = (
+            torch.stack(new_cat_features, dim=1)
+            if batch.cat_features is not None else None
+        )
+        return Batch(
+            lengths=new_lengths,
+            time=new_time,
+            index=new_index,
+            target=new_target,  # если target уже задублирован по shifts — ок
+            num_features=new_num_features,
+            cat_features=new_cat_features,
+            emb_features=new_emb_features,
+            cat_features_names=batch.cat_features_names,
+            num_features_names=batch.num_features_names,
+            emb_features_names=batch.emb_features_names,
+        )
+
+

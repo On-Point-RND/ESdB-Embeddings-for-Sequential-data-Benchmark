@@ -76,7 +76,7 @@ optimizer:
 
 optuna:
   params:
-    n_trials: 2
+    n_trials: 70
     n_startup_trials: 5
     request_list: 
       - 'optimizer.params.weight_decay': 1.e-08
