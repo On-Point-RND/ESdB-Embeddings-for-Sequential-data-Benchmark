@@ -9,8 +9,7 @@ from pyspark.sql.types import FloatType
 from ..common import collect_lists
 from .common_pandas import (
     add_shift_columns,
-    fill_train_targets,
-    pandas_train_test_split,
+    global_time_split,
     save_partitioned_parquet,
 )
 
@@ -19,7 +18,7 @@ CAT_FEATURES = []
 INDEX_COLUMNS = ["week_id"]
 ORDERING_COLUMNS = []
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 
 def get_forecast_target_row(row: pd.Series) -> list[float]:
@@ -28,7 +27,7 @@ def get_forecast_target_row(row: pd.Series) -> list[float]:
     for s in row["shifts"]:
         s = int(s)
         window = ot[s:]
-        out.append(float(np.log1p(np.nanmedian(window))) if len(window) else 0.0)
+        out.append(float(np.nanmedian(window)) if len(window) else 0.0)
     return out
 
 
@@ -138,48 +137,59 @@ def main():
 
     ###########################
     full_df = full_df.withColumn(
-        "used_in_train", F.when(F.size("date") < 650, F.lit(-1)).otherwise(F.lit(0))
+        "filtered", F.when(F.size("date") < 650, F.lit(-1)).otherwise(F.lit(0))
     )
     # Здесь удалили все не подходящие начисто
-    full_df = full_df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 192  # или любое другое
-    full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
+    full_df = full_df.filter(F.col("filtered") != -1)
 
     full_df = full_df.withColumn("mock_target", (F.rand() < 0.5).cast("int"))
 
     full_df = full_df.toPandas()
 
-    stratify_col, stratify_col_vals = None, None
-    stratify_col = "mock_target"
-    stratify_col_vals = TARGET_VALS
+    # ensure datetime64 for global time split
+    full_df["date"] = full_df["date"].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
-    train_df, test_df = pandas_train_test_split(
-        df=full_df,
+    # shift_end as index of last valid shift (len - 2)
+    full_df["shift_end"] = full_df["date"].map(lambda x: len(x) - 2)
+
+    train_df, test_df = global_time_split(
+        data=full_df,
         test_frac=TEST_FRACTION,
-        index_col="week_id",
-        stratify_col=stratify_col,
-        stratify_col_vals=stratify_col_vals,
-        random_seed=args.split_seed,
+        min_shift_start=2,
+        time_col="date",
+        seqlen_col="_seq_len",
     )
-
+    breakpoint()
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["used_in_train"] = 1
-    test_df["used_in_train"] = 0
+    # recompute shift_end for train after trimming
+    train_df["shift_end"] = train_df["date"].map(lambda x: len(x) - 2)
 
-    test_df = add_shift_columns(
-        test_df,
-        shift_start=MAX_LEN,
-        shift_end=test_df["date"].map(len) - 2,
-        num_shifts=args.num_shifts,
-        seed=args.shift_seed,
-    )
-    assert (test_df["shift_end"] >= test_df["shift_start"]).all(), "Some rows have shift_end < shift_start"
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
+    n_shifts = args.num_shifts
+    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
+    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
+    test_n_shifts = max(1, test_n_shifts)
+    train_n_shifts = max(1, train_n_shifts)
+
+    test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
+    train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
     test_df["post_forecast_target"] = test_df.apply(get_forecast_target_row, axis=1)
+    train_df["post_forecast_target"] = train_df.apply(get_forecast_target_row, axis=1)
 
-    train_df = fill_train_targets(train_df, ["shifts", "post_forecast_target"], value=-1)
+    # debug: map shifts to timestamps
+    test_df["debug_f"] = test_df.apply(
+        lambda r: [r["date"][int(s)] for s in r["shifts"]],
+        axis=1,
+    )
+    train_df["debug_f"] = train_df.apply(
+        lambda r: [r["date"][int(s)] for s in r["shifts"]],
+        axis=1,
+    )
     feature_cols = [
         "date",
         "HULL",
@@ -194,19 +204,17 @@ def main():
     meta_cols = [
         "week_id",
         "_seq_len",
-        "_last_date",
-        "used_in_train",
         "mock_target",
     ]
     target_cols = [
         "shifts",
         "post_forecast_target",
+        "debug_f",
     ]
     keep_cols = meta_cols + feature_cols + target_cols
 
-    full_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
-    full_df = full_df[keep_cols]
-    save_partitioned_parquet(full_df, args.save_path / "full_ntp", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
 
 
 if __name__ == "__main__":

@@ -12,9 +12,7 @@ from .common_pandas import (
     add_shift_columns,
     global_time_split,
     duplicate_target_by_shifts,
-    fill_train_targets,
     save_partitioned_parquet,
-    pandas_train_test_split
 )
 
 
@@ -165,9 +163,8 @@ def main():
                F.lit(-1)
                ).otherwise(F.lit(0))
     )
-    # Здесь удалили все не подходящие начисто
-    df = df.filter(F.col("filtered") != -1)
 
+    df = df.filter(F.col("filtered") != -1)
 
     df = df.sort("client_id").toPandas()
 
@@ -179,7 +176,7 @@ def main():
     df['shift_end'] = df['trans_date'].map(lambda x: compute_shift_end(x, horizon_days))
 
     train_df, test_df = global_time_split(
-        data=df, 
+        data=df,
         test_frac=TEST_FRACTION,
         min_shift_start=2,
         time_col='trans_date',
@@ -217,11 +214,11 @@ def main():
 
     # debug: map shifts to timestamps
     test_df["debug_f"] = test_df.apply(
-        lambda r: [r["trans_date"][int(s)] if 0 <= int(s) < len(r["trans_date"]) else None for s in r["shifts"]],
+        lambda r: [r["trans_date"][int(s)] for s in r["shifts"]],
         axis=1,
     )
     train_df["debug_f"] = train_df.apply(
-        lambda r: [r["trans_date"][int(s)] if 0 <= int(s) < len(r["trans_date"]) else None for s in r["shifts"]],
+        lambda r: [r["trans_date"][int(s)] for s in r["shifts"]],
         axis=1,
     )
     keep_cols = [

@@ -113,6 +113,8 @@ def global_time_split(
 
     train = pd.DataFrame(train.apply(trim_row, axis=1, result_type="expand"))
 
+    train = train[train[time_col].map(len) > 0].copy()
+
     train["shift_start"] = min_shift_start
 
     test_mask = pd.Series(

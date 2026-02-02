@@ -26,7 +26,7 @@ class ClassificationTask(BaseTask):
         
         # Define models including CatBoost
         self.models = {
-            'random_forest': RandomForestClassifier(random_state=42),
+            # 'random_forest': RandomForestClassifier(random_state=42),
             'mlp': MLPClassifier(random_state=42, max_iter=1000),
             'catboost': CatBoostClassifier(random_state=42, verbose=False, thread_count=1)
         }
