@@ -22,7 +22,7 @@ ORDERING_COLUMNS = ["Date"]
 INDEX = INDEX_COLUMNS[0]
 TM = ORDERING_COLUMNS[0]
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 def reg_sums_list(row: pd.Series, horizon: int = 30) -> list[float]:
     sales = np.asarray(row["Sales"])

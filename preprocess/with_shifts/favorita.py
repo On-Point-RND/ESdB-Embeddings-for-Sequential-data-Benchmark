@@ -19,7 +19,7 @@ CAT_FEATURES = []
 INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
 TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.5
+TEST_FRACTION = 0.1
 
 def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30) -> list[float]:
     d = np.asarray(row["date"])
