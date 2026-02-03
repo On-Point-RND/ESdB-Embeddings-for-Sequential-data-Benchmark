@@ -28,7 +28,7 @@ class HPOOptimizer:
         
         print(f"  Optimizing {model_name}...")
         study = optuna.create_study(
-            direction=self._get_direction(),
+            direction=('minimize' if self.task.scoring in ['mse', 'mae', 'rmse'] else 'maximize'),
             study_name=f"{model_name}_{self.task.CONFIG_SECTION}"
         )
         
@@ -36,17 +36,14 @@ class HPOOptimizer:
             objective = self._create_objective(model_name, base_model, X_train, y_train)
             show_progress_bar = self.hpo_config.get('show_progress_bar', True)
             study.optimize(objective, n_trials=self.hpo_config.get('n_trials', 50), show_progress_bar=show_progress_bar)
-            
             best_params = self._clean_params(model_name, study.best_params)
             final_model = base_model.__class__(**{**base_model.get_params(), **best_params})
             final_model.fit(X_train, y_train)
-            
             cv_results = {
                 'best_score': study.best_value,
                 'best_params': best_params,
                 'failed': False
             }
-            
             print(f"  Best CV: {study.best_value:.4f}")
             return final_model, cv_results
             
@@ -54,18 +51,15 @@ class HPOOptimizer:
             print(f"  Optuna failed: {e}")
             base_model.fit(X_train, y_train)
             return base_model, {'failed': True}
-    
-    def _get_direction(self) -> str:
-        return 'minimize' if self.task.scoring in ['mse', 'mae', 'rmse'] else 'maximize'
-    
+
     def _create_objective(self, model_name: str, base_model: BaseEstimator, X: np.ndarray, y: np.ndarray):
         
         def objective(trial):
             params = {}
             for param_name, param_values in self.search_spaces.get(model_name, {}).items():
                 suggestion = self._suggest_param(trial, model_name, param_name, param_values)
-                if suggestion: params.update(suggestion)
-            
+                if suggestion: 
+                    params.update(suggestion)
             try:
                 model = base_model.__class__(**{**base_model.get_params(), **params})
                 cv = self.hpo_config.get('cv', 3)
@@ -73,7 +67,7 @@ class HPOOptimizer:
                 scores = cross_val_score(model, X, y, cv=kf, scoring=self._get_scoring_function())
                 return scores.mean()
             except:
-                return float('-inf') if self._get_direction() == 'maximize' else float('inf')
+                return float('inf')
         
         return objective
     
