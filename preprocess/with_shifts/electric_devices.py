@@ -8,15 +8,20 @@ from pyspark.sql import SparkSession, Window
 
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     duplicate_target_by_shifts,
+    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    shift_end_by_len,
+    split_num_shifts,
 )
 
 
 INDEX_COLUMNS = ["sequence_id"]
 TEST_FRACTION = 0.1
-
+ORDERING_COLUMNS = ["time"]
+TM = ORDERING_COLUMNS[0]
 
 def get_forecast_target_row(row: pd.Series) -> list[float]:
     seq = np.asarray(row["sequence"])
@@ -73,19 +78,15 @@ def main():
     full_df = rows_df
 
     full_df = full_df.withColumn(
-        "filtered",
-        F.when(F.size("sequence") < 90, F.lit(-1)).otherwise(F.lit(0)),
-    )
-    full_df = full_df.filter(F.col("filtered") != -1)
-
-    full_df = full_df.withColumn(
         "time", F.expr("transform(sequence, (x, i) -> cast(i + 1 as float))")
     )
 
     df = full_df.toPandas()
+    full_df["_seq_len"] = full_df[TM].map(len)
+    df = filter_short(df)
 
     # shift_end as index of last valid shift (len - 2)
-    df["shift_end"] = df["sequence"].map(lambda x: len(x) - 2)
+    df["shift_end"] = shift_end_by_len(df["sequence"], -2)
 
     train_df, test_df = global_time_split(
         data=df,
@@ -99,16 +100,12 @@ def main():
     test_df = test_df.copy()
 
     # recompute shift_end for train after trimming
-    train_df["shift_end"] = train_df["sequence"].map(lambda x: len(x) - 2)
+    train_df["shift_end"] = shift_end_by_len(train_df["sequence"], -2)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    n_shifts = args.num_shifts
-    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
-    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
-    test_n_shifts = max(1, test_n_shifts)
-    train_n_shifts = max(1, train_n_shifts)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -120,14 +117,8 @@ def main():
     train_df["post_target"] = duplicate_target_by_shifts(train_df, "target")
 
     # debug: map shifts to timestamps
-    test_df["debug_f"] = test_df.apply(
-        lambda r: [r["time"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
-    train_df["debug_f"] = train_df.apply(
-        lambda r: [r["time"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
+    test_df = add_debug_f(test_df, time_col="time")
+    train_df = add_debug_f(train_df, time_col="time")
 
     keep_cols = [
         "sequence_id",

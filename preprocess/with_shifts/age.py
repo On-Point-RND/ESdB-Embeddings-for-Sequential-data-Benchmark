@@ -10,9 +10,12 @@ from pyspark.sql.types import LongType, FloatType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     global_time_split,
     duplicate_target_by_shifts,
     save_partitioned_parquet,
+    filter_short,
+    split_num_shifts,
 )
 
 
@@ -22,6 +25,7 @@ INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
 TARGET_VALS = [0, 1, 2, 3]
 TEST_FRACTION = 0.1
+TM = ORDERING_COLUMNS[0]
 
 
 def log_log_transform(y, epsilon=1e-10):
@@ -157,47 +161,37 @@ def main():
         order_by=ORDERING_COLUMNS,
     )
 
-    df = df.withColumn(
-        "filtered", # it means just use - no literally in train.
-        F.when(F.col("trans_date").isNotNull() & (F.size("trans_date") < 400),
-               F.lit(-1)
-               ).otherwise(F.lit(0))
-    )
-
-    df = df.filter(F.col("filtered") != -1)
-
     df = df.sort("client_id").toPandas()
+    df['_seq_len'] = df[TM].apply(len)
+    
+    df = filter_short(df)
 
     def compute_shift_end(arr, horizon):
         arr = np.asarray(arr)
         return (arr[-1] - arr > horizon).sum() - 1 if len(arr) else -1
 
     horizon_days = 30
-    df['shift_end'] = df['trans_date'].map(lambda x: compute_shift_end(x, horizon_days))
+    df['shift_end'] = df[TM].map(lambda x: compute_shift_end(x, horizon_days))
 
     train_df, test_df = global_time_split(
         data=df,
         test_frac=TEST_FRACTION,
         min_shift_start=2,
-        time_col='trans_date',
+        time_col=TM,
         seqlen_col='_seq_len'
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["shift_end"] = train_df['trans_date'].map(
+    train_df["shift_end"] = train_df[TM].map(
         lambda x: compute_shift_end(x, horizon_days)
     )
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    n_shifts = args.num_shifts
-    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
-    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
-    test_n_shifts = max(1, test_n_shifts)
-    train_n_shifts = max(1, train_n_shifts)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -212,19 +206,12 @@ def main():
     train_df['post_forecast_target'] = train_df.apply(get_forecast_target, axis=1)
     train_df["post_anomaly_target"] = get_anomaly_target(train_df)
 
-    # debug: map shifts to timestamps
-    test_df["debug_f"] = test_df.apply(
-        lambda r: [r["trans_date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
-    train_df["debug_f"] = train_df.apply(
-        lambda r: [r["trans_date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
     keep_cols = [
         "client_id",
         "age",
-        "trans_date",
+        TM,
         "small_group",
         "amount_rur",
         "_seq_len",

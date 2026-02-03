@@ -10,9 +10,13 @@ from pyspark.sql.types import LongType, FloatType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     duplicate_target_by_shifts,
+    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    shift_end_by_len,
+    split_num_shifts,
 )
 
 CAT_FEATURES = ["DayOfWeek", "Open", "Promo", "StateHoliday", "SchoolHoliday"]
@@ -166,21 +170,10 @@ def main():
             rows_df = rows_df.withColumnRenamed(col_name, col_name.replace("_list", ""))
     full_df = rows_df
 
-    ###########################
-    full_df = full_df.withColumn(
-        "used_in_train",
-        F.when(F.col(TM).isNotNull() & (F.size(TM) < 400),
-               F.lit(-1)
-               ).otherwise(F.lit(0))
-    )
-    # Здесь удалили все не подходящие начисто
-    full_df = full_df.filter(F.col("used_in_train") != -1)
-    full_df = full_df.withColumn(
-        "mock_target",
-        (F.rand() < 0.5).cast("int")
-    )
-
     full_df = full_df.toPandas()
+    full_df['_seq_len'] = full_df[TM].apply(len)
+    full_df = filter_short(full_df)
+
     store_info_df = pd.read_csv(args.data_path / "data/store.csv")
     store_type_map = dict(zip(store_info_df[INDEX], store_info_df["StoreType"]))
     full_df["store_type_letter"] = full_df[INDEX].map(store_type_map)
@@ -194,7 +187,7 @@ def main():
     horizon_reg = 30
     horizon_anom = 60
 
-    full_df["shift_end"] = full_df[TM].map(lambda x: len(x) - 1 - horizon_anom)
+    full_df["shift_end"] = shift_end_by_len(full_df[TM], -1 - horizon_anom)
 
     train_df, test_df = global_time_split(
         data=full_df,
@@ -208,16 +201,12 @@ def main():
     test_df = test_df.copy()
 
     # recompute shift_end for train after trimming
-    train_df["shift_end"] = train_df[TM].map(lambda x: len(x) - 1 - horizon_anom)
+    train_df["shift_end"] = shift_end_by_len(train_df[TM], -1 - horizon_anom)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    n_shifts = args.num_shifts
-    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
-    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
-    test_n_shifts = max(1, test_n_shifts)
-    train_n_shifts = max(1, train_n_shifts)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -234,14 +223,8 @@ def main():
     train_df["post_target"] = duplicate_target_by_shifts(train_df, "type_code")
 
     # debug: map shifts to timestamps
-    test_df["debug_f"] = test_df.apply(
-        lambda r: [r[TM][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
-    train_df["debug_f"] = train_df.apply(
-        lambda r: [r[TM][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
 
     keep_cols = INDEX_COLUMNS + [
         TM,

@@ -5,13 +5,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .common_pandas import save_partitioned_parquet
+from .common_pandas import save_partitioned_parquet, filter_short
 
 CAT_FEATURES = ["char"]
 TARGET_VALS = [0, 1]
 TEST_FRACTION = 0.1
-LOWER_BOUND = 80
-UPPER_BOUND = 150
 
 
 def get_reg_target(data: pd.DataFrame) -> pd.Series:
@@ -131,8 +129,7 @@ def main():
     df["char"] = df["clean_tweet"].map(list)
     df["_seq_len"] = df["char"].map(len)
 
-    save_mask = (df["_seq_len"] > LOWER_BOUND) & (df["_seq_len"] < UPPER_BOUND)
-    df = df[save_mask].copy()
+    df = filter_short(df)
 
     filtered_text = "".join(df["clean_tweet"].tolist())
     char_counts = Counter(filtered_text)

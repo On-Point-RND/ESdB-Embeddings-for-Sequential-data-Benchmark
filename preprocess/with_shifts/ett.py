@@ -9,14 +9,19 @@ from pyspark.sql.types import FloatType
 from ..common import collect_lists
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
+    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    shift_end_by_len,
+    split_num_shifts,
 )
 
 
 CAT_FEATURES = []
 INDEX_COLUMNS = ["week_id"]
-ORDERING_COLUMNS = []
+ORDERING_COLUMNS = ["date"]
+TM = ORDERING_COLUMNS[0]
 TARGET_VALS = [0, 1]
 TEST_FRACTION = 0.1
 
@@ -135,22 +140,13 @@ def main():
     w = Window.orderBy("transformer", "week")
     full_df = full_df.withColumn("week_id", F.dense_rank().over(w))
 
-    ###########################
-    full_df = full_df.withColumn(
-        "filtered", F.when(F.size("date") < 650, F.lit(-1)).otherwise(F.lit(0))
-    )
-    # Здесь удалили все не подходящие начисто
-    full_df = full_df.filter(F.col("filtered") != -1)
-
-    full_df = full_df.withColumn("mock_target", (F.rand() < 0.5).cast("int"))
-
     full_df = full_df.toPandas()
 
-    # ensure datetime64 for global time split
     full_df["date"] = full_df["date"].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
+    full_df["_seq_len"] = full_df[TM].map(len)
+    full_df = filter_short(full_df)
 
-    # shift_end as index of last valid shift (len - 2)
-    full_df["shift_end"] = full_df["date"].map(lambda x: len(x) - 2)
+    full_df["shift_end"] = shift_end_by_len(full_df["date"], -2)
 
     train_df, test_df = global_time_split(
         data=full_df,
@@ -159,21 +155,17 @@ def main():
         time_col="date",
         seqlen_col="_seq_len",
     )
-    breakpoint()
+
     train_df = train_df.copy()
     test_df = test_df.copy()
 
     # recompute shift_end for train after trimming
-    train_df["shift_end"] = train_df["date"].map(lambda x: len(x) - 2)
+    train_df["shift_end"] = shift_end_by_len(train_df["date"], -2)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    n_shifts = args.num_shifts
-    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
-    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
-    test_n_shifts = max(1, test_n_shifts)
-    train_n_shifts = max(1, train_n_shifts)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -182,14 +174,8 @@ def main():
     train_df["post_forecast_target"] = train_df.apply(get_forecast_target_row, axis=1)
 
     # debug: map shifts to timestamps
-    test_df["debug_f"] = test_df.apply(
-        lambda r: [r["date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
-    train_df["debug_f"] = train_df.apply(
-        lambda r: [r["date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
+    test_df = add_debug_f(test_df, time_col="date")
+    train_df = add_debug_f(train_df, time_col="date")
     feature_cols = [
         "date",
         "HULL",
@@ -204,7 +190,6 @@ def main():
     meta_cols = [
         "week_id",
         "_seq_len",
-        "mock_target",
     ]
     target_cols = [
         "shifts",
