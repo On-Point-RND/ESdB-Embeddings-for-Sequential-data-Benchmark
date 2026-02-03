@@ -6,6 +6,8 @@ downstream:
     cv: 3
     n_jobs: 4
     max_threads: 4
+    verbose: false # show detailed log
+    show_progress_bar: true # show progess bar
   
   # Search spaces for Optuna
   search_spaces:

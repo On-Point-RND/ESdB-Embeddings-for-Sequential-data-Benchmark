@@ -1,9 +1,11 @@
 from typing import Dict, Any, List, Optional
 from omegaconf import DictConfig, OmegaConf
 import numpy as np
+import optuna.logging
 from sklearn.base import BaseEstimator
 from ..types import TaskType
 from .hpo_optimizer import HPOOptimizer
+
 
 class BaseTask:
     TASK_TYPE = None
@@ -20,10 +22,14 @@ class BaseTask:
         self.use_hpo = self.hpo_config.get('enabled', False)
         self.scoring = self.task_config.get('scoring', self.DEFAULT_SCORING)
         self.models = self._init_models()
+        self.verbose = self.hpo_config.get('verbose', True)
+        if not self.verbose:
+            optuna.logging.set_verbosity(optuna.logging.ERROR)
         if self.use_hpo:
             self.hpo_optimizer = HPOOptimizer(self.config, self)
         if not self.models:
             print(f"Info: No models for {self.CONFIG_SECTION}")
+        
     
     def _init_models(self) -> Dict[str, BaseEstimator]:
         models_config = self.task_config.get('models', OmegaConf.create({}))

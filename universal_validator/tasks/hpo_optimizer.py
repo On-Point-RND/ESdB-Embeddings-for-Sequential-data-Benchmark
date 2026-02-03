@@ -34,7 +34,8 @@ class HPOOptimizer:
         
         try:
             objective = self._create_objective(model_name, base_model, X_train, y_train)
-            study.optimize(objective, n_trials=self.hpo_config.get('n_trials', 50), show_progress_bar=True)
+            show_progress_bar = self.hpo_config.get('show_progress_bar', True)
+            study.optimize(objective, n_trials=self.hpo_config.get('n_trials', 50), show_progress_bar=show_progress_bar)
             
             best_params = self._clean_params(model_name, study.best_params)
             final_model = base_model.__class__(**{**base_model.get_params(), **best_params})
