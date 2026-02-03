@@ -1,108 +1,75 @@
-# config.yaml
 downstream:
-  optuna:
+  # Hyperparameter optimization settings
+  hpo:
     enabled: true
     n_trials: 10
     cv: 3
-    n_jobs: 4
-    max_threads: 4
-    catboost_threads: 4
-    sampler: 'tpe'
-    pruning: true
-    n_startup_trials: 5
-    pruning_startup: 5
-    pruning_warmup: 10
+    n_jobs: 1
   
-  # Optuna hyperparameters configuration
-  optuna_params:
-    # Parameters for MLP models
+  # Search spaces for Optuna
+  search_spaces:
     mlp:
       hidden_layer_sizes:
-        type: categorical
-        choices:
-          - [100, 50]
-          - [64, 32]
-          - [128, 64]
-          - [256, 128]
-          - [64]
-          - [128]
-          - [256]
+        - [64]
+        - [128]
+        - [256]
+        - [64, 32]
+        - [128, 64]
       alpha:
-        type: float
         low: 0.0001
         high: 0.1
         log: true
       learning_rate_init:
-        type: categorical
-        choices: [0.001, 0.01, 0.05, 0.1]
+        low: 0.001
+        high: 0.1
+        log: true
       batch_size:
-        type: categorical
-        choices: [32, 64, 128, 256]
-      early_stopping:
-        type: categorical
-        choices: [true, false]
-      max_iter:
-        type: int
-        low: 500
-        high: 2000
-        step: 100
+        - 32
+        - 64
+        - 128
+        - 256
+      activation:
+        - 'relu'
+        - 'tanh'
+      solver:
+        - 'adam'
+        - 'sgd'
     
-    # Parameters for CatBoost (common for all tasks)
-    catboost:
-      iterations:
-        type: int
-        low: 50
+    lgbm:
+      n_estimators:
+        low: 100
         high: 1000
-      depth:
-        type: int
-        low: 4
+      max_depth:
+        low: 3
         high: 12
+      num_leaves:
+        low: 10
+        high: 200
       learning_rate:
-        type: float
         low: 0.001
         high: 0.3
         log: true
-      l2_leaf_reg:
-        type: int
-        low: 1
-        high: 13
-      border_count:
-        type: categorical
-        choices: [32, 64, 128, 254]
-      random_strength:
-        type: float
-        low: 0.5
-        high: 5
-      bagging_temperature:
-        type: float
-        low: 0
-        high: 2
-      leaf_estimation_iterations:
-        type: int
-        low: 1
-        high: 20
-      grow_policy:
-        type: categorical
-        choices: ['SymmetricTree', 'Depthwise', 'Lossguide']
-      min_data_in_leaf:
-        type: int
-        low: 1
-        high: 50
-    
-    # Specific parameters for classification tasks
-    catboost_classification:
-      auto_class_weights:
-        type: categorical
-        choices: ['Balanced', 'SqrtBalanced']
-    
-    # Specific parameters for regression tasks
-    catboost_regression:
-      loss_function:
-        type: categorical
-        choices: ['RMSE', 'MAE', 'Quantile', 'LogLinQuantile']
+      subsample:
+        low: 0.6
+        high: 1.0
+      colsample_bytree:
+        low: 0.6
+        high: 1.0
+      reg_alpha:
+        low: 1e-8
+        high: 10.0
+        log: true
+      reg_lambda:
+        low: 1e-8
+        high: 10.0
+        log: true
+      min_child_samples:
+        low: 5
+        high: 100
   
-  # Task-specific configurations
+  # Task configurations
   classification:
+    scoring: accuracy
     models:
       mlp:
         class: sklearn.neural_network.MLPClassifier
@@ -110,15 +77,19 @@ downstream:
           hidden_layer_sizes: [100, 50]
           random_state: 42
           max_iter: 1000
-      catboost:
-        class: catboost.CatBoostClassifier
-        params:
-          iterations: 100
-          random_state: 42
+          early_stopping: true
+          validation_fraction: 0.1
           verbose: false
-          thread_count: 1
+      lgbm:
+        class: lightgbm.LGBMClassifier
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
   
   anomaly_detection:
+    scoring: roc_auc
     models:
       mlp:
         class: sklearn.neural_network.MLPClassifier
@@ -126,16 +97,20 @@ downstream:
           hidden_layer_sizes: [100, 50]
           random_state: 42
           max_iter: 1000
-      catboost:
-        class: catboost.CatBoostClassifier
-        params:
-          iterations: 100
-          random_state: 42
+          early_stopping: true
+          validation_fraction: 0.1
           verbose: false
-          thread_count: 1
-          auto_class_weights: Balanced
+      lgbm:
+        class: lightgbm.LGBMClassifier
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
+          is_unbalance: true
   
   regression:
+    scoring: r2
     models:
       mlp:
         class: sklearn.neural_network.MLPRegressor
@@ -143,15 +118,16 @@ downstream:
           hidden_layer_sizes: [100, 50]
           random_state: 42
           max_iter: 1000
-      catboost:
-        class: catboost.CatBoostRegressor
-        params:
-          iterations: 100
-          random_state: 42
+          early_stopping: true
+          validation_fraction: 0.1
           verbose: false
-          thread_count: 1
-  
-  forecast: {}
+      lgbm:
+        class: lightgbm.LGBMRegressor
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
 
 splitting:
   test_size: 0.2

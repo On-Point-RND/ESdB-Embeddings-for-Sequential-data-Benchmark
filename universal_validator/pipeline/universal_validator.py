@@ -17,25 +17,14 @@ class UniversalValidator:
 
     def __init__(self, config: DictConfig):
         self.config = config
-        self.splitter_registry = self._initialize_splitters()
-        self.task_registry = self._initialize_tasks()
-
-    def _initialize_splitters(self) -> Dict:
-        """Initialize all available data splitters"""
-        return {
-            'standard': StandardSplitter(self.config.splitting),
-        }
-
-    def _initialize_tasks(self) -> Dict:
-        """Initialize all available tasks"""
-        # Используем полный конфиг, так как задачи сами извлекут нужные части
-        return {
+        self.splitter_registry = {'standard': StandardSplitter(self.config.splitting)}
+        self.task_registry = self.task_registry = {
             TaskType.CLASSIFICATION: ClassificationTask(self.config),
             TaskType.REGRESSION: RegressionTask(self.config),
             TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config),
             TaskType.FORECAST: ForecastTask(self.config)
         }
-
+    
     def run_pipeline(self,
                     dataset_name: str = 'age',
                     task_type: TaskType = TaskType.CLASSIFICATION,
@@ -48,9 +37,7 @@ class UniversalValidator:
         print('embeddings_path', embeddings_path)
         print(f"Starting {dataset_name} pipeline")
         print(f"  Task: {task_type.value}")
-        print(f"  Splitter: {splitter_name}")
-        print("=" * 60)
-
+     
         if os.path.exists(embeddings_path):
             print(f"Loading existing embeddings from {embeddings_path}")
             parquet_df = pd.read_parquet(embeddings_path).dropna()
@@ -95,7 +82,7 @@ class UniversalValidator:
 
         # 4. Execute downstream task
         task = self.task_registry[task_type]
-        results = task.execute(split_data, task_type)
+        results = task.execute(split_data)
 
         # 5. Generate report
         report = self._generate_report(dataset_name, splitter_name, task_type, results)
