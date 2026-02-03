@@ -1,9 +1,9 @@
 """Main pipeline orchestrator with task routing"""
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any
 import pandas as pd
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from ..splitters.standard_splitter import StandardSplitter
 from ..tasks.classification_task import ClassificationTask
@@ -13,131 +13,85 @@ from ..tasks.anomaly_detection_task import AnomalyDetectionTask
 from ..types import TaskType
 
 class UniversalValidator:
-    """Main class that orchestrates the entire validation pipeline with task routing"""
-
     def __init__(self, config: DictConfig):
         self.config = config
         self.splitter_registry = {'standard': StandardSplitter(self.config.splitting)}
-        self.task_registry = self.task_registry = {
+        self.task_registry = {
             TaskType.CLASSIFICATION: ClassificationTask(self.config),
             TaskType.REGRESSION: RegressionTask(self.config),
             TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config),
             TaskType.FORECAST: ForecastTask(self.config)
         }
     
-    def run_pipeline(self,
-                    dataset_name: str = 'age',
-                    task_type: TaskType = TaskType.CLASSIFICATION,
-                    splitter_name: str = None,
-                    embeddings_path: str = None) -> Dict[str, Any]:
-        """Run complete validation pipeline with task routing"""
-        
+    def run_pipeline(self, dataset_name: str = 'age', task_type: TaskType = TaskType.CLASSIFICATION,
+                    splitter_name: str = None, embeddings_path: str = None) -> Dict[str, Any]:
         if embeddings_path is None:
             embeddings_path = f'embeddings_{dataset_name}_coles.parquet'
-        print('embeddings_path', embeddings_path)
-        print(f"Starting {dataset_name} pipeline")
-        print(f"  Task: {task_type.value}")
-     
-        if os.path.exists(embeddings_path):
-            print(f"Loading existing embeddings from {embeddings_path}")
-            parquet_df = pd.read_parquet(embeddings_path).dropna()
-            embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']), axis=0))
-            embeddings_df.columns = [f"embed_{i}" for i in range(embeddings_df.shape[1])]
-            parquet_df = parquet_df.drop('embedding', axis=1)
-            embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
-            
-            # Выбор целевой переменной в зависимости от задачи
-            if task_type == TaskType.CLASSIFICATION:
-                targets_df = embeddings_df['post_target'].copy()
-            elif task_type == TaskType.FORECAST:
-                targets_df = embeddings_df['post_forecast_target'].copy()
-            elif task_type == TaskType.ANOMALY_DETECTION:
-                targets_df = embeddings_df['post_anomaly_target'].copy()
-            elif task_type == TaskType.REGRESSION:
-                amount_col = sorted([col for col in embeddings_df.columns if 'post_amount' in col])
-                if not amount_col:
-                    raise ValueError("No amount column found for regression task")
-                amount_col = amount_col[0]
-                target_values = embeddings_df[amount_col].values
-                
-                if hasattr(target_values[0], '__len__'):
-                    if 'age' in dataset_name:
-                        targets_df = pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
-                    else:
-                        if 'zvuk' in dataset_name:
-                            targets_df = pd.DataFrame([np.nanmedian(v) for v in target_values], columns=['target'])
-                        else:
-                            targets_df = pd.DataFrame([np.log1p(np.nanmedian(v+1e-10)) for v in target_values], columns=['target'])
-                else:
-                    targets_df = pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
-            else:
-                raise NotImplementedError(f"Task type {task_type} not implemented")
-        else:
-            print(f"No embeddings exist at {embeddings_path}")
+        print(f"embeddings_path: {embeddings_path}")
+        print(f"Starting {dataset_name} pipeline, Task: {task_type.value}")
+        
+        if not os.path.exists(embeddings_path):
+            print(f"No embeddings at {embeddings_path}")
             return {}
         
-        # 3. Split data
+        print(f"Loading embeddings from {embeddings_path}")
+        parquet_df = pd.read_parquet(embeddings_path).dropna()
+        embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']), axis=0))
+        embeddings_df.columns = [f"embed_{i}" for i in range(embeddings_df.shape[1])]
+        embeddings_df = pd.concat([parquet_df.drop('embedding', axis=1).reset_index(drop=True), embeddings_df], axis=1)
+        
+        targets_df = self._get_targets(dataset_name, task_type, embeddings_df)
         splitter = self.splitter_registry[splitter_name]
         split_data = splitter.split(embeddings_df, targets_df, task_type)
-
-        # 4. Execute downstream task
         task = self.task_registry[task_type]
         results = task.execute(split_data)
-
-        # 5. Generate report
         report = self._generate_report(dataset_name, splitter_name, task_type, results)
-
         print("Pipeline completed successfully!")
         return report
-
-    def run_all_configured_experiments(self, use_existing_embeddings: bool = False) -> List[Dict[str, Any]]:
-        """Run all experiments configured in task router"""
-        pass
     
-    def _generate_report(self, dataset_name: str, splitter_name: str,
-                        task_type: TaskType, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate comprehensive validation report"""
-        print("results", results)
-        
-        if not results:
-            print("Warning: No results generated by the task")
-            return {
-                'dataset': dataset_name,
-                'splitter': splitter_name,
-                'task_type': task_type.value,
-                'best_model': None,
-                'best_metric': None,
-                'all_results': {},
-                'timestamp': pd.Timestamp.now().isoformat(),
-                'error': 'No models were trained or no results generated'
-            }
-        
+    def _get_targets(self, dataset_name: str, task_type: TaskType, embeddings_df: pd.DataFrame):
         if task_type == TaskType.CLASSIFICATION:
-            best_model = max(results.keys(), key=lambda x: results[x]['accuracy'])
-            best_metric = results[best_model]['accuracy']
-            metric_name = 'accuracy'
-        elif task_type == TaskType.REGRESSION:
-            best_model = max(results.keys(), key=lambda x: results[x]['r2'])
-            best_metric = results[best_model]['r2']
-            metric_name = 'r2'
-        elif task_type == TaskType.ANOMALY_DETECTION:
-            best_model = max(results.keys(), key=lambda x: results[x]['auc'])
-            best_metric = results[best_model]['auc']
-            metric_name = 'auc'
+            return embeddings_df['post_target'].copy()
         elif task_type == TaskType.FORECAST:
-            # Для прогнозирования используем MSE (меньше - лучше)
-            best_model = min(results.keys(), key=lambda x: results[x]['mse'])
-            best_metric = results[best_model]['mse']
-            metric_name = 'mse'
+            return embeddings_df['post_forecast_target'].copy()
+        elif task_type == TaskType.ANOMALY_DETECTION:
+            return embeddings_df['post_anomaly_target'].copy()
+        elif task_type == TaskType.REGRESSION:
+            amount_cols = [col for col in embeddings_df.columns if 'post_amount' in col]
+            if not amount_cols:
+                raise ValueError("No amount column for regression")
+            amount_col = sorted(amount_cols)[0]
+            target_values = embeddings_df[amount_col].values
+            
+            if hasattr(target_values[0], '__len__'):
+                if 'age' in dataset_name:
+                    return pd.DataFrame([np.log(np.median(v)) for v in target_values], columns=['target'])
+                elif 'zvuk' in dataset_name:
+                    return pd.DataFrame([np.nanmedian(v) for v in target_values], columns=['target'])
+                else:
+                    return pd.DataFrame([np.log1p(np.nanmedian(v+1e-10)) for v in target_values], columns=['target'])
+            else:
+                return pd.DataFrame(embeddings_df[amount_col]).rename(columns={amount_col: 'target'})
         else:
-            raise NotImplementedError(f"Task type {task_type} not supported")
+            raise NotImplementedError(f"Task type {task_type}")
+    
+    def _generate_report(self, dataset_name, splitter_name, task_type, results):
+        if not results:
+            return {'dataset': dataset_name, 'splitter': splitter_name, 
+                    'task_type': task_type.value, 'error': 'No models trained'}
+
+        metric_map = {
+            TaskType.CLASSIFICATION: 'accuracy',
+            TaskType.REGRESSION: 'r2',
+            TaskType.ANOMALY_DETECTION: 'auc',
+            TaskType.FORECAST: 'r2'  # r2 for forecast
+        }
+
+        metric = metric_map[task_type]
+        best_model = max(results.keys(), key=lambda x: results[x][metric])
 
         return {
-            'dataset': dataset_name,
-            'splitter': splitter_name,
-            'task_type': task_type.value,
-            'best_model': best_model,
-            f'best_{metric_name}': best_metric,
-            'all_results': results,
-            'timestamp': pd.Timestamp.now().isoformat()
+            'dataset': dataset_name, 'splitter': splitter_name, 'task_type': task_type.value,
+            'best_model': best_model, f'best_{metric}': results[best_model][metric],
+            'all_results': results, 'timestamp': pd.Timestamp.now().isoformat()
         }
