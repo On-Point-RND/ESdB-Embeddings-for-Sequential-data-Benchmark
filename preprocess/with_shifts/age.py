@@ -28,12 +28,6 @@ TEST_FRACTION = 0.1
 TM = ORDERING_COLUMNS[0]
 
 
-def log_log_transform(y, epsilon=1e-10):
-        """Apply log(log(y)) transformation for doubly exponential data"""
-        # Ensure y > 0 for double log
-        y_positive = y - y.min() + 1  # Shift to ensure y > 0
-        return np.log(np.log(y_positive + epsilon))
-
 def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
     def _cv_list(row):
         a = np.asarray(row["amount_rur"])
@@ -41,7 +35,9 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
         for s in row["shifts"]:
             s = int(s)
             post = a[s:]
-            assert len(post) != 0, "The column amount_rur after shifts shouldn't be empty."
+            assert (
+                len(post) != 0
+            ), "The column amount_rur after shifts shouldn't be empty."
             mean = post.mean()
             std = post.std()
             assert mean != 0, "Mean of amount_rur shouldn't be zero even after shifts"
@@ -51,9 +47,8 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
     cv_list = df.apply(_cv_list, axis=1)
     all_cv = np.concatenate([np.asarray(v) for v in cv_list if len(v)])
     q95 = np.nanquantile(all_cv, 0.95)
-    return cv_list.apply(
-        lambda v: [int(x > q95) if not np.isnan(x) else 0 for x in v]
-    )
+    return cv_list.apply(lambda v: [int(x > q95) if not np.isnan(x) else 0 for x in v])
+
 
 def reg_target_row(row, horizon=30):
     d = np.asarray(row["trans_date"])
@@ -66,14 +61,16 @@ def reg_target_row(row, horizon=30):
         out.append(np.log1p(a[mask].sum()))
     return out
 
+
 def get_forecast_target(row):
-    t = np.asarray(row['trans_date'])
+    t = np.asarray(row["trans_date"])
     out = []
-    for s in row['shifts']:
-        mask = (t == t[s])
+    for s in row["shifts"]:
+        mask = t == t[s - 1]
         mask[:s] = False
         out.append(np.log1p(np.sum(mask)))
     return out
+
 
 def main():
     parser = ArgumentParser()
@@ -129,7 +126,7 @@ def main():
     spark = SparkSession.builder.master("local[32]").getOrCreate()  # pyright: ignore
     df, df_kag_train = None, None
 
-    if args.which_split == 'train':
+    if args.which_split == "train":
         df_kag_train = spark.read.csv(
             (args.data_path / "transactions_train.csv").as_posix(), header=True
         )
@@ -147,7 +144,9 @@ def main():
         df = df_kag_train.join(df_label, on="client_id")
         df = df.withColumnRenamed("bins", "age")
     else:
-        raise NotImplementedError("We doesn't know what to do with test.csv for AGE dataset without labels.")
+        raise NotImplementedError(
+            "We doesn't know what to do with test.csv for AGE dataset without labels."
+        )
 
     vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
@@ -162,8 +161,8 @@ def main():
     )
 
     df = df.sort("client_id").toPandas()
-    df['_seq_len'] = df[TM].apply(len)
-    
+    df["_seq_len"] = df[TM].apply(len)
+
     df = filter_short(df)
 
     def compute_shift_end(arr, horizon):
@@ -171,14 +170,14 @@ def main():
         return (arr[-1] - arr > horizon).sum() - 1 if len(arr) else -1
 
     horizon_days = 30
-    df['shift_end'] = df[TM].map(lambda x: compute_shift_end(x, horizon_days))
+    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, horizon_days))
 
     train_df, test_df = global_time_split(
         data=df,
         test_frac=TEST_FRACTION,
         min_shift_start=2,
         time_col=TM,
-        seqlen_col='_seq_len'
+        seqlen_col="_seq_len",
     )
 
     train_df = train_df.copy()
@@ -196,14 +195,14 @@ def main():
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
-    test_df['post_reg_target'] = test_df.apply(reg_target_row, axis=1)
-    test_df['post_target'] = duplicate_target_by_shifts(test_df, "age")
-    test_df['post_forecast_target'] = test_df.apply(get_forecast_target, axis=1)
+    test_df["post_reg_target"] = test_df.apply(reg_target_row, axis=1)
+    test_df["post_target"] = duplicate_target_by_shifts(test_df, "age")
+    test_df["post_forecast_target"] = test_df.apply(get_forecast_target, axis=1)
     test_df["post_anomaly_target"] = get_anomaly_target(test_df)
 
-    train_df['post_reg_target'] = train_df.apply(reg_target_row, axis=1)
-    train_df['post_target'] = duplicate_target_by_shifts(train_df, "age")
-    train_df['post_forecast_target'] = train_df.apply(get_forecast_target, axis=1)
+    train_df["post_reg_target"] = train_df.apply(reg_target_row, axis=1)
+    train_df["post_target"] = duplicate_target_by_shifts(train_df, "age")
+    train_df["post_forecast_target"] = train_df.apply(get_forecast_target, axis=1)
     train_df["post_anomaly_target"] = get_anomaly_target(train_df)
 
     test_df = add_debug_f(test_df, time_col=TM)
