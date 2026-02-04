@@ -1,190 +1,139 @@
-embedding:
-  trx_encoder_params:
-    embeddings_noise: 0.003
-    numeric_values:
-      amount_rur: "identity"
-    embeddings:
-      trans_date:
-        in: 800
-        out: 16
-      small_group:
-        in: 250
-        out: 16
-  seq_encoder_params:
-    hidden_size: 128
-    type: "lstm"
-  training:
-    max_epochs: 2
-    batch_size: 128
-    num_workers: 0
-  min_seq_len: 25
+config_factory: [datasets/age]
 
-splitting:
-  test_size: 0.2
-  random_state: 42
+# downstream:
+#   classification_models:
+#     - "random_forest"
+#     - "mlp"
+#     - "catboost"
+#   regression_models:
+#     - "random_forest"
+#     - "mlp"
+#   optuna:
+#     enabled: True
+#     n_trials: 10
+#     cv: 3
+#     n_jobs: 4           # Number of parallel jobs for scikit-learn
+#     max_threads: 4      # Maximum threads per model
+#     catboost_threads: 4 # Threads for CatBoost internal parallelism
 
-downstream:
-  classification_models:
-    - "random_forest"
-    - "mlp"
-    - "catboost"
-  regression_models:
-    - "random_forest"
-    - "mlp"
-  optuna:
-    enabled: True
-    n_trials: 10
-    cv: 3
-    n_jobs: 4           # Number of parallel jobs for scikit-learn
-    max_threads: 4      # Maximum threads per model
-    catboost_threads: 4 # Threads for CatBoost internal parallelism
-
-datasets:
-  age:
-    name: "age"
-    version: "1.0"
-    task_type: "classification"
-    features:
-      - "amount_rur"
-      - "small_group"
-      - "trans_date"
-    target: "target"
-    sequence_id: "client_id"
-    timestamp_col: "trans_date"
-    transactions_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/transactions_train.csv.gz"
-    targets_url: "https://huggingface.co/datasets/dllllb/age-group-prediction/resolve/main/train_target.csv"
-
-task_router:
-  default_embedder: "coles"
-  default_splitter: "standard"
-  dataset_tasks:
-    age:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    x5:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    zvuk:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    taobao:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    rossman:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    alpha:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    yambda:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    electric_devices:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    twitter:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    favorita:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
+# task_router:
+#   default_embedder: "coles"
+#   default_splitter: "standard"
+#   dataset_tasks:
+#     x5:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     zvuk:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     taobao:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     rossman:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     alpha:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     yambda:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     electric_devices:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     twitter:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
+#     favorita:
+#       - type: "classification"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "regression"
+#         embedder: "coles"
+#         splitter: "standard"
+#       - type: "anomaly_detection"
+#         embedder: "coles"
+#         splitter: "client"
+#       - type: "forecast"
+#         embedder: "coles"
+#         splitter: "client"
