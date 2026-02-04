@@ -4,7 +4,7 @@ import tempfile
 import pyrallis
 from omegaconf import OmegaConf
 
-from .pipeline.utils import PipelineConfig
+from .pipeline.utils import ValidatorConfig
 
 
 def pop_arg(args, key):
@@ -54,6 +54,6 @@ def run_with_config(func, default_conf="config.yaml"):
         OmegaConf.save(config=merged_config, f=tmpfile.name)
         temp_config_path = tmpfile.name
         print(f"Saved temporary config: {temp_config_path}")
-        cfg = pyrallis.parse(PipelineConfig, temp_config_path, args)
+        cfg = pyrallis.parse(ValidatorConfig, temp_config_path, args)
         res = func(cfg)
     return res

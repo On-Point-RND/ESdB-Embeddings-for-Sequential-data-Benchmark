@@ -5,7 +5,7 @@ from data_types import DataConfig
 import pyarrow.parquet as pq
 
 
-class EmbeddingDataset:
+class ValidatorDataset:
     """AGE dataset implementation"""
 
     def __init__(self, data_conf: DataConfig):

@@ -172,3 +172,7 @@ cython_debug/
 # Vim
 .vim
 *.swp
+
+# OURS
+*.parquet
+*.pth

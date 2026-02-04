@@ -1,43 +1,30 @@
 """Main execution script with OmegaConf support"""
-from pipeline.utils import PipelineConfig
+
+from pipeline.utils import ValidatorConfig
 from utils import run_with_config
 
-from universal_validator.pipeline.task_router import TaskRouter
 from universal_validator.pipeline.universal_validator import UniversalValidator
 
 
-def main(cfg: PipelineConfig):
-    validator = UniversalValidator(config)
-    task_router = TaskRouter(config)
+def main(cfg: ValidatorConfig):
+    validator = UniversalValidator(cfg)
 
-    if args.list_configs:
-        task_router.print_available_configurations()
+    all_tasks = validator.get_available_tasks(verbose=True)
+    if cfg.list_configs:
         return
 
-    if args.run_all:
-        # Run all configured experiments
-        reports = validator.run_all_configured_experiments(
-            use_existing_embeddings=args.use_existing_embeddings
-        )
+    if cfg.task_names is None:
+        tasks = all_tasks
     else:
-        # Run specific experiment
-        dataset = args.dataset or "age"
-        task_type = args.task_type or "classification"
+        assert set(cfg.task_names) <= set(all_tasks)
+        tasks = cfg.task_names
 
-        if not task_router.validate_dataset_task(dataset, task_type):
-            print(f"Error: Task '{task_type}' not configured for dataset '{dataset}'")
-            task_router.print_available_configurations()
-            return
+    reports = []
+    for task in tasks:
+        report = validator.run_pipeline(task_name=task)
+        reports += [report]
 
-        report = validator.run_pipeline(
-            dataset_name=dataset,
-            splitter_name=config.task_router.default_splitter,
-            task_type=TaskType(task_type),
-            use_existing_embeddings=args.use_existing_embeddings,
-            embeddings_path=args.parquet_path,
-        )
-        reports = [report]
-
+    # TODO report must be prepared by validator
     for report in reports:
         task_type = report["task_type"]
         metric = {

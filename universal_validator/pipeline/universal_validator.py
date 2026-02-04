@@ -1,219 +1,48 @@
 """Main pipeline orchestrator with task routing"""
+
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any
 import pandas as pd
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
-
-from ..core.types import TaskType
-from ..core.base_classes import BaseDataset, BaseEmbedder, BaseSplitter, BaseTask
-from ..datasets.age_dataset import AgeDataset
-from ..embedders.coles_embedder import CoLESEmbedder
-from ..splitters.standard_splitter import StandardSplitter
-from ..splitters.lastdate_splitter import LastDateSplitter
-from ..splitters.client_splitter import ClientSplitter
+from omegaconf import DictConfig
 from ..tasks.classification_task import ClassificationTask
 from ..tasks.regression_task import RegressionTask
-from ..tasks.forecast_task import ForecastTask
-from ..tasks.anomaly_detection_task import AnomalyDetectionTask
-from .task_router import TaskRouter
-from scipy.stats import boxcox
+from ..data.dataset import ValidatorDataset
 
 
 class UniversalValidator:
-    """Main class that orchestrates the entire validation pipeline with task routing"""
-
     def __init__(self, config: DictConfig):
         self.config = config
-        self.task_router = TaskRouter(config) # seems not yet used properly
-        self.dataset_registry = self._initialize_datasets()
-        self.embedder_registry = self._initialize_embedders()
-        self.splitter_registry = self._initialize_splitters()
-        self.task_registry = self._initialize_tasks()
+        self.dataset = ValidatorDataset(config.data_conf)
 
-    def _initialize_datasets(self) -> Dict[str, BaseDataset]:
-        """Initialize all available datasets"""
-        datasets = {}
-        dataset_configs = self.config.get('datasets', {})
-        
-        # Age dataset
-        if 'age' in dataset_configs:
-            datasets['age'] = AgeDataset(dataset_configs.age)
-        
-        return datasets
+    def get_available_tasks(self, verbose=True):
+        return self.dataset.get_available_tasks(verbose)
 
-    def _initialize_embedders(self) -> Dict[str, BaseEmbedder]:
-        """Initialize all available embedders"""
-        return {
-            'coles': CoLESEmbedder(self.config.embedding)
-        }
-
-    def _initialize_splitters(self) -> Dict[str, BaseSplitter]:
-        """Initialize all available data splitters"""
-        return {
-            'standard': StandardSplitter(self.config.splitting),
-            'last_date': LastDateSplitter(self.config.splitting),
-            'client': ClientSplitter(self.config.splitting),
-            
-        }
-
-    def _initialize_tasks(self) -> Dict[TaskType, BaseTask]:
-        """Initialize all available tasks"""
-        return {
-            TaskType.CLASSIFICATION: ClassificationTask(self.config.downstream),
-            TaskType.REGRESSION: RegressionTask(self.config.downstream),
-            TaskType.ANOMALY_DETECTION: AnomalyDetectionTask(self.config.downstream),
-            TaskType.FORECAST: ForecastTask(self.config.downstream)
-        }
-
-    def run_pipeline(self,
-                    dataset_name: str = 'age',
-                    task_type: TaskType = TaskType.CLASSIFICATION,
-                    embedder_name: str = None,
-                    splitter_name: str = None,
-                    use_existing_embeddings: bool = False,
-                    embeddings_path: str = None) -> Dict[str, Any]:
-        """Run complete validation pipeline with task routing"""
-        
-        # Get task configuration from router
-        task_config = self.task_router.get_task_configuration(dataset_name, task_type.value)
-        print('embeddings_path',embeddings_path)
-        # Use configured embedder/splitter or defaults
-        if embedder_name is None:
-            embedder_name = task_config.get('embedder', self.task_router.get_default_embedder())
-        if splitter_name is None:
-            splitter_name = task_config.get('splitter', self.task_router.get_default_splitter())
-        if embeddings_path is None:
-            embeddings_path = f'embeddings_{dataset_name}_coles.parquet'
-
-        print(f"Starting {dataset_name} pipeline")
-        print(f"  Task: {task_type.value}")
-        print(f"  Embedder: {embedder_name}")
-        print(f"  Splitter: {splitter_name}")
-        print("=" * 60)
-
-        if use_existing_embeddings and os.path.exists(embeddings_path):
-            print(f"Loading existing embeddings from {embeddings_path}")
-            parquet_df = pd.read_parquet(embeddings_path).dropna()
-            embeddings_df = pd.DataFrame(np.stack(list(parquet_df['embedding']), axis=0))
-            embeddings_df.columns = [f"embed_{i}" for i in range(embeddings_df.shape[1])]
-            parquet_df = parquet_df.drop('embedding', axis=1)
-            embeddings_df = pd.concat([parquet_df.reset_index(drop=True), embeddings_df], axis=1)
-            if task_type == TaskType.CLASSIFICATION:
-                targets_df = pd.DataFrame({'target': embeddings_df['post_target'].copy()})
-            elif task_type == TaskType.FORECAST:
-                targets_df = pd.DataFrame({'target': embeddings_df['post_forecast_target'].copy()})
-            elif task_type == TaskType.ANOMALY_DETECTION:
-                targets_df = pd.DataFrame({'target': embeddings_df['post_anomaly_target'].copy()})
-            elif task_type == TaskType.REGRESSION:
-
-                amount_col = sorted([col for col in embeddings_df.columns if 'post_amount' in col])
-
-                assert len(amount_col) > 0
-                amount_col = amount_col[0]
-                target_values = embeddings_df[amount_col].values
-                if hasattr(target_values[0], '__len__'):
-                    raise NotImplementedError('Strange things')
-                    if 'zvuk' in dataset_name:
-                        targets_df = pd.DataFrame({'target': [np.nanmedian(v) for v in target_values]})
-                    else:
-                        targets_df = pd.DataFrame({'target': [np.log1p(np.nanmedian(v + 1e-10)) for v in target_values]})
-                else:
-                    targets_df = pd.DataFrame({'target': embeddings_df[amount_col]})
-            else:
-                raise NotImplimentedError
-        else:
-            print("Generating new embeddings...")
-            # 1. Load and preprocess dataset
-            dataset = self.dataset_registry[dataset_name]
-            if not dataset.check():
-                raise ValueError(f"Dataset {dataset_name} check failed")
-
-            sequences_df, targets_df = dataset.load()
-            sequences_df, targets_df = dataset.preprocess(sequences_df, targets_df)
-
-            # 2. Generate or load embeddings
-            embedder = self.embedder_registry[embedder_name]
-            embeddings_df = embedder.fit_transform(sequences_df)
-            # Save embeddings for future use
-            embedder.save_embeddings(embeddings_df, embeddings_path)
-
-        # 3. Split data
-        splitter = self.splitter_registry[splitter_name]
-        split_data = splitter.split(embeddings_df, targets_df, task_type)
-
-        # 4. Execute downstream task
-        task = self.task_registry[task_type]
-        results = task.execute(split_data, task_type)
-
-        # 5. Generate report
-        report = self._generate_report(dataset_name, embedder_name, splitter_name, task_type, results)
-
+    def run_pipeline(self, task_name) -> Dict[str, Any]:
+        task_data = self.dataset.load_for_task(task_name)
+        print(f"Starting {self.config.data_conf.dataset_name} pipeline, Task: {task_name}")
+        # TODO init tasker
+        results = task.execute(task_data)
+        report = self._generate_report(dataset_name, results)
         print("Pipeline completed successfully!")
         return report
 
-    def run_all_configured_experiments(self, use_existing_embeddings: bool = False) -> List[Dict[str, Any]]:
-        """Run all experiments configured in task router"""
-        experiments = self.task_router.generate_experiments()
-        all_reports = []
-        
-        print("Running all configured experiments from task router:")
-        self.task_router.print_available_configurations()
-        
-        for exp_config in experiments:
-            try:
-                print(f"\n{'='*80}")
-                print(f"Experiment: {exp_config['dataset']} - {exp_config['task_type'].value}")
-                print(f"Embedder: {exp_config['embedder']}, Splitter: {exp_config['splitter']}")
-                print(f"{'='*80}")
-
-                report = self.run_pipeline(
-                    dataset_name=exp_config['dataset'],
-                    task_type=exp_config['task_type'],
-                    embedder_name=exp_config['embedder'],
-                    splitter_name=exp_config['splitter'],
-                    use_existing_embeddings=use_existing_embeddings
-                )
-                all_reports.append(report)
-
-            except Exception as e:
-                print(f"Experiment failed: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-
-        return all_reports
-
-    def _generate_report(self, dataset_name: str, embedder_name: str, splitter_name: str,
-                        task_type: TaskType, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate comprehensive validation report"""
-
-        if task_type == TaskType.CLASSIFICATION:
-            best_model = max(results.keys(), key=lambda x: results[x]['accuracy'])
-            best_metric = results[best_model]['accuracy']
-            metric_name = 'accuracy'
-        elif task_type == TaskType.REGRESSION:
-            best_model = max(results.keys(), key=lambda x: results[x]['r2'])
-            best_metric = results[best_model]['r2']
-            metric_name = 'r2'
-        elif task_type == TaskType.ANOMALY_DETECTION:
-            best_model = max(results.keys(), key=lambda x: results[x]['auc'])
-            best_metric = results[best_model]['auc']
-            metric_name = 'auc'
-        elif task_type == TaskType.FORECAST:
-            best_model = max(results.keys(), key=lambda x: results[x]['mse'])
-            best_metric = results[best_model]['mse']
-            metric_name = 'mse'
-        else:
-            raise NotImplementedError(f"Task type {task_type} not supported")
+    def _generate_report(self, dataset_name, task_type, results):
+        if not results:
+            return {
+                "dataset": dataset_name,
+                "task_type": task_type.value,
+                "error": "No models trained",
+            }
+        # TODO заменить место хранения метрик гдето
+        metric = metric_map[task_type]
+        best_model = max(results.keys(), key=lambda x: results[x][metric])
 
         return {
-            'dataset': dataset_name,
-            'embedder': embedder_name,
-            'splitter': splitter_name,
-            'task_type': task_type.value,
-            'best_model': best_model,
-            f'best_{metric_name}': best_metric,
-            'all_results': results,
-            'timestamp': pd.Timestamp.now().isoformat()
+            "dataset": dataset_name,
+            "task_type": task_type.value,
+            "best_model": best_model,
+            f"best_{metric}": results[best_model][metric],
+            "all_results": results,
+            "timestamp": pd.Timestamp.now().isoformat(),
         }
