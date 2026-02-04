@@ -31,10 +31,7 @@ def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30)
     d = np.asarray(row["date"])
     out = []
     for s in row["shifts"]:
-        s = int(s)
-        if len(d) == 0 or s >= len(d):
-            out.append(0.0)
-            continue
+        s = int(s) - 1
         delta = (d - d[s]) / np.timedelta64(1, "D")
         mask = (delta > 0) & (delta <= horizon)
         total = 0.0

@@ -60,7 +60,7 @@ def reg_target_row(row, horizon=30):
     a = np.asarray(row["amount_rur"])
     out = []
     for s in row["shifts"]:
-        s = int(s)
+        s = int(s) - 1
         delta = d - d[s]
         mask = (delta > 0) & (delta < horizon)
         out.append(np.log1p(a[mask].sum()))
