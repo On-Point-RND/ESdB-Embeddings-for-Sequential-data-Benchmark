@@ -24,9 +24,11 @@ def pop_arg(args, key):
     return new_args, value
 
 
-def run_config_factory(config_path, config_factory):
+def run_config_factory(config_path, config_factory, base_path="."):
     if config_factory is not None:
-        config_paths = [f"configs/{name}.yaml" for name in config_factory]
+        config_paths = [
+            base_path + "/" + f"configs/{name}.yaml" for name in config_factory
+        ]
     else:
         config_paths = []
     config_paths += [config_path]
@@ -36,19 +38,17 @@ def run_config_factory(config_path, config_factory):
     return merged_config
 
 
-def run_with_config(func, default_conf="config.yaml"):
+def run_with_config(func, base_path=".", default_conf="config.yaml"):
     args = sys.argv[1:]
 
     # 1. config generation
     args, config_factory = pop_arg(args, "--config_factory")
     # 2. overwrite with certain fields
     args, config_path = pop_arg(args, "--config_path")
-    # 3. in case we need to overwrite all above
-    args, overwrite_factory = pop_arg(args, "--overwrite_factory")
-    path = config_path or default_conf
+    path = config_path or base_path + "/" + default_conf
 
     config_factory = config_factory or OmegaConf.load(path).get("config_factory")
-    merged_config = run_config_factory(path, config_factory, overwrite_factory)
+    merged_config = run_config_factory(path, config_factory, base_path=base_path)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as tmpfile:
         OmegaConf.save(config=merged_config, f=tmpfile.name)

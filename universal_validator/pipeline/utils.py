@@ -4,7 +4,6 @@ from typing import Any, Literal, Mapping, Optional
 from universal_validator.data.data_types import DataConfig
 
 
-
 # @dataclass(frozen=True)
 # class OptunaConfig:
 #     suggestions: list
@@ -18,8 +17,11 @@ from universal_validator.data.data_types import DataConfig
 @dataclass
 class ValidatorConfig:
     config_factory: Optional[list[str]] = None
+    data_conf: DataConfig = field(default_factory=DataConfig)
     # Specific tasks. If None, then run all available
     task_names: Optional[list[str]] = None
     # List available configurations
     list_configs: bool = False
     seed: int = 0
+
+    downstream: dict = field(default_factory=dict)

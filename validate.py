@@ -1,7 +1,7 @@
 """Main execution script with OmegaConf support"""
 
-from pipeline.utils import ValidatorConfig
-from utils import run_with_config
+from universal_validator.pipeline.utils import ValidatorConfig
+from universal_validator.utils import run_with_config
 
 from universal_validator.pipeline.universal_validator import UniversalValidator
 
@@ -43,7 +43,7 @@ def main(cfg: ValidatorConfig):
 
 if __name__ == "__main__":
     try:
-        result = run_with_config(main)
+        result = run_with_config(main, "universal_validator")
         print(result)
     except Exception as e:
         print(f"Error: {e}")

@@ -3,7 +3,7 @@ from typing import Any, Mapping, Optional, Union
 
 @dataclass(frozen=True)
 class DataConfig:
-    dataset_name: str = "shakespeare"
+    dataset_name: str = "age"
     train_path: str = ""
     test_path: str = ""
     # batch_size: int = 128

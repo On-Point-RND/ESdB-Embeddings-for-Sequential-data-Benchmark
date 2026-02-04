@@ -3,11 +3,9 @@ from typing import Dict, Any
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from .base_task import BaseTask
-from ..types import TaskType
 
 class ClassificationTask(BaseTask):
     """Classification task implementation"""    
-    TASK_TYPE = TaskType.CLASSIFICATION
     CONFIG_SECTION = 'classification'
     DEFAULT_SCORING = 'accuracy'
     

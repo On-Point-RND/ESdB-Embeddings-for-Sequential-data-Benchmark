@@ -3,7 +3,6 @@ from omegaconf import DictConfig, OmegaConf
 import numpy as np
 import optuna.logging
 from sklearn.base import BaseEstimator
-from ..types import TaskType
 from .hpo_optimizer import HPOOptimizer
 
 
