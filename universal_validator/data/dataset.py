@@ -51,7 +51,8 @@ class ValidatorDataset:
             "metric": metrics,
         }
 
-    def _parse_target_name(self, target_name):
+    @staticmethod
+    def _parse_target_name(target_name):
         parts = target_name.split("__")
         assert parts[0] == "target"
         assert len(parts) == 4, parts

@@ -8,18 +8,18 @@ from .hpo_optimizer import metric_mapping, metric_mapping_per_task
 from dataclasses import asdict
 import traceback
 import sklearn.metrics
+from ..data.dataset import ValidatorDataset
 
 class TaskManager:
     
-    def __init__(self, config: DictConfig, task_name):
-        self.config = OmegaConf.create(asdict(config))
+    def __init__(self, vconfig: DictConfig, task_name):
+        self.config = OmegaConf.create(asdict(vconfig))
         self.task_name = task_name # full task name
-        default_scoring = self.task_name.split('__')[-1]
-        self.short_task_name = self.task_name.split('__')[1]
-        if '+' in default_scoring:
-            default_scoring = default_scoring.split('+')[0]
+        name, target_type, metrics = ValidatorDataset._parse_target_name(self.task_name)
+        self.short_task_name = name
+        default_scoring = metrics[0]
         default_scoring in metric_mapping.keys()
-        self.downstream_config = config.downstream
+        self.downstream_config = self.config.get('downstream', OmegaConf.create({}))
         self.CONFIG_SECTION = self.task_name
         # short name in dataset column
         self.default_scoring = default_scoring
