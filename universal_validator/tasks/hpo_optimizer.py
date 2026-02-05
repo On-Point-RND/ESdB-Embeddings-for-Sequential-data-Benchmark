@@ -7,12 +7,25 @@ from sklearn.base import BaseEstimator
 from sklearn.model_selection import cross_val_score, KFold
 
 warnings.filterwarnings('ignore', category=FutureWarning)
+import traceback
+
+metric_mapping = {
+    'accuracy': 'accuracy', 'AUCROC': 'roc_auc', 'r2': 'r2',
+    'F1': 'f1_weighted', 'precision': 'precision_weighted', 'recall': 'recall_weighted',
+    'mse': 'neg_mean_squared_error', 'mae': 'neg_mean_absolute_error'
+}
+
+# todo pass to config?
+metric_mapping_per_task = {
+    'regression': ['r2_score', 'mean_squared_error'],
+    'classification': ['f1_score', 'accuracy_score', 'roc_auc_score']
+}
 
 class HPOOptimizer:
     def __init__(self, config: DictConfig, task):
         self.config = config
         self.task = task
-        self.downstream_config = config.get('downstream', OmegaConf.create({}))
+        self.downstream_config = self.config.downstream
         self.search_spaces = self._get_search_spaces()
         self.hpo_config = self.downstream_config.get('hpo', OmegaConf.create({}))
     
@@ -26,9 +39,12 @@ class HPOOptimizer:
             base_model.fit(X_train, y_train)
             return base_model, None
         
-        print(f"  Optimizing {model_name}...")
+        scoring_function = self.task.scoring_function
+        direction='maximize'
+        print(f"  Optimizing {model_name}... by {scoring_function} {direction}")
+        
         study = optuna.create_study(
-            direction=('minimize' if self.task.scoring in ['mse', 'mae', 'rmse'] else 'maximize'),
+            direction=direction,
             study_name=f"{model_name}_{self.task.CONFIG_SECTION}"
         )
         
@@ -60,15 +76,12 @@ class HPOOptimizer:
                 suggestion = self._suggest_param(trial, model_name, param_name, param_values)
                 if suggestion: 
                     params.update(suggestion)
-            try:
-                model = base_model.__class__(**{**base_model.get_params(), **params})
-                cv = self.hpo_config.get('cv', 3)
-                kf = KFold(n_splits=cv, shuffle=True, random_state=42)
-                scores = cross_val_score(model, X, y, cv=kf, scoring=self._get_scoring_function())
-                return scores.mean()
-            except:
-                return float('inf')
-        
+            model = base_model.__class__(**{**base_model.get_params(), **params})
+            cv = self.hpo_config.get('cv', 3)
+            kf = KFold(n_splits=cv, shuffle=True, random_state=42)
+            scores = cross_val_score(model, X, y, cv=kf, scoring=self.task.scoring_function)
+            return scores.mean()
+            
         return objective
     
     def _suggest_param(self, trial, model_name: str, param_name: str, param_values: Any):
@@ -78,25 +91,14 @@ class HPOOptimizer:
                 return {param_name: param_values[idx]}
             else:
                 return {param_name: trial.suggest_categorical(f"{model_name}_{param_name}", param_values)}
-        
         if isinstance(param_values, dict) and 'low' in param_values and 'high' in param_values:
             low, high = param_values['low'], param_values['high']
             log = param_values.get('log', False)
-            
             if isinstance(low, int) and isinstance(high, int):
                 return {param_name: trial.suggest_int(f"{model_name}_{param_name}", low, high, log=log)}
             else:
                 return {param_name: trial.suggest_float(f"{model_name}_{param_name}", low, high, log=log)}
-        
         return {}
-    
-    def _get_scoring_function(self) -> str:
-        mapping = {
-            'accuracy': 'accuracy', 'roc_auc': 'roc_auc', 'r2': 'r2',
-            'f1': 'f1_weighted', 'precision': 'precision_weighted', 'recall': 'recall_weighted',
-            'mse': 'neg_mean_squared_error', 'mae': 'neg_mean_absolute_error'
-        }
-        return mapping.get(self.task.scoring, self.task.scoring)
     
     def _clean_params(self, model_name: str, params: Dict) -> Dict:
         cleaned = {}

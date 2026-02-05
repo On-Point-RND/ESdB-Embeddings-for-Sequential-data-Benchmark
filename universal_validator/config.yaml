@@ -5,13 +5,13 @@ seed: 0
 downstream:
   # Hyperparameter optimization settings
   hpo:
-    enabled: true
+    enabled: False
     n_trials: 10
     cv: 3
     n_jobs: 4
     max_threads: 4
-    verbose: false # show detailed log
-    show_progress_bar: true # show progess bar
+    verbose: True # show detailed log
+    show_progress_bar: True # show progess bar
   
   # Search spaces for Optuna
   search_spaces:
@@ -72,8 +72,7 @@ downstream:
         high: 100
   
   # Task configurations
-  classification:
-    scoring: accuracy
+  target__age__global__F1: #classification:
     models:
       mlp:
         class: sklearn.neural_network.MLPClassifier
@@ -92,6 +91,64 @@ downstream:
           verbose: -1
           n_jobs: 1
   
+  
+  target__reg_amount__local__mse: #regression:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPRegressor
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+          early_stopping: true
+          validation_fraction: 0.1
+          verbose: false
+      lgbm:
+        class: lightgbm.LGBMRegressor
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
+          
+  target__forecast__local__mse: #forecast:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPRegressor
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+          early_stopping: true
+          validation_fraction: 0.1
+          verbose: false
+      lgbm:
+        class: lightgbm.LGBMRegressor
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
+          
+  target__forecast__local__AUCROC: # another forecast:
+    models:
+      mlp:
+        class: sklearn.neural_network.MLPRegressor
+        params:
+          hidden_layer_sizes: [100, 50]
+          random_state: 42
+          max_iter: 1000
+          early_stopping: true
+          validation_fraction: 0.1
+          verbose: false
+      lgbm:
+        class: lightgbm.LGBMRegressor
+        params:
+          n_estimators: 100
+          random_state: 42
+          verbose: -1
+          n_jobs: 1
+
   anomaly_detection:
     scoring: roc_auc
     models:
@@ -112,43 +169,3 @@ downstream:
           verbose: -1
           n_jobs: 1
           is_unbalance: true
-  
-  regression:
-    scoring: r2
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPRegressor
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMRegressor
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1
-          
-  forecast:
-    scoring: r2
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPRegressor
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMRegressor
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1

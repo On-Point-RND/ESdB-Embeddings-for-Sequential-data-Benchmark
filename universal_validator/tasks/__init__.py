@@ -1,9 +1,5 @@
-from .base_task import BaseTask
-from .classification_task import ClassificationTask
-from .regression_task import RegressionTask
+from .task_manager import TaskManager
 
 __all__ = [
-    'BaseTask',
-    'ClassificationTask',
-    'RegressionTask',
+    'TaskManager',
 ]
