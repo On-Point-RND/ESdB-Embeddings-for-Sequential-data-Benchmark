@@ -6,7 +6,7 @@ import pandas as pd
 TEST_FRAC = 0.1
 MIN_SHIFT_START = 2
 HORIZON_DAYS = 30
-
+MIN_SEQ_LEN = 2
 
 def save_partitioned_parquet(
     df: pd.DataFrame, save_path: Path, num_shards: int
@@ -16,6 +16,37 @@ def save_partitioned_parquet(
     save_path.mkdir(parents=True, exist_ok=True)
     df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow")
 
+def filter_short(
+    df: pd.DataFrame,
+    min_len: int = MIN_SEQ_LEN,
+    seqlen_col: str = "_seq_len",
+) -> pd.DataFrame:
+    if seqlen_col not in df.columns:
+        raise KeyError(f"Missing column: {seqlen_col}")
+    return df[df[seqlen_col] > min_len].copy()
+
+
+def split_num_shifts(num_shifts: int, test_frac: float) -> tuple[int, int]:
+    test_n = int(np.ceil(test_frac * num_shifts))
+    train_n = int(np.floor((1 - test_frac) * num_shifts))
+    return max(1, train_n), max(1, test_n)
+
+
+def shift_end_by_len(series: pd.Series, offset: int) -> pd.Series:
+    return series.map(lambda x: len(x) + offset)
+
+
+def add_debug_f(
+    df: pd.DataFrame,
+    time_col: str,
+    shifts_col: str = "shifts",
+    out_col: str = "debug_f",
+) -> pd.DataFrame:
+    df[out_col] = df.apply(
+        lambda r: [r[time_col][int(s)] for s in r[shifts_col]],
+        axis=1,
+    )
+    return df
 
 def pandas_train_test_split(
     df: pd.DataFrame,
