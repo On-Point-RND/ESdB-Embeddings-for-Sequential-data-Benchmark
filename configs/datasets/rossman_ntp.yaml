@@ -1,6 +1,6 @@
 log_dir: log/rossman
 patience: 10
-n_classes: 2
+n_classes: 7
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
@@ -31,7 +31,7 @@ data:
       max_seq_len: 1000
       time_name: Date
       index_name: Store
-      target_name: mock_target
+      target_name: DayOfWeek
       num_names: ${nn}
       cat_cardinalities: ${cc}
       batch_transforms:

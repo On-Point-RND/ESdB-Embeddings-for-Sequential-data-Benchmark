@@ -19,13 +19,13 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
+      - 0.0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000
+      max_seq_len: 10000
       time_name: trans_date
       index_name: client_id
       target_name: age
