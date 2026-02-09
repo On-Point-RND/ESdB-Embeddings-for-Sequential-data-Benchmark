@@ -12,7 +12,7 @@ nn:
 
 data:
   dataset:
-    parquet_path: "data/age/preprocessed_all/train"
+    parquet_path: "data/age/preprocessed/train"
     random_split: true
     split_seed: 42
 
@@ -57,6 +57,18 @@ data:
             cnt_max: 200
             short_seq_crop_rate: 0.8
             seed: 0
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      target_name: small_group
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 1000.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
+        - Logarithm:
+            names: ["amount_rur"]
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -100,11 +112,23 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/age/preprocessed_all/test"
+    parquet_path: "data/age/preprocessed/test"
     split_sizes: 
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      target_name: small_group
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 1000.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
+        - Logarithm:
+            names: ["amount_rur"]
   loaders:
     test:
       split_idx: 0
