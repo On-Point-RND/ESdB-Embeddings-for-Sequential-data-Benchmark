@@ -9,8 +9,8 @@ from pyspark.ml.feature import Bucketizer
 import numpy as np
 import pandas as pd
 
-from common import cat_freq, collect_lists
-from common_pandas import (
+from ..common import cat_freq, collect_lists
+from .common_pandas import (
     add_shift_columns,
     add_debug_f,
     global_time_split,
@@ -229,13 +229,23 @@ def main():
         seqlen_col='_seq_len'
     )
 
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    # 90% split per users
+    rng = np.random.default_rng(seed=42)
+    n_train_users = int(len(train_df.index) * 0.9)
+    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
+    train_df["users_in_train"] = 0
+    train_df.loc[train_indices, "users_in_train"] = 1
+    valid_test_indices = test_df.index.intersection(train_indices)
+    test_df["users_in_train"] = 0
+    test_df.loc[valid_test_indices, "users_in_train"] = 1
+
     train_df['is_bad_user'] = train_df['transaction_datetime'].apply(lambda x: trim_users(x, horizon_days))
     bad_indices = train_df.index[train_df['is_bad_user']].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df['is_bad_user']
-
-    train_df = train_df.copy()
-    test_df = test_df.copy()
 
     train_df['shift_end'] = train_df['transaction_datetime'].map(lambda x: compute_shift_end(x, horizon_days))
 
@@ -253,14 +263,6 @@ def main():
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
-
-    n_train = train_df["transaction_datetime"].map(len).sum()
-    n_test = (test_df["transaction_datetime"].map(len) - test_df["shift_start"]).sum()
-    total = n_train + n_test
-
-    print("total", total)
-    print("train", n_train*100/total)
-    print("test", n_test*100/total)
 
     test_df['post_target'] = duplicate_target_by_shifts(test_df, "age_clf")
     test_df['post_reg_target'] = test_df.apply(get_reg_target, axis=1)
@@ -288,6 +290,7 @@ def main():
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "users_in_train",
         "debug_f"
     ]
 

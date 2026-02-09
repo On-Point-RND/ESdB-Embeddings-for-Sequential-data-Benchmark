@@ -159,6 +159,16 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
+    # 90% split per users
+    rng = np.random.default_rng(seed=42)
+    n_train_users = int(len(train_df.index) * 0.9)
+    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
+    train_df["users_in_train"] = 0
+    train_df.loc[train_indices, "users_in_train"] = 1
+    valid_test_indices = test_df.index.intersection(train_indices)
+    test_df["users_in_train"] = 0
+    test_df.loc[valid_test_indices, "users_in_train"] = 1
+
     # recompute shift_end for train after trimming
     train_df["shift_end"] = shift_end_by_len(train_df["date"], -2)
 
@@ -194,6 +204,7 @@ def main():
     target_cols = [
         "shifts",
         "post_forecast_target",
+        "users_in_train",
         "debug_f",
     ]
     keep_cols = meta_cols + feature_cols + target_cols

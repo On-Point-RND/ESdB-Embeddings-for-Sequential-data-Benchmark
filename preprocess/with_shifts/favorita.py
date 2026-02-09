@@ -263,7 +263,6 @@ def main():
 
     sales_cols = [c for c in df.columns if c.endswith("_sales")]
 
-
     # df['days_since_first_tx'] = df['date'].apply(lambda x: (x - x[0]) / np.timedelta64(1, "D"))
     df["shift_end"] = shift_end_by_len(df["date"], -1 - H)
 
@@ -281,6 +280,16 @@ def main():
 
     train_df = train_df.copy()
     test_df = test_df.copy()
+
+    # 90% split per users
+    rng = np.random.default_rng(seed=42)
+    n_train_users = int(len(train_df.index) * 0.9)
+    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
+    train_df["users_in_train"] = 0
+    train_df.loc[train_indices, "users_in_train"] = 1
+    valid_test_indices = test_df.index.intersection(train_indices)
+    test_df["users_in_train"] = 0
+    test_df.loc[valid_test_indices, "users_in_train"] = 1
 
     # recompute shift_end for train after trimming
     train_df["shift_end"] = shift_end_by_len(train_df["date"], -1 - H)
@@ -330,6 +339,7 @@ def main():
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "users_in_train",
         "debug_f",
     ] + sales_cols
 
