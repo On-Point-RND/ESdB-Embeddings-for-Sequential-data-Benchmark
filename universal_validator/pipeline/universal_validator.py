@@ -30,8 +30,10 @@ class UniversalValidator:
     def _generate_report(self, results):
         if not results:
             return {}
-        scoring_metric = results["main_metric"]
-        best_model = max(results.keys(), key=lambda x: results[x].get(scoring_metric))
+        first_model_results = next(iter(results.values()))
+        scoring_metric = first_model_results["main_metric"]
+        sorting_key = lambda model_name: results[model_name].get(scoring_metric)
+        best_model = max(results.keys(), key=sorting_key)
         report = {
             "dataset": self.config.data_conf.dataset_name,
             "best_model": best_model,

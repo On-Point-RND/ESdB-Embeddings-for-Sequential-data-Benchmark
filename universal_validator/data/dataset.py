@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import pyarrow.parquet as pq
 
-from .data_types import DataConfig
 from dataclasses import dataclass
 
 

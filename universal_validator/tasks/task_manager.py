@@ -1,34 +1,32 @@
 import importlib
-from enum import StrEnum
 from typing import Any
 
 import optuna.logging
 import sklearn.metrics as sk_metrics
 from sklearn.base import BaseEstimator
 from sklearn.metrics import f1_score, roc_auc_score
+from enum import Enum
 
 from ..data.dataset import DataSplit
 from ..pipeline.utils import ValidatorConfig
 from .hpo_optimizer import HPOOptimizer
-
+from .scorers import get_scorers
 
 def import_model_class(class_path: str):
     module_name, class_name = class_path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), class_name)
 
-
-class TaskType(StrEnum):
+class TaskType(str, Enum): # for older python version
     REGRESSION = "regression"
     CLASSIFICATION = "classification"
 
-
-# TODO uncomment via implementing calculate metrics
+# TODO стандартизировать имена!
 METRIC_TO_TASK = {
-    # "r2": TaskType.REGRESSION,
-    # "mse": TaskType.REGRESSION,
+    "r2": TaskType.REGRESSION,
+    "mse": TaskType.REGRESSION,
     "f1": TaskType.CLASSIFICATION,
-    # "accuracy": TaskType.CLASSIFICATION,
-    "roc_auc": TaskType.CLASSIFICATION,
+    "accuracy": TaskType.CLASSIFICATION,
+    "roc_auc": TaskType.CLASSIFICATION, 
 }
 
 
@@ -70,52 +68,93 @@ class TaskManager:
 
     def _print_task_info(self, split_data: dict[str, Any]) -> None:
         pass
+    
+    def _build_task_config(self, metrics: list, task_name: str) -> dict:
+        """Строит task_config исходя структуры конфигов"""
+        task_config = {"models": {}}
+
+        if not metrics:
+            return task_config
+
+        first_metric = metrics[0]
+        task_type = METRIC_TO_TASK.get(first_metric)
+        
+        if not task_type:
+            return task_config
+
+        for model_name, model_config in self.config.models.items():
+            # Выбираем правильный estimator_class
+            if task_type == TaskType.CLASSIFICATION:
+                estimator_class = model_config.get("classifier")
+            else:  # TaskType.REGRESSION
+                estimator_class = model_config.get("regressor")
+
+            params = model_config.get("shared_params", {}).copy()
+            task_specific = model_config.get("task_specific", {})
+            if task_specific and task_name in task_specific:
+                params.update(task_specific[task_name])
+
+            task_config["models"][model_name] = {
+                "class": estimator_class,
+                "params": params
+            }
+
+        return task_config
 
     def execute(self, split_data: DataSplit) -> dict[str, Any]:
         metrics = split_data.metrics
+        
         if not self._check_metric(metrics):
             return
-        task_config = # TODO with new config format
-        scorers = # TODO create scorer
+        
+        scorers = get_scorers(metrics)
+        task_config = self._build_task_config(metrics, split_data.task_name)
         models = self._init_models(task_config)
-        if not models:
-            print(f"Info: No models for {self.CONFIG_SECTION}")
-            return
+              
         self._print_task_info(split_data)
+      
         if self.use_hpo:
             print("Using HPO optimization")
-        if not models:
-            print("Warning: No models!")
-            return {}
+      
         print(f"Models: {models}")
+        
         results = {}
         for name in models:
             print(f"\nTraining {name}...")
             base_model = models[name]
+            
+            model_config = self.config.models.get(name)
+            if not model_config:
+                print(f"  Warning: No config found for {name}")
+                continue
+            
             if self.use_hpo:
+                search_space = model_config.get("search_space", {})
                 model, cv_results = self.hpo_optimizer.optimize(
-                    model=base_model, 
+                    base_model=base_model, 
                     X_train=split_data.X_train, 
                     y_train=split_data.y_train, 
                     scorer=scorers[0],
                     task_name=split_data.task_name,
+                    search_space=search_space
                 )
             else:
                 model = base_model
                 model.fit(split_data.X_train, split_data.y_train)
                 cv_results = None
+            
+            result_metrics = {}
             predictions = model.predict(split_data.X_test)
-            # metrics = self._calculate_metrics(model, split_data)
             for scorer in scorers:
-                metrics[] = scorer(model, split_data.X_test, split_data.y_test)
+                result_metrics[scorer.name] = scorer(model, split_data.X_test, split_data.y_test)       
             results[name] = {
-                "main_metric": scorers[0].name, # TODO make correct
-                **metrics,
+                "main_metric": scorers[0].name,
+                **result_metrics,
                 "predictions": predictions,
                 "model": model,
                 "cv_results": cv_results,
             }
-            self._print_model_results(name, metrics, cv_results)
+            self._print_model_results(name, result_metrics, cv_results)
 
         return results
 
@@ -129,20 +168,3 @@ class TaskManager:
         for metric_name, value in metrics.items():
             print(f", {metric_name} = {value:.4f}", end="")
         print()
-
-    # def _calculate_metrics(self, model, split_data: DataSplit):
-    #     metrics = split_data.metrics
-    #     X_test, y_test = split_data.X_test, split_data.y_test
-    #     result = {}
-    #     for metric in metrics:
-    #         if metric == "roc_auc":
-    #             y_pred_proba = model.predict_proba(X_test)[:, 1]
-    #             result[metric] = roc_auc_score(y_test, y_pred_proba)
-    #         elif metric == "f1":
-    #             result[metric] = f1_score(
-    #                 y_test, model.predict(X_test), average="weighted"
-    #             )
-    #         else:
-    #             metric_func = getattr(sk_metrics, metric)
-    #             result[metric] = metric_func(y_test, model.predict(X_test))
-    #     return result
