@@ -20,24 +20,12 @@ def main(cfg: ValidatorConfig):
         tasks = cfg.task_names
 
     reports = []
+    
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
+        print(report)
         reports += [report]
-
-    # TODO report must be prepared by validator
-    for report in reports:
-        task_type = report["task_type"]
-        metric = {
-            "classification": "accuracy",
-            "regression": "r2",
-            "anomaly_detection": "auc",
-            "forecast": "mse",
-        }.get(task_type, "accuracy")
-
-        print(
-            f"{report['dataset']} ({task_type}): {report['best_model']} - {metric}: {report[f'best_{metric}']:.4f}"
-        )
-    print()
+    
     return reports
 
 

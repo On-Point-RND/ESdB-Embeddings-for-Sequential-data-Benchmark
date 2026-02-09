@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, Optional
+from typing import Optional
 
-from universal_validator.data.data_types import DataConfig
-
+from universal_validator.data.dataset import DataConfig
+from universal_validator.tasks.hpo_optimizer import HPOConfig
 
 # @dataclass(frozen=True)
 # class OptunaConfig:
@@ -23,5 +23,7 @@ class ValidatorConfig:
     # List available configurations
     list_configs: bool = False
     seed: int = 0
+    verbose: bool = True
 
-    downstream: dict = field(default_factory=dict)
+    hpo: HPOConfig = field(default_factory=HPOConfig)
+    models: dict = field(default_factory=dict)

@@ -5,6 +5,24 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from .data_types import DataConfig
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DataConfig:
+    dataset_name: str = "age"
+    train_path: str = ""
+    test_path: str = ""
+
+
+@dataclass
+class DataSplit:
+    X_train: np.ndarray
+    y_train: np.ndarray
+    X_test: np.ndarray
+    y_test: np.ndarray
+    metrics: list[str]
+    task_name: str
 
 
 class ValidatorDataset:
@@ -43,15 +61,17 @@ class ValidatorDataset:
             X_test = X_test = np.stack(test["embeddings"].values)
             y_test = test[target_name].values
         print(f"Done!")
-        return {
-            "X_train": X_train,
-            "y_train": y_train,
-            "X_test": X_test,
-            "y_test": y_test,
-            "metric": metrics,
-        }
+        return DataSplit(
+            X_train=X_train,
+            y_train=y_train,
+            X_test=X_test,
+            y_test=y_test,
+            metrics=metrics,
+            task_name=target_name,
+        )
 
-    def _parse_target_name(self, target_name):
+    @staticmethod
+    def _parse_target_name(target_name):
         parts = target_name.split("__")
         assert parts[0] == "target"
         assert len(parts) == 4, parts

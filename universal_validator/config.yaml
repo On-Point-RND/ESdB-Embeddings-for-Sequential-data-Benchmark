@@ -1,154 +1,53 @@
 config_factory: [datasets/age]
 seed: 0
+verbose: True
 
-# TODO rewrite for new tasks format and prepare DataConfig
-downstream:
-  # Hyperparameter optimization settings
-  hpo:
-    enabled: true
-    n_trials: 10
-    cv: 3
-    n_jobs: 4
-    max_threads: 4
-    verbose: false # show detailed log
-    show_progress_bar: true # show progess bar
-  
-  # Search spaces for Optuna
-  search_spaces:
-    mlp:
-      hidden_layer_sizes:
-        - [64]
-        - [128]
-        - [256]
-        - [64, 32]
-        - [128, 64]
-      alpha:
-        low: 0.0001
-        high: 0.1
-        log: true
-      learning_rate_init:
-        low: 0.001
-        high: 0.1
-        log: true
-      batch_size:
-        - 32
-        - 64
-        - 128
-        - 256
-      activation:
-        - 'relu'
-        - 'tanh'
-    
-    lgbm:
-      n_estimators:
-        low: 100
-        high: 1000
-      max_depth:
-        low: 3
-        high: 12
-      num_leaves:
-        low: 10
-        high: 200
-      learning_rate:
-        low: 0.001
-        high: 0.3
-        log: true
-      subsample:
-        low: 0.6
-        high: 1.0
-      colsample_bytree:
-        low: 0.6
-        high: 1.0
-      reg_alpha:
-        low: 1e-8
-        high: 10.0
-        log: true
-      reg_lambda:
-        low: 1e-8
-        high: 10.0
-        log: true
-      min_child_samples:
-        low: 5
-        high: 100
-  
-  # Task configurations
-  classification:
-    scoring: accuracy
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPClassifier
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMClassifier
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1
-  
-  anomaly_detection:
-    scoring: roc_auc
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPClassifier
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMClassifier
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1
-          is_unbalance: true
-  
-  regression:
-    scoring: r2
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPRegressor
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMRegressor
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1
-          
-  forecast:
-    scoring: r2
-    models:
-      mlp:
-        class: sklearn.neural_network.MLPRegressor
-        params:
-          hidden_layer_sizes: [100, 50]
-          random_state: 42
-          max_iter: 1000
-          early_stopping: true
-          validation_fraction: 0.1
-          verbose: false
-      lgbm:
-        class: lightgbm.LGBMRegressor
-        params:
-          n_estimators: 100
-          random_state: 42
-          verbose: -1
-          n_jobs: 1
+hpo:
+  enabled: False
+  n_trials: 10
+  cv: 3
+  n_jobs: 4
+  max_threads: 4
+  show_progress_bar: True # show progess bar
+
+models:
+  mlp:
+    classifier: sklearn.neural_network.MLPClassifier
+    regressor: sklearn.neural_network.MLPRegressor
+    shared_params:
+      hidden_layer_sizes: [100, 50]
+      random_state: 42
+      max_iter: 1000
+      early_stopping: true
+      validation_fraction: 0.1
+      verbose: false
+    search_space:
+      hidden_layer_sizes: [[64], [128], [256], [64,32], [128,64]]
+      alpha: { low: 0.0001, high: 0.1, log: true }
+      learning_rate_init: { low: 0.001, high: 0.1, log: true }
+      batch_size: [32, 64, 128, 256]
+      activation: [relu, tanh]
+    task_specific:
+
+  lgbm:
+    classifier: lightgbm.LGBMClassifier
+    regressor: lightgbm.LGBMRegressor
+    shared_params:
+      n_estimators: 100
+      random_state: 42
+      verbose: -1
+      n_jobs: 1
+
+    search_space:
+      n_estimators: { low: 100, high: 1000 }
+      max_depth: { low: 3, high: 12 }
+      num_leaves: { low: 10, high: 200 }
+      learning_rate: { low: 0.001, high: 0.3, log: true }
+      subsample: { low: 0.6, high: 1.0 }
+      colsample_bytree: { low: 0.6, high: 1.0 }
+      reg_alpha: { low: 1e-8, high: 10.0, log: true }
+      reg_lambda: { low: 1e-8, high: 10.0, log: true }
+      min_child_samples: { low: 5, high: 100 }
+    task_specific:
+      anomaly_detection:
+        is_unbalance: true
