@@ -5,7 +5,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from dataclasses import dataclass
-
+from ..tasks.scorers import METRIC_INFO, TaskType
 
 @dataclass(frozen=True)
 class DataConfig:
@@ -44,23 +44,30 @@ class ValidatorDataset:
             )
         return target_cols
 
-    def load_for_task(self, target_name) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def load_for_task(self, target_name) -> DataSplit:
         print(f"Loading {self.data_conf.dataset_name} dataset...")
-
         _, target_type, metrics = self._parse_target_name(target_name)
         if target_type in ["local"]:
             columns = ["embeddings", target_name]
             train = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            test = pd.read_parquet(self.data_conf.train_path, columns=columns)
+            test = pd.read_parquet(self.data_conf.test_path, columns=columns)
             train, test = train.explode(columns), test.explode(columns)
 
-            X_train = np.stack(train["embeddings"].values)
+            X_train = np.stack(train["embeddings"].values).astype(np.float32)
             y_train = train[target_name].values
 
-            X_test = X_test = np.stack(test["embeddings"].values)
+            X_test = np.stack(test["embeddings"].values).astype(np.float32)
             y_test = test[target_name].values
         else:
             raise NotImplementedError(f"Target type {target_type} not supported!")
+        assert metrics[0] in METRIC_INFO, f"{metrics[0]} not supported!"
+        if METRIC_INFO[metrics[0]]["task"] == TaskType.REGRESSION:
+            y_train, y_test = y_train.astype(np.float32), y_test.astype(np.float32)
+        elif METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
+            y_train, y_test = y_train.astype(np.int32), y_test.astype(np.int32)
+        else:
+            raise ValueError(METRIC_INFO[metrics[0]]["task"])
+
         print(f"Done!")
         return DataSplit(
             X_train=X_train,

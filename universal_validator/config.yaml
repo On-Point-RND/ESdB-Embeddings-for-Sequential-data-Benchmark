@@ -1,6 +1,10 @@
 config_factory: [datasets/age]
 seed: 0
 verbose: True
+task_names: 
+  - target__forecast__local__roc_auc
+  - target__reg_amount__local__mse
+  - target__forecast__local__mse
 
 hpo:
   enabled: False

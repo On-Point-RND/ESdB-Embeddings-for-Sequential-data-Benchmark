@@ -5,7 +5,6 @@ from typing import Any
 import numpy as np
 import optuna
 from sklearn.base import BaseEstimator
-from sklearn.metrics._scorer import _Scorer
 from sklearn.model_selection import KFold, cross_val_score
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -31,7 +30,7 @@ class HPOOptimizer:
         base_model: BaseEstimator,
         X_train: np.ndarray,
         y_train: np.ndarray,
-        scorer: _Scorer,
+        scorer,
         search_space: dict = None,
     ):
         model_name = base_model.__class__.__name__
@@ -77,7 +76,7 @@ class HPOOptimizer:
         base_model: BaseEstimator,
         X: np.ndarray,
         y: np.ndarray,
-        scorer: _Scorer,
+        scorer,
         search_space: dict,
     ):
 
