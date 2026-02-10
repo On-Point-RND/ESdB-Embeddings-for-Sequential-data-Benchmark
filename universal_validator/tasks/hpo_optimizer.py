@@ -52,10 +52,10 @@ class HPOOptimizer:
                 show_progress_bar=self.hpo_config.show_progress_bar,
             )
 
-            best_params = study.best_params
-            final_model = base_model.__class__(
-                **{**base_model.get_params(), **best_params}
+            best_params = self._update_params(
+                base_model.get_params(), study.best_params
             )
+            final_model = base_model.__class__(**best_params)
             final_model.fit(X_train, y_train)
 
             cv_results = {
@@ -81,12 +81,10 @@ class HPOOptimizer:
     ):
 
         def objective(trial):
-            params = {}
             for param_name, param_values in search_space.items():
-                suggestion = self._suggest_param(trial, param_name, param_values)
-                if suggestion:
-                    params.update(suggestion)
-            model = base_model.__class__(**{**base_model.get_params(), **params})
+                self._suggest_param(trial, param_name, param_values)
+            params = self._update_params(base_model.get_params(), trial.params)
+            model = base_model.__class__(**params)
             cv = self.hpo_config.cv
             kf = KFold(n_splits=cv, shuffle=True, random_state=42)
             scores = cross_val_score(model, X, y, cv=kf, scoring=scorer)
@@ -96,8 +94,11 @@ class HPOOptimizer:
 
     def _suggest_param(self, trial, param_name: str, param_values: Any):
         if isinstance(param_values, list):
-            return {param_name: trial.suggest_categorical(param_name, param_values)}
-
+            if param_name == "hidden_layer_sizes":
+                param_values = [str(p) for p in param_values]
+                trial.suggest_categorical(param_name, param_values)
+            else:
+                trial.suggest_categorical(param_name, param_values)
         if (
             isinstance(param_values, dict)
             and "low" in param_values
@@ -106,9 +107,8 @@ class HPOOptimizer:
             low, high = param_values["low"], param_values["high"]
             log = param_values.get("log", False)
             if isinstance(low, int) and isinstance(high, int):
-                return {param_name: trial.suggest_int(param_name, low, high, log=log)}
+                trial.suggest_int(param_name, low, high, log=log)
             else:
-                return {param_name: trial.suggest_float(param_name, low, high, log=log)}
+                trial.suggest_float(param_name, low, high, log=log)
 
-        return {}
-
+    def _update_params(self, base_params, trial_params): ...
