@@ -146,6 +146,10 @@ class Trainer:
     def device(self) -> str:
         return self._device
 
+    @property
+    def verbose(self) -> str:
+        return self._verbose
+
     def _make_key_extractor(self, key):
         def key_extractor(p: Path) -> float:
             metrics = {}
@@ -358,43 +362,6 @@ class Trainer:
         return self.compute_metrics("val")
 
 
-    def df_gatherer(self, loader):
-        """
-        Iterates through loader and gathers DataFrame with:
-        data, embedding (headless), prediction (full model), target
-        """
-        embedding_model = nn.Sequential(*list(self._model.children())[:-1])
-        # for easy methods only
-        assert self._model is not None
-        assert embedding_model is not None
-        if loader is None:
-            raise ValueError("Incorrect loader for embeddings generation")
-        logger.info("Embedding generation on one of the loaders started")
-
-        records = []
-        for batch in tqdm(loader, disable=not self._verbose):
-            batch.to(self._device)
-            target = batch.pop_target()
-
-            with torch.no_grad():
-                emb = embedding_model(batch)
-                pred = self._model(batch)
-
-            emb_list = emb.cpu().numpy().tolist()
-            pred_list = pred.cpu().numpy().tolist()
-            target_list = target.cpu().numpy().tolist()
-            index_data = batch.extract_indexes_from_batch()
-
-            for i in range(len(emb)):
-                record = {
-                    "embedding": emb_list[i],
-                    "index": index_data[i],
-                }
-                records.append(record)
-        df = pd.DataFrame(records)
-        logger.info("Embedding generation finished")
-        return df
-
     @torch.inference_mode()
     def bert_emb_gather(self, loader: Iterable[Batch], *, aggregation: str | None = None) -> pd.DataFrame:
         """Generate embeddings for BERT-like models exposing `get_query_embeddings`.
@@ -452,6 +419,7 @@ class Trainer:
         df = pd.DataFrame(records)
         logger.info("BERT embedding generation finished")
         return df
+
 
     def compute_metrics(self, phase: Literal["train", "val"]) -> dict[str, Any]:
         """Compute and log metrics.
