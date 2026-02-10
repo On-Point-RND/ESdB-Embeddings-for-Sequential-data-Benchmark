@@ -1,35 +1,18 @@
 import importlib
-from enum import StrEnum
 from typing import Any
 
 import optuna.logging
-import sklearn.metrics as sk_metrics
 from sklearn.base import BaseEstimator
-from sklearn.metrics import f1_score, roc_auc_score
 
 from ..data.dataset import DataSplit
 from ..pipeline.utils import ValidatorConfig
 from .hpo_optimizer import HPOOptimizer
+from .scorers import METRIC_INFO, TaskType, get_scorers
 
 
 def import_model_class(class_path: str):
     module_name, class_name = class_path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), class_name)
-
-
-class TaskType(StrEnum):
-    REGRESSION = "regression"
-    CLASSIFICATION = "classification"
-
-
-# TODO uncomment via implementing calculate metrics
-METRIC_TO_TASK = {
-    # "r2": TaskType.REGRESSION,
-    # "mse": TaskType.REGRESSION,
-    "f1": TaskType.CLASSIFICATION,
-    # "accuracy": TaskType.CLASSIFICATION,
-    "roc_auc": TaskType.CLASSIFICATION,
-}
 
 
 class TaskManager:
@@ -41,28 +24,45 @@ class TaskManager:
         if not self.verbose:
             optuna.logging.set_verbosity(optuna.logging.ERROR)
         if self.use_hpo:
-            self.hpo_optimizer = HPOOptimizer(self.config.hpo, config.models)
+            self.hpo_optimizer = HPOOptimizer(self.config.hpo)
 
-    def _init_models(self, task_config) -> dict[str, BaseEstimator]:
-        models_config = task_config.get("models")
-        if not models_config:
+    def _init_models(
+        self, metrics: list[str], task_name: str
+    ) -> dict[str, BaseEstimator]:
+        if not metrics:
             return {}
+
+        first_metric = metrics[0]
+        task_type = METRIC_INFO[first_metric]["task"]
+
         models = {}
-        for name, params in models_config.items():
+        for name, model_config in self.config.models.items():
+            if task_type == TaskType.CLASSIFICATION:
+                estimator_path = model_config["classifier"]
+            elif task_type == TaskType.REGRESSION:
+                estimator_path = model_config["regressor"]
+            else:
+                print(f"Warning: No estimator defined for {name} in {task_type} mode")
+                continue
+            params = model_config.get("shared_params", {}).copy()
+            task_specific = model_config.get("task_specific", {})
+            if task_specific and task_name in task_specific:
+                params.update(task_specific[task_name])
+            search_space = model_config.get("search_space", {})
             try:
-                params_dict = params["params"]
-                model_class = import_model_class(params["class"])
-                models[name] = model_class(**params_dict)
+                model_class = import_model_class(estimator_path)
+                models[name] = (model_class(**params), search_space)
             except Exception as e:
-                print(f"Warning: Failed {name}: {e}")
+                print(f"Warning: Failed to initialize {name}: {e}")
+
         return models
 
     def _check_metric(self, metrics):
         for metric in metrics:
-            if metric not in METRIC_TO_TASK.keys():
+            if metric not in METRIC_INFO.keys():
                 print(f"Metric {metric} is not supported!")
                 return False
-        task_types = [METRIC_TO_TASK[metric] for metric in metrics]
+        task_types = [METRIC_INFO[metric]["task"] for metric in metrics]
         if len(set(task_types)) > 1:
             print(f"Metrics {metrics} have different task types!")
             return False
@@ -75,47 +75,43 @@ class TaskManager:
         metrics = split_data.metrics
         if not self._check_metric(metrics):
             return
-        task_config = # TODO with new config format
-        scorers = # TODO create scorer
-        models = self._init_models(task_config)
-        if not models:
-            print(f"Info: No models for {self.CONFIG_SECTION}")
-            return
+        scorers = get_scorers(metrics)
+        models = self._init_models(metrics, split_data.task_name)
         self._print_task_info(split_data)
         if self.use_hpo:
             print("Using HPO optimization")
-        if not models:
-            print("Warning: No models!")
-            return {}
         print(f"Models: {models}")
         results = {}
         for name in models:
             print(f"\nTraining {name}...")
-            base_model = models[name]
+            base_model, search_space = models[name]
             if self.use_hpo:
                 model, cv_results = self.hpo_optimizer.optimize(
-                    model=base_model, 
-                    X_train=split_data.X_train, 
-                    y_train=split_data.y_train, 
+                    base_model=base_model,
+                    X_train=split_data.X_train,
+                    y_train=split_data.y_train,
                     scorer=scorers[0],
-                    task_name=split_data.task_name,
+                    search_space=search_space,
                 )
             else:
                 model = base_model
                 model.fit(split_data.X_train, split_data.y_train)
                 cv_results = None
+
+            result_metrics = {}
             predictions = model.predict(split_data.X_test)
-            # metrics = self._calculate_metrics(model, split_data)
             for scorer in scorers:
-                metrics[] = scorer(model, split_data.X_test, split_data.y_test)
+                result_metrics[scorer.name] = scorer(
+                    model, split_data.X_test, split_data.y_test
+                )
             results[name] = {
-                "main_metric": scorers[0].name, # TODO make correct
-                **metrics,
+                "main_metric": scorers[0].name,
+                **result_metrics,
                 "predictions": predictions,
                 "model": model,
                 "cv_results": cv_results,
             }
-            self._print_model_results(name, metrics, cv_results)
+            self._print_model_results(name, result_metrics, cv_results)
 
         return results
 
@@ -129,20 +125,3 @@ class TaskManager:
         for metric_name, value in metrics.items():
             print(f", {metric_name} = {value:.4f}", end="")
         print()
-
-    # def _calculate_metrics(self, model, split_data: DataSplit):
-    #     metrics = split_data.metrics
-    #     X_test, y_test = split_data.X_test, split_data.y_test
-    #     result = {}
-    #     for metric in metrics:
-    #         if metric == "roc_auc":
-    #             y_pred_proba = model.predict_proba(X_test)[:, 1]
-    #             result[metric] = roc_auc_score(y_test, y_pred_proba)
-    #         elif metric == "f1":
-    #             result[metric] = f1_score(
-    #                 y_test, model.predict(X_test), average="weighted"
-    #             )
-    #         else:
-    #             metric_func = getattr(sk_metrics, metric)
-    #             result[metric] = metric_func(y_test, model.predict(X_test))
-    #     return result
