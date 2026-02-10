@@ -33,5 +33,5 @@ def get_scorers(metric_names):
             scorer.name = scorer_name
             scorers.append(scorer)
         except ValueError as e:
-            print(f"Warning: Unsupported metric '{name}': {e}")
+            raise ValueError(f"Unsupported metric '{name}': {e}") from e
     return scorers
