@@ -55,10 +55,10 @@ class ValidatorDataset:
             train, test = train.explode(columns), test.explode(columns)
 
             X_train = np.stack(train["embeddings"].values)
-            y_train = train[target_name].values
+            y_train = pd.to_numeric(train[target_name]).values
 
             X_test = X_test = np.stack(test["embeddings"].values)
-            y_test = test[target_name].values
+            y_test = pd.to_numeric(test[target_name]).values
         else:
             raise NotImplementedError(f"Target type {target_type} not supported!")
         print(f"Done!")
