@@ -59,6 +59,8 @@ class ValidatorDataset:
 
             X_test = X_test = np.stack(test["embeddings"].values)
             y_test = test[target_name].values
+        else:
+            raise NotImplementedError(f"Target type {target_type} not supported!")
         print(f"Done!")
         return DataSplit(
             X_train=X_train,
