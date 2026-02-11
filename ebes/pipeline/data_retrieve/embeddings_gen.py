@@ -129,9 +129,10 @@ class ResultsGetter:
                 t = batch.time[:, b]
                 new_t = torch.zeros(old_len, device=device)
                 new_t[:s] = t[:s]
-                assert int(t[s] * 1e3) == (
-                    debug_f[i]
-                ), "Check shifted data for embeddings."  # TODO: Make some good debug.
+                if i < len(shifts)-1 and not np.allclose((t[s] * 1e3).round(decimals=0).int(), debug_f[i]):
+                    breakpoint()
+
+                    raise ValueError("Check shifted data for embeddings.")
 
                 new_times.append(new_t)
 
@@ -264,9 +265,9 @@ class ResultsGetter:
             shifts=("shift", list), embeddings=("embedding", list)
         )
 
-        result["global_embedding"] = result["embeddings"].apply(lambda x: x[-1])
+        result["global_emb"] = result["embeddings"].apply(lambda x: x[-1])
 
-        result["embeddings"] = result["embeddings"].apply(lambda x: x[:-1])
+        result["shift_emb"] = result["embeddings"].apply(lambda x: x[:-1])
         result["shifts"] = result["shifts"].apply(lambda x: x[:-1])
 
         return result
