@@ -58,17 +58,17 @@ class UnsupervisedEmbedRunner(Runner):
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
             train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"train", "train_val"}
+            keys = {"full_train", "train_val"}
             subloaders = {k: loaders[k] for k in keys if k in loaders}
             df_train = train_embeddings_getter.df_get(subloaders, trainer)
-            embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train" 
+            embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
             embed_train_file.parent.mkdir(parents=True, exist_ok=True)
             df_train.to_parquet(embed_train_file, index=False)
             post_processing(config, embed_train_file, "train")
 
             test_embeddings_getter = ResultsGetter(config, "test")
             df_test = test_embeddings_getter.df_get(test_loaders, trainer)
-            embed_test_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test" 
+            embed_test_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
             embed_test_file.parent.mkdir(parents=True, exist_ok=True)
             df_test.to_parquet(embed_test_file, index=False)
             post_processing(config, embed_test_file, "test")
