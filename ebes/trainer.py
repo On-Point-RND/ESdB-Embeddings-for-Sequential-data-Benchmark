@@ -362,65 +362,6 @@ class Trainer:
         return self.compute_metrics("val")
 
 
-    @torch.inference_mode()
-    def bert_emb_gather(self, loader: Iterable[Batch], *, aggregation: str | None = None) -> pd.DataFrame:
-        """Generate embeddings for BERT-like models exposing `get_query_embeddings`.
-
-        Returns a DataFrame with:
-        - `index`: sequence id from the dataset (if provided by the collator)
-        - `embedding`: a list[float] vector
-        """
-
-        assert self._model is not None
-        if loader is None:
-            raise ValueError("Incorrect loader for embeddings generation")
-
-        get_query_embeddings = getattr(self._model, "get_query_embeddings", None)
-        if not callable(get_query_embeddings):
-            raise TypeError(
-                "Model does not implement `get_query_embeddings(batch, aggregation=...)`"
-            )
-
-        self._model.eval()
-        logger.info("BERT embedding generation started")
-
-        records: list[dict[str, Any]] = []
-        for batch in tqdm(loader, disable=not self._verbose):
-            batch.to(self._device)
-            _ = batch.pop_target()
-
-            try:
-                emb = get_query_embeddings(batch, aggregation=aggregation)
-            except TypeError:
-                emb = get_query_embeddings(batch)
-
-            if not isinstance(emb, torch.Tensor) or emb.ndim != 2:
-                raise TypeError(
-                    "`get_query_embeddings` must return a 2D torch.Tensor of shape (batch, dim)"
-                )
-
-            emb_list = emb.detach().cpu().numpy().tolist()
-            index_data = batch.extract_indexes_from_batch()
-            if index_data is None:
-                index_data = [None] * len(emb_list)
-            elif len(index_data) != len(emb_list):
-                raise ValueError(
-                    f"Batch index length ({len(index_data)}) does not match embeddings batch size ({len(emb_list)})"
-                )
-
-            for i in range(len(emb_list)):
-                records.append(
-                    {
-                        "embedding": emb_list[i],
-                        "index": index_data[i],
-                    }
-                )
-
-        df = pd.DataFrame(records)
-        logger.info("BERT embedding generation finished")
-        return df
-
-
     def compute_metrics(self, phase: Literal["train", "val"]) -> dict[str, Any]:
         """Compute and log metrics.
 

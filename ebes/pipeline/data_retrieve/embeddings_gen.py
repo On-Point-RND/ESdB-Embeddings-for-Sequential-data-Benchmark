@@ -30,6 +30,7 @@ class ResultsGetter():
     def df_get(self, loaders, trainer):
         model=trainer.model
         assert model is not None
+        get_query_embeddings = getattr(model, "get_query_embeddings", None)
         df_list=[]
         for loader_name, loader in loaders.items():
             if loader is None:
@@ -41,7 +42,11 @@ class ResultsGetter():
 
                 batch.to(trainer.device)
                 with torch.no_grad():
-                    emb = model(batch)
+                    if callable(get_query_embeddings):
+                        emb = get_query_embeddings(batch)
+                    else:
+                        emb = model(batch)
+
                 emb_np = emb.detach().cpu().numpy()
                 del emb
                 torch.cuda.empty_cache()
@@ -213,4 +218,3 @@ class ResultsGetter():
             )
         )
         return result
-
