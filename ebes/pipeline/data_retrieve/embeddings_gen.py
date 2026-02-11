@@ -3,6 +3,7 @@ from pathlib import Path
 
 # from torch import nn
 import pandas as pd
+import numpy as np
 
 import logging
 import torch
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 class ResultsGetter():
     def __init__(self, config, mode):
         #self.config=config
+        self.mode=mode
         if mode == "train":
             data_path = Path(config["data"]["dataset"]["parquet_path"])
         elif mode == "test":
@@ -87,6 +89,7 @@ class ResultsGetter():
         for b in range(old_batch):
             old_index = batch.index[b]
             shifts = self.shifts_by_index[old_index]
+            shifts = np.append(shifts, int(batch.lengths[b]))
             for s in shifts:
                 s = int(s)
 
@@ -217,4 +220,10 @@ class ResultsGetter():
                 embeddings=("embedding", list)
             )
         )
+
+        result["global_embedding"] = result["embeddings"].apply(lambda x: x[-1])
+
+        result["embeddings"] = result["embeddings"].apply(lambda x: x[:-1])
+        result["shifts"] = result["shifts"].apply(lambda x: x[:-1])     
+
         return result

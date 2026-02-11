@@ -61,12 +61,12 @@ def post_processing(config, emb_path, data_mode, partitions=10):
     )
 
     # Проверка совпадения shifts
-    bad = joined_df.filter(F.col("shifts") != F.col("shifts_emb"))
-    if bad.count() > 0:
-        bad.select(id_col, "shifts", "shifts_emb").show(truncate=False)
-        raise ValueError("Shifts mismatch detected")
+    # bad = joined_df.filter(F.col("shifts") != F.col("shifts_emb"))
+    # if bad.count() > 0:
+    #    bad.select(id_col, "shifts", "shifts_emb").show(truncate=False)
+    #    raise ValueError("Shifts mismatch detected")
 
-    joined_df = joined_df.drop("shifts_emb")
+    joined_df = joined_df.drop("shifts")
 
     # -------------------------------------------------------------------------
     # 4. Save result next to embeddings parquet

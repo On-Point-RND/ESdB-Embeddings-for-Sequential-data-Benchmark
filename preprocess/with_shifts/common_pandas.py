@@ -143,7 +143,7 @@ def global_time_split(
         return row
 
     train = pd.DataFrame(train.apply(trim_row, axis=1, result_type="expand"))
-
+    train = train[train[time_col].apply(lambda x: x.ndim > 0)].copy()
     train = train[train[time_col].map(len) > 0].copy()
 
     train["shift_start"] = min_shift_start
