@@ -27,7 +27,9 @@ class ResultsGetter:
         self.index_name = config["data"]["preprocessing"]["common_pipeline"][
             "index_name"
         ]
-        data_df = pd.read_parquet(data_path, columns=[self.index_name, "shifts", '_seq_len', 'debug_f'])
+        data_df = pd.read_parquet(
+            data_path, columns=[self.index_name, "shifts", "_seq_len", "debug_f"]
+        )
         self.shifts_by_index = data_df.set_index(self.index_name)["shifts"].to_dict()
         self.debug_f_by_index = data_df.set_index(self.index_name)["debug_f"].to_dict()
         self.orig_len_by_index = data_df.set_index(self.index_name)[
@@ -37,7 +39,7 @@ class ResultsGetter:
     def df_get(self, loaders, trainer):
         model = trainer.model
         assert model is not None
-        
+
         get_query_embeddings = getattr(model, "get_query_embeddings", None)
         df_list = []
         for loader_name, loader in loaders.items():
@@ -84,14 +86,15 @@ class ResultsGetter:
         if isinstance(debug_f, list):
             debug_f = np.asarray(debug_f)
 
-        assert isinstance(debug_f, np.ndarray) and isinstance(shifts, np.ndarray), 'Provide correct types for sequential data in Dataframe.'
+        assert isinstance(debug_f, np.ndarray) and isinstance(
+            shifts, np.ndarray
+        ), "Provide correct types for sequential data in Dataframe."
 
         shifts = shifts - offset
         shifts_mask = shifts >= MIN_SHIFT_VALUE
         shifts = shifts[shifts_mask]
         debug_f = debug_f[shifts_mask]
         return shifts, debug_f
-
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
@@ -119,14 +122,17 @@ class ResultsGetter:
 
             shifts = np.append(shifts, int(batch.lengths[b]))
 
-            for s in shifts:
+            for i, s in enumerate(shifts):
                 s = int(s)
 
                 # ---- time ----
                 t = batch.time[:, b]
                 new_t = torch.zeros(old_len, device=device)
                 new_t[:s] = t[:s]
-                breakpoint() # TODO: Debug
+                assert int(t[s] * 1e3) == (
+                    debug_f[i]
+                ), "Check shifted data for embeddings."  # TODO: Make some good debug.
+
                 new_times.append(new_t)
 
                 # ---- emb features ----
