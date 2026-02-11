@@ -10,9 +10,13 @@ import pandas as pd
 from ..common import cat_freq
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     duplicate_target_by_shifts,
+    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    shift_end_by_len,
+    split_num_shifts,
 )
 
 CAT_FEATURES = []
@@ -20,15 +24,14 @@ INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
 TARGET_VALS = [0, 1]
 TEST_FRACTION = 0.1
+H = 30
+TM = ORDERING_COLUMNS[0]
 
 def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30) -> list[float]:
     d = np.asarray(row["date"])
     out = []
     for s in row["shifts"]:
-        s = int(s)
-        if len(d) == 0 or s >= len(d):
-            out.append(0.0)
-            continue
+        s = int(s) - 1
         delta = (d - d[s]) / np.timedelta64(1, "D")
         mask = (delta > 0) & (delta <= horizon)
         total = 0.0
@@ -241,28 +244,13 @@ def main():
     full_df = full_df.repartition("store_nbr").cache()
     full_df.count()
 
-    ###########################
-    full_df = full_df.withColumn(
-        "used_in_train",
-        F.when(F.col("date").isNotNull() & (F.size("date") < 600),
-               F.lit(-1)
-               ).otherwise(F.lit(0))
-    )
-    # Здесь удалили все не подходящие начисто
-    full_df = full_df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 400  # или любое другое
-    full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
-    full_df = full_df.withColumn(
-        "mock_target",
-        (F.rand() < 0.5).cast("int")
-    )
-    
-
     full_df.repartition(50).write.parquet(
         (args.save_path / "temp").as_posix(), mode=mode
     )
 
     df = pd.read_parquet(args.save_path / "temp")
+    df['_seq_len'] = df[TM].apply(len)
+    df = filter_short(df)
     stores_df = pd.read_csv(args.data_path / "stores.csv")
 
     df = df.merge(
@@ -271,14 +259,12 @@ def main():
         how="left",
     )
 
-    # ensure datetime64 for global time split
     df["date"] = df["date"].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
     sales_cols = [c for c in df.columns if c.endswith("_sales")]
 
-    REAL_MONTH = 30  # Checked that it is real month
     # df['days_since_first_tx'] = df['date'].apply(lambda x: (x - x[0]) / np.timedelta64(1, "D"))
-    df["shift_end"] = df["date"].map(lambda x: len(x) - 1 - REAL_MONTH)
+    df["shift_end"] = shift_end_by_len(df["date"], -1 - H)
 
     type_codes = pd.Categorical(df["type"]).codes
     df["type_code"] = type_codes
@@ -295,17 +281,23 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
+    # 90% split per users
+    rng = np.random.default_rng(seed=42)
+    n_train_users = int(len(train_df.index) * 0.9)
+    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
+    train_df["users_in_train"] = 0
+    train_df.loc[train_indices, "users_in_train"] = 1
+    valid_test_indices = test_df.index.intersection(train_indices)
+    test_df["users_in_train"] = 0
+    test_df.loc[valid_test_indices, "users_in_train"] = 1
+
     # recompute shift_end for train after trimming
-    train_df["shift_end"] = train_df["date"].map(lambda x: len(x) - 1 - REAL_MONTH)
+    train_df["shift_end"] = shift_end_by_len(train_df["date"], -1 - H)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    n_shifts = args.num_shifts
-    test_n_shifts = int(np.ceil(TEST_FRACTION * n_shifts))
-    train_n_shifts = int(np.floor((1 - TEST_FRACTION) * n_shifts))
-    test_n_shifts = max(1, test_n_shifts)
-    train_n_shifts = max(1, train_n_shifts)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -336,14 +328,8 @@ def main():
     )
 
     # debug: map shifts to timestamps
-    test_df["debug_f"] = test_df.apply(
-        lambda r: [r["date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
-    train_df["debug_f"] = train_df.apply(
-        lambda r: [r["date"][int(s)] for s in r["shifts"]],
-        axis=1,
-    )
+    test_df = add_debug_f(test_df, time_col="date")
+    train_df = add_debug_f(train_df, time_col="date")
 
     keep_cols = [
         "store_nbr",
@@ -353,6 +339,7 @@ def main():
         "post_target",
         "post_forecast_target",
         "post_anomaly_target",
+        "users_in_train",
         "debug_f",
     ] + sales_cols
 

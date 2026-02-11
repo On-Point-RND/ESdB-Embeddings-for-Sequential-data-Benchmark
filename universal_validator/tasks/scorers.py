@@ -14,7 +14,9 @@ METRIC_INFO = {
     "mae": {"task": TaskType.REGRESSION, "scorer": "neg_mean_absolute_error"},
     "accuracy": {"task": TaskType.CLASSIFICATION, "scorer": "accuracy"},
     "roc_auc": {"task": TaskType.CLASSIFICATION, "scorer": "roc_auc"},
-    "f1": {"task": TaskType.CLASSIFICATION, "scorer": "f1_weighted"},
+    "f1_weighted": {"task": TaskType.CLASSIFICATION, "scorer": "f1_weighted"},
+    "f1_macro": {"task": TaskType.CLASSIFICATION, "scorer": "f1_macro"},
+    "f1_micro": {"task": TaskType.CLASSIFICATION, "scorer": "f1_micro"},
     "precision": {"task": TaskType.CLASSIFICATION, "scorer": "precision_weighted"},
     "recall": {"task": TaskType.CLASSIFICATION, "scorer": "recall_weighted"},
 }
