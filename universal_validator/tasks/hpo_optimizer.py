@@ -111,4 +111,9 @@ class HPOOptimizer:
             else:
                 trial.suggest_float(param_name, low, high, log=log)
 
-    def _update_params(self, base_params, trial_params): ...
+    def _update_params(self, base_params: dict, trial_params: dict):
+        updated_params = {**base_params, **trial_params}
+        if isinstance(updated_params.get("hidden_layer_sizes"), str):
+            # "[64, 32]" --> [64, 32]
+            updated_params["hidden_layer_sizes"] = eval(updated_params["hidden_layer_sizes"])
+        return updated_params
