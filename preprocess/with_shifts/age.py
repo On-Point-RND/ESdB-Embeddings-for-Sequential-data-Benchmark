@@ -161,8 +161,6 @@ def main():
     )
 
     df = df.sort("client_id").toPandas()
-    df["_seq_len"] = df[TM].apply(len)
-
     df = filter_short(df)
 
     def compute_shift_end(arr, horizon):
@@ -184,14 +182,14 @@ def main():
     test_df = test_df.copy()
 
     # 90% split per users
-    rng = np.random.default_rng(seed=42)
-    n_train_users = int(len(train_df.index) * 0.9)
+    rng = np.random.default_rng(seed=args.split_seed)
+    n_train_users = int(len(train_df.index) * (1 - TEST_FRACTION))
     train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
+    train_df["global_train"] = 0
+    train_df.loc[train_indices, "global_train"] = 1
     valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
+    test_df["global_train"] = 0
+    test_df.loc[valid_test_indices, "global_train"] = 1
 
     train_df["shift_end"] = train_df[TM].map(
         lambda x: compute_shift_end(x, horizon_days)
@@ -205,15 +203,25 @@ def main():
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
-    test_df["post_reg_target"] = test_df.apply(reg_target_row, axis=1)
-    test_df["post_target"] = duplicate_target_by_shifts(test_df, "age")
-    test_df["post_forecast_target"] = test_df.apply(get_forecast_target, axis=1)
-    test_df["post_anomaly_target"] = get_anomaly_target(test_df)
+    test_df["target__reg_amount__local__mse+r2"] = test_df.apply(reg_target_row, axis=1)
+    test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
+    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+        get_forecast_target, axis=1
+    )
+    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+        test_df
+    )
 
-    train_df["post_reg_target"] = train_df.apply(reg_target_row, axis=1)
-    train_df["post_target"] = duplicate_target_by_shifts(train_df, "age")
-    train_df["post_forecast_target"] = train_df.apply(get_forecast_target, axis=1)
-    train_df["post_anomaly_target"] = get_anomaly_target(train_df)
+    train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
+        reg_target_row, axis=1
+    )
+    train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
+    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+        get_forecast_target, axis=1
+    )
+    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+        train_df
+    )
 
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
@@ -225,11 +233,11 @@ def main():
         "amount_rur",
         "_seq_len",
         "shifts",
-        "post_reg_target",
-        "post_target",
-        "post_forecast_target",
-        "post_anomaly_target",
-        "users_in_train",
+        "target__reg_amount__local__mse+r2",
+        "target__age__global__accuracy+f1_macro",
+        "target__forecast__local__mse+r2",
+        "target__anomaly__local__roc_auc+f1_macro+accuracy",
+        "global_train",
         "debug_f",
     ]
 

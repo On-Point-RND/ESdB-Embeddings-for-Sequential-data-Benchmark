@@ -77,7 +77,6 @@ class InMemoryPandasDataAccessor(PandasDataAccessor):
 
         logger.info("reading parquet file, it may take some time")
         self._data = pd.read_parquet(parquet_path)
-        print(self._data.columns)
         self._queries = data_queries
         if split_by_col is not None:
             self._data = self._data.sort_values(split_by_col)

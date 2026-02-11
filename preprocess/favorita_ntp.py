@@ -91,10 +91,10 @@ def main():
             .option("inferSchema", True)
             .csv(f"{data_dir}/train.csv")  # <-- имя файла руками
             .select(
-            F.col("store_nbr").cast("int"),
-            F.col("item_nbr").cast("int"),
+            F.col("store_nbr").cast(LongType()),
+            F.col("item_nbr").cast(LongType()),
             F.col("date").cast(TimestampType()),
-            F.col("unit_sales").cast("double"),
+            F.col("unit_sales").cast(FloatType()),
         )
     )
 
@@ -104,8 +104,8 @@ def main():
             .option("inferSchema", True)
             .csv(f"{data_dir}/items.csv")  # <-- второе имя файла руками
             .select(
-            F.col("item_nbr").cast("int"),
-            F.col("class").cast("int").alias("class_id"),
+            F.col("item_nbr").cast(LongType()),
+            F.col("class").cast(LongType()).alias("class_id"),
         )
     )
 
@@ -176,10 +176,11 @@ def main():
 
         # ---------- MATERIALIZE PIVOT ----------
     # переписываем pivot в parquet с большим числом партиций
-    pivot_df.repartition(50).write.mode("overwrite").parquet("/tmp/pivot_cached")
+    pivot_df.repartition(50).write.mode("overwrite").parquet(data_dir + "/pivot_cached")
 
     # читаем обратно — теперь lineage короткий, а партиций 50
-    pivot_df = spark.read.parquet("/tmp/pivot_cached")
+    pivot_df = spark.read.parquet(data_dir + "/pivot_cached")
+
     # ---------- DATE ARRAY ----------
     date_array = (
         dates.orderBy("date")
@@ -189,20 +190,40 @@ def main():
 
     full_df = pivot_df.withColumn("date", F.lit(date_array))
 
-    full_df = pivot_df.withColumn("date", F.lit(date_array))
-    full_df = full_df.repartition("store_nbr").cache()
-    full_df.count()
+    #full_df = full_df.repartition("store_nbr").cache()
+    #full_df.count()
+
+    ###########################
+    ref = "class_1_sales"
+    first_idx = F.expr(f"array_position(transform({ref}, x -> x != 0), true) - 1")
+    last_idx = (
+        F.expr(f"size({ref}) - array_position(transform(reverse({ref}), x -> x != 0), true)")
+    )
+    start = first_idx + 1
+    length = last_idx - first_idx + 1
+    array_cols = [c for c, t in full_df.dtypes if t.startswith("array")]
+
+    for c in array_cols:
+        full_df = full_df.withColumn(c, F.slice(F.col(c), start, length))
+
+            # ---------- MATERIALIZE PIVOT ----------
+    # переписываем pivot в parquet с большим числом партиций
+    full_df.repartition(50).write.mode("overwrite").parquet(data_dir + "/full_df_pre")
+
+    # читаем обратно — теперь lineage короткий, а партиций 50
+    pivot_df = spark.read.parquet(data_dir + "/full_df_pre")
+
 
     ###########################
     full_df = full_df.withColumn(
         "used_in_train",
-        F.when(F.col("date").isNotNull() & (F.size("date") < 600),
+        F.when(F.col("date").isNotNull() & (F.size("date") < 500),
                F.lit(-1)
                ).otherwise(F.lit(0))
     )
     # Здесь удалили все не подходящие начисто
     full_df = full_df.filter(F.col("used_in_train") != -1)
-    MAX_LEN = 400  # или любое другое
+    MAX_LEN = 300  # или любое другое
     full_df = full_df.withColumn("_seq_len", F.lit(MAX_LEN))
     full_df = full_df.withColumn(
         "mock_target",
@@ -221,9 +242,11 @@ def main():
             col_name,
             F.slice(F.col(col_name), start, length)
         )
+
     # Post_sequences
     for col_name in array_cols:
         cut_last_df = cut_last_df.withColumnRenamed(col_name, f"post_{col_name}")
+
     # Pre_sequencies
     for col_name in array_cols:
         cut_df = cut_df.withColumn(
@@ -233,8 +256,6 @@ def main():
     #cut_df = cut_df.withColumn("_seq_len", F.lit(MAX_LEN))
     ###########################
     # stratified splitting on train and test
-    cut_df = cut_df.repartition("store_nbr").cache()
-    cut_df.count()
     train_df, test_df = train_test_split(
         df=cut_df,
         test_frac=TEST_FRACTION,
@@ -255,15 +276,48 @@ def main():
     )
     ###############################################################################
     full_base_df = train_df.unionByName(test_df)
+
+    #full_base_df.repartition(50).write.parquet(
+    #    (args.save_path / "full_ntp_pre").as_posix(), mode=mode
+    #)
+
+    #cut_last_df.repartition(50).write.parquet(
+    #    (args.save_path / "cut_last").as_posix(), mode=mode
+    #)
+
+    #print("full_base_df keys:", full_base_df.select("store_nbr").distinct().count())
+    #print("cut_last_df keys:", cut_last_df.select("store_nbr").distinct().count())
+    #full_keys = full_base_df.select("store_nbr").distinct()
+    #cut_keys = cut_last_df.select("store_nbr").distinct()
+
+    #overlap_cnt = full_keys.intersect(cut_keys).count()
+    #print(f"overlap:                {overlap_cnt}")
+    
+    # --- Посмотреть типы колонок store_nbr ---
+    #print("full_base_df types:", full_base_df.select("store_nbr").dtypes)
+    #print("cut_last_df types :", cut_last_df.select("store_nbr").dtypes)
+
+    # --- Вывести все значения store_nbr (без дубликатов) ---
+    print("full_base_df store_nbr values:")
+    full_base_df.select("store_nbr").distinct().orderBy("store_nbr").show(54, False)
+
+    print("cut_last_df store_nbr values:")
+    cut_last_df.select("store_nbr").distinct().orderBy("store_nbr").show(54, False)
+
     post_cols = [c for c, t in cut_last_df.dtypes if c.startswith("post_")]
     if post_cols:
         join_keys = ["store_nbr"]
         post_df = cut_last_df.select(*(join_keys + post_cols))
-        full_base_df = full_base_df.join(post_df, on=join_keys, how="left")
+        full_base_df = full_base_df.join(post_df, on=join_keys, how="outer")
     else:
         raise ValueError("Не найдены колонки post_ в cut_last_df — проверь место их формирования")
     ###############################################################################
     # Находим post-колонки
+    #full_base_df.repartition(50).write.parquet(
+    #    (args.save_path / "full_ntp_post").as_posix(), mode=mode
+    #)
+
+
     post_array_cols = [c for c, t in full_base_df.dtypes
                        if t.startswith("array") and c.startswith("post_")]
 
