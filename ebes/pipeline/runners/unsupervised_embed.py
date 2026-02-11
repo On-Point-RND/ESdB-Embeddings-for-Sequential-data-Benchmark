@@ -58,7 +58,7 @@ class UnsupervisedEmbedRunner(Runner):
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
             train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"train", "train_val"}
+            keys = {"full_train", "train_val"}
             subloaders = {k: loaders[k] for k in keys if k in loaders}
             df_train = train_embeddings_getter.df_get(subloaders, trainer)
             embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
