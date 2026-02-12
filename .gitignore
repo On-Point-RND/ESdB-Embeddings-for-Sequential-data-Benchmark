@@ -6,6 +6,7 @@ log/
 INSPARATION_ARCHIVE/
 zhores/
 .idea
+embeddings/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -172,6 +173,6 @@ cython_debug/
 .vim
 *.swp
 
-notebooks/local/
-universal_validator/catboost_info/
-catboost_info/
+# OURS
+*.parquet
+*.pth
