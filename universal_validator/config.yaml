@@ -1,10 +1,6 @@
 config_factory: [datasets/age]
 seed: 0
 verbose: True
-task_names: 
-  - target__forecast__local__roc_auc
-  - target__reg_amount__local__mse
-  - target__forecast__local__mse
 
 hpo:
   enabled: False
@@ -42,142 +38,6 @@ models:
       verbose: -1
       n_jobs: 1
 
-<<<<<<< HEAD
-task_router:
-  default_embedder: "coles"
-  default_splitter: "standard"
-  dataset_tasks:
-    age:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    x5:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    zvuk:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    taobao:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    rossman:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    alpha:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    yambda:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    electric_devices:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    twitter:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-    favorita:
-      - type: "classification"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "regression"
-        embedder: "coles"
-        splitter: "standard"
-      - type: "anomaly_detection"
-        embedder: "coles"
-        splitter: "client"
-      - type: "forecast"
-        embedder: "coles"
-        splitter: "client"
-=======
     search_space:
       n_estimators: { low: 100, high: 1000 }
       max_depth: { low: 3, high: 12 }
@@ -191,4 +51,3 @@ task_router:
     task_specific:
       anomaly_detection:
         is_unbalance: true
->>>>>>> dev/preprocessing
