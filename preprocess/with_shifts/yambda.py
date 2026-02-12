@@ -36,7 +36,7 @@ def get_reg_target(row, horizon=30):
     return out
 
 def get_ratio(row):
-    events = row["event_type"]
+    events = np.asarray(row["event_type"])
     out = []     
     for s in row["shifts"]:
         s = int(s)
@@ -51,9 +51,6 @@ def get_ratio(row):
         else:
             out.append(float(n_dislike / n_listens))
     return out
-
-def apply_threshold(ratio):
-    return [1 if r > threshold else 0 for r in ratio]
 
 def get_forecast_target(row):
     t = np.asarray(row['timestamp'])
@@ -124,6 +121,12 @@ def main():
         type=int,
         default=0,
     )
+    parser.add_argument(
+        "--global-split-ntp",
+        help="Global split with 0.5 or 0.1 test fraction using y/n ",
+        type=str,
+        default='n'
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -133,10 +136,15 @@ def main():
         .config("spark.driver.memory", "12g") \
         .config("spark.executor.memory", "4g") \
         .config("spark.driver.maxResultSize", "0") \
-        .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+        .config("spark.sql.execution.arrow.pyspark.enabled", "false") \
         .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC") \
         .getOrCreate()
     df, df_kag_train = None, None
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
 
     if args.which_split == 'train':
         df_kag_train = spark.read.parquet(
@@ -247,17 +255,17 @@ def main():
     test_df['ratio'] = test_df.apply(get_ratio, axis=1)
     train_df['ratio'] = train_df.apply(get_ratio, axis=1)
 
-    threshold = np.concatenate(train_df["ratio"].values).quantile(0.95)
+    threshold = np.quantile(np.concatenate(train_df["ratio"].values), 0.95)
 
     test_df['post_target'] = duplicate_target_by_shifts(test_df, "mode_is_organic")
     test_df['post_reg_target'] = test_df.apply(get_reg_target, axis=1)
     test_df['post_forecast_target'] = test_df.apply(get_forecast_target, axis=1)
-    test_df['post_anomaly_target'] = test_df["ratio"].apply(apply_threshold)
+    test_df['post_anomaly_target'] = test_df["ratio"].apply(lambda x: [1 if r > threshold else 0 for r in x])
 
     train_df['post_target'] = duplicate_target_by_shifts(train_df, "mode_is_organic")
     train_df['post_reg_target'] = train_df.apply(get_reg_target, axis=1)
     train_df['post_forecast_target'] = train_df.apply(get_forecast_target, axis=1)
-    test_df['post_anomaly_target'] = train_df["ratio"].apply(apply_threshold)
+    test_df['post_anomaly_target'] = train_df["ratio"].apply(lambda x: [1 if r > threshold else 0 for r in x])
 
     del train_df['ratio']
     del test_df['ratio']

@@ -152,8 +152,19 @@ def main():
         type=int,
         default=0,
     )
+    parser.add_argument(
+        "--global-split-ntp",
+        help="Global split with 0.5 or 0.1 test fraction using y/n ",
+        type=str,
+        default='n'
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
 
     spark = SparkSession.builder \
         .master("local[*]") \
