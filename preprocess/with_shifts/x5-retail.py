@@ -134,6 +134,12 @@ def main():
         type=int,
         default=0,
     )
+    parser.add_argument(
+        "--global-split-ntp",
+        help="Global split with 0.5 or 0.1 test fraction using y/n ",
+        type=str,
+        default='n'
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -148,6 +154,12 @@ def main():
         .getOrCreate()
     
     df = None
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
+
     if args.which_split == 'train':
         df_clients = (
             spark.read.csv((args.data_path / "clients.csv").as_posix(), header=True)
@@ -263,6 +275,23 @@ def main():
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
+
+    n_train_count = train_df["transaction_datetime"].apply(len).sum()
+    print(n_train_count)
+
+    def get_test_idx(row):
+        total_length = len(row["transaction_datetime"])
+        if len(row["shifts"]) > 0:
+            last_idx = int(row["shifts"][-1])
+            return total_length - last_idx
+        return 0
+    
+    n_test_count = test_df.apply(get_test_idx, axis=1).sum()
+    total = n_train_count + n_test_count
+    print(n_test_count)
+    print("Train percent:", n_train_count/total)
+    print("Test percent:", n_test_count/total)
+    print("Test Fraction", TEST_FRACTION)
 
     test_df['post_target'] = duplicate_target_by_shifts(test_df, "age_clf")
     test_df['post_reg_target'] = test_df.apply(get_reg_target, axis=1)
