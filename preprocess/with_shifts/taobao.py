@@ -27,9 +27,9 @@ def get_reg_target(row, horizon_hours=300):
     horizon_seconds = np.timedelta64(horizon_hours * 3600, "s")
     out = []
     for s in row["shifts"]:
-        s = int(s) - 1
-        start_time = t[s]
-        future_times = t[s + 1 :]
+        s = int(s)
+        start_time = t[s - 1]
+        future_times = t[s:]
         hours_from_shift = future_times - start_time
         count_events = np.sum(hours_from_shift <= horizon_seconds)
         out.append(np.log1p(count_events))
@@ -228,7 +228,7 @@ def main():
             vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
-    breakpoint()
+
     df = df.sort("client_id").toPandas()
     df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
@@ -320,11 +320,7 @@ def main():
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
 
-    keep_cols = [
-        "client_id",
-        "time",
-        "behavior_type",
-        "item_id",
+    keep_cols = INDEX_COLUMNS + ORDERING_COLUMNS + CAT_FEATURES + [
         "_seq_len",
         "shifts",
         "target__clf__local__accuracy+f1_macro",
@@ -335,8 +331,8 @@ def main():
         "debug_f",
     ]
 
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
 
 
 if __name__ == "__main__":
