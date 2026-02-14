@@ -2,8 +2,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 # from torch import nn
+import os
 import pandas as pd
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 import logging
 import torch
@@ -36,7 +39,7 @@ class ResultsGetter:
             "_seq_len"
         ].to_dict()
 
-    def df_get(self, loaders, trainer):
+    def df_get(self, loaders, trainer, out_dir):
         model = trainer.model
         assert model is not None
 
@@ -50,13 +53,12 @@ class ResultsGetter:
             for batch_old in tqdm(loader, disable=False):
                 batch = self.shift_transform(batch_old)
 
-                batch.to(trainer.device)
+                batch.to(trainer.device)     
                 with torch.no_grad():
                     if callable(get_query_embeddings):
                         emb = get_query_embeddings(batch)
                     else:
-                        emb = model(batch)
-
+                        emb = model(batch)  
                 emb_np = emb.detach().cpu().numpy()
                 del emb
                 torch.cuda.empty_cache()
@@ -75,6 +77,9 @@ class ResultsGetter:
         df_all = df_list[0]
         for i in range(1, len(df_list)):
             df_all = pd.concat([df_all, df_list[i]], ignore_index=True)
+        
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        df_all.to_parquet(out_dir)
         return df_all
 
     def get_shifts(self, old_index, offset):
