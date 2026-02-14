@@ -320,11 +320,7 @@ def main():
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
 
-    keep_cols = [
-        "client_id",
-        "time",
-        "behavior_type",
-        "item_id",
+    keep_cols = INDEX_COLUMNS + ORDERING_COLUMNS + CAT_FEATURES + [
         "_seq_len",
         "shifts",
         "target__clf__local__accuracy+f1_macro",
@@ -335,8 +331,8 @@ def main():
         "debug_f",
     ]
 
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
 
 
 if __name__ == "__main__":
