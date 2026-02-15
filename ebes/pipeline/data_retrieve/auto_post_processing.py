@@ -67,6 +67,15 @@ def post_processing(config, emb_path, data_mode, partitions=10):
     #    raise ValueError("Shifts mismatch detected")
 
     joined_df = joined_df.drop("shifts")
+    # условие плохой строки
+    bad_cond = (
+        F.col("embeddings").isNull() |                        # None вместо массива
+        F.expr("exists(embeddings, x -> x is null)")          # хотя бы один элемент None
+    )
+
+    joined_df_bad = joined_df.filter(bad_cond)
+    joined_df_good = joined_df.filter(~bad_cond)
+    logger.info(f"Postprocessing deleted {joined_df_bad.count()} strings (for better...)")
 
     # -------------------------------------------------------------------------
     # 4. Save result next to embeddings parquet
@@ -74,11 +83,12 @@ def post_processing(config, emb_path, data_mode, partitions=10):
     output_path = emb_path.with_name(emb_path.name + "_postproc")
 
     (
-        joined_df
+        joined_df_good
         .repartition(partitions)
         .write
         .parquet(output_path.as_posix(), mode=write_mode)
     )
+
 
 
 if __name__ == "__main__":
