@@ -46,9 +46,15 @@ def main():
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--num-shifts", type=int, default=100)
     parser.add_argument("--shift-seed", type=int, default=1)
+    parser.add_argument("--global-split-ntp", type=str, default='n')
     args = parser.parse_args()
 
     spark = SparkSession.builder.master("local[32]").getOrCreate()  # type: ignore[attr-define]
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
 
     df = spark.read.text(args.data_path.as_posix())
     df = df.withColumn(

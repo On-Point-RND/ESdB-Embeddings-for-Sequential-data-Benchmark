@@ -120,11 +120,22 @@ def main():
         default=1,
         type=int,
     )
+    parser.add_argument(
+        "--global-split-ntp",
+        help="Global split with 0.5 or 0.1 test fraction using y/n ",
+        type=str,
+        default='n'
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
     spark = SparkSession.builder.master("local[32]").getOrCreate()  # pyright: ignore
     df, df_kag_train = None, None
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
 
     if args.which_split == "train":
         df_kag_train = spark.read.csv(
@@ -241,8 +252,8 @@ def main():
         "debug_f",
     ]
 
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
 
 
 if __name__ == "__main__":

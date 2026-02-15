@@ -7,6 +7,7 @@ INSPARATION_ARCHIVE/
 zhores/
 .idea
 embeddings/
+notebooks/local/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

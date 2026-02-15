@@ -167,6 +167,12 @@ def main():
         type=int,
         default=0,
     )
+    parser.add_argument(
+        "--global-split-ntp",
+        help="Global split with 0.5 or 0.1 test fraction using y/n ",
+        type=str,
+        default='n'
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -177,11 +183,16 @@ def main():
         .config("spark.executor.memory", "50g") \
         .config("spark.driver.maxResultSize", "80g") \
         .config("spark.sql.shuffle.partitions", "200") \
-        .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+        .config("spark.sql.execution.arrow.pyspark.enabled", "false") \
         .config("spark.sql.execution.arrow.maxRecordsPerBatch", "50000") \
         .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC -XX:+UseStringDeduplication") \
         .getOrCreate()
     df, df_product = None, None
+
+    if args.global_split_ntp == 'y':
+        TEST_FRACTION = 0.5
+    else:
+        TEST_FRACTION = 0.1
 
     if args.which_split == 'train':
         df = spark.read.parquet((args.data_path / "alfabattle2_train_transactions_contest" / "train_transactions_contest" / "*.parquet").as_posix(), header=True)
