@@ -287,7 +287,6 @@ class ResultsGetter:
         )
 
         result["global_emb"] = result["embeddings"].apply(lambda x: x[-1])
-        result["embeddings"] = result["embeddings"].apply(lambda x: x[:-1])
         result["shift_emb"] = result["embeddings"].apply(lambda x: x[:-1])
         result["shifts"] = result["shifts"].apply(lambda x: x[:-1])
 
