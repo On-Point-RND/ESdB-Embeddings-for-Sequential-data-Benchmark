@@ -11,8 +11,8 @@ trainer:
   ckpt_track_metric: loss
   metrics_on_train: false
   patience: ${patience}
-  total_iters: 0
-  ckpt_resume: ''
+  total_iters: 100_00
+  # ckpt_resume: ''
 
 model:
   name: Bert4Rec
@@ -31,12 +31,14 @@ model:
     masker:
       name: PointMasker
       params:
-        mask_prob: 0.15
-        span_len: 5
+        mask_prob: 0.2
+        span_len: 10
         span_share: 0.5
-        random_token_prob: 0.1
-        keep_token_prob: 0.1
+        random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
+        keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
         num_mask_fill: zero
+        partial_cat_feature_prob: 0.0
+        partial_num_feature_prob: 0.0
     query_aggregation: last
     max_len: ${data.preprocessing.bert4rec_pipeline.max_seq_len}
     hidden_size: 128

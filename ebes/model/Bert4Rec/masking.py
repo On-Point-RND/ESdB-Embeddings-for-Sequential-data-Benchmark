@@ -57,8 +57,10 @@ class Bert4RecMaskerBase(MaskingStrategy):
     span_len: int = 5
     span_share: float = 0.5
     random_token_prob: float = 0.1
-    keep_token_prob: float = 0.1
+    keep_event_prob: float = 0.0
     num_mask_fill: Literal["zero", "mean", "noise"] = "zero"
+    partial_cat_feature_prob: float = 0.0
+    partial_num_feature_prob: float = 0.0
 
     def clone_with(self, **overrides: Any) -> "Bert4RecMaskerBase":
         return replace(self, **overrides)
@@ -67,50 +69,67 @@ class Bert4RecMaskerBase(MaskingStrategy):
         if batch.emb_features is not None or batch.emb_features_names is not None:
             raise ValueError("Bert4Rec masking does not support emb_features")
         seq_len, device = self._resolve_seq_meta(batch)
-
-
+        B = batch.lengths.numel()
         pad_valid = torch.arange(seq_len, device=device)[:, None] < batch.lengths[None, :]
         event_mask = self._sample_event_mask(batch.lengths, seq_len, device)
-
+        partial_event_candidate = (~event_mask) & pad_valid
+        keep_event_mask = torch.zeros_like(event_mask)
+        if self.keep_event_prob > 0.0:
+            keep_event_mask = (
+                torch.rand(seq_len, B, device=device) < self.keep_event_prob
+            ) & pad_valid
         masked_cat = batch.cat_features
         cat_target = None
-        cat_loss_mask = None
 
         if batch.cat_features is not None and batch.cat_features_names is not None:
             masked_cat = batch.cat_features.clone()
             cat_target = torch.full_like(masked_cat, self.ignore_index)
-            cat_loss_mask = torch.zeros_like(masked_cat, dtype=torch.bool)
 
             for i, name in enumerate(batch.cat_features_names):
                 vals = masked_cat[:, :, i]
-                valid = event_mask & pad_valid
-                if batch.cat_mask is not None:
-                    valid = valid & batch.cat_mask[:, :, i]
-                else:
-                    valid = valid & (vals != 0)
+                mask_token_id = self.cat_cardinalities[name]
+                assert (vals != mask_token_id).all(), 'Mask token already in cat tokens!'
+                cat_pre_masked = (vals == 0) | (vals == mask_token_id)
+
+                full_valid = event_mask & pad_valid
+                full_valid &= ~cat_pre_masked
+
+                partial_valid = torch.zeros_like(full_valid)
+                if self.partial_cat_feature_prob > 0.0:
+                    partial_valid = (
+                        partial_event_candidate
+                        & (~cat_pre_masked)
+                        & (
+                        torch.rand(seq_len, B, device=device)
+                        < self.partial_cat_feature_prob
+                    )
+                    )
+                    if (partial_valid & full_valid).any():
+                        raise RuntimeError("Partial categorical mask intersects full event mask")
+
+                valid = full_valid | partial_valid
+                corrupt_valid = valid & (~keep_event_mask)
 
                 cat_target[:, :, i] = torch.where(
                     valid, batch.cat_features[:, :, i], cat_target[:, :, i]
                 )
-                cat_loss_mask[:, :, i] = valid
 
-                mask_token_id = self.cat_cardinalities[name]
-                if self.random_token_prob > 0.0 or self.keep_token_prob > 0.0:
-                    rand = torch.rand(seq_len, batch.lengths.numel(), device=device)
-                    p_mask = 1.0 - self.random_token_prob - self.keep_token_prob
-                    mask_mask = (rand < p_mask) & valid
-                    random_mask = (rand >= p_mask) & (rand < (1.0 - self.keep_token_prob)) & valid
+                if self.random_token_prob > 0.0:
+                    rand = torch.rand(seq_len, B, device=device)
+                    p_mask = 1.0 - self.random_token_prob
+                    mask_mask = (rand < p_mask) & corrupt_valid
+                    random_mask = (rand >= p_mask) & corrupt_valid
                     vals[mask_mask] = mask_token_id
                     if random_mask.any():
                         random_tokens = torch.randint(
                             1,
                             max(self.cat_cardinalities[name], 2),
-                            size=(seq_len, batch.lengths.numel()),
+                            size=(seq_len, B),
                             device=device,
                         )
                         vals[random_mask] = random_tokens[random_mask]
                 else:
-                    vals[valid] = mask_token_id
+                    vals[corrupt_valid] = mask_token_id
 
                 masked_cat[:, :, i] = vals
 
@@ -121,18 +140,34 @@ class Bert4RecMaskerBase(MaskingStrategy):
         if batch.num_features is not None:
             masked_num = batch.num_features.clone()
             num_target = batch.num_features.clone()
-            num_loss_mask = event_mask[:, :, None].expand_as(masked_num).clone()
-            if batch.num_mask is not None:
-                num_loss_mask &= batch.num_mask
-            else:
-                num_loss_mask &= pad_valid[:, :, None]
+            num_pre_masked = ~torch.isfinite(masked_num)
+            valid_num = pad_valid[:, :, None]
+            num_full_loss_mask = (
+                event_mask[:, :, None].expand_as(masked_num)
+                & valid_num
+                & (~num_pre_masked)
+            )
+            num_partial_loss_mask = torch.zeros_like(num_full_loss_mask)
+
+            if self.partial_num_feature_prob > 0.0:
+                num_partial_loss_mask = (
+                    partial_event_candidate[:, :, None].expand_as(masked_num)
+                    & valid_num
+                    & (~num_pre_masked)
+                    & (
+                    torch.rand(masked_num.shape, device=device)
+                    < self.partial_num_feature_prob
+                )
+                )
+                if (num_partial_loss_mask & num_full_loss_mask).any():
+                    raise RuntimeError("Partial numeric mask intersects full event mask")
+
+            num_loss_mask = num_full_loss_mask | num_partial_loss_mask
 
             for i in range(masked_num.shape[2]):
-                selector = num_loss_mask[:, :, i]
-                valid_positions = pad_valid
-                if batch.num_mask is not None:
-                    valid_positions = valid_positions & batch.num_mask[:, :, i]
+                selector = num_loss_mask[:, :, i] & (~keep_event_mask)
                 vals = masked_num[:, :, i]
+                valid_positions = pad_valid & torch.isfinite(vals)
                 self._fill_numeric(vals, selector, valid_positions)
                 masked_num[:, :, i] = vals
 
@@ -144,7 +179,6 @@ class Bert4RecMaskerBase(MaskingStrategy):
 
         targets = {
             "cat_target": cat_target,
-            "cat_loss_mask": cat_loss_mask,
             "num_target": num_target,
             "num_loss_mask": num_loss_mask,
         }
@@ -233,4 +267,3 @@ class MixedMasker(Bert4RecMaskerBase):
                 mask[start : start + cur_span, b] = True
                 covered += cur_span
         return mask
-

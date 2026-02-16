@@ -301,7 +301,7 @@ class Bert4Rec(BaseModel):
     def _reconstruction_output(
         self,
         x: torch.Tensor,
-        targets: dict[str, torch.Tensor | dict[str, torch.Tensor] | None],
+        targets: dict[str, torch.Tensor | None],
     ):
         total_ce = x.new_tensor(0.0)
         total_mse = x.new_tensor(0.0)
