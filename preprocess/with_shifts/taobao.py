@@ -117,6 +117,20 @@ def get_ratio_raw(row):
             out.append(n_buys / n_views)
     return out
 
+def cut_data(row):
+        start_idx = int(row["shift_start"])
+        for col_name in row.index:
+            if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
+                continue
+            val = row[col_name]
+            if isinstance(val, (list ,np.ndarray)):
+                row[col_name] = val[start_idx:]
+        old_shifts = np.array(row["shifts"])
+        new_shifts = old_shifts - start_idx
+        row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+        if not row["shifts"]: 
+            row["shifts"] = [0]
+        return row
 
 def main():
     parser = ArgumentParser()
@@ -190,7 +204,7 @@ def main():
 
     spark = (
         SparkSession.builder.master("local[*]")
-        .appName("YambdaPreprocessing")
+        .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
         .config("spark.driver.maxResultSize", "0")
@@ -316,6 +330,10 @@ def main():
     train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df.apply(
         get_anomaly_target, axis=1
     )
+
+    # get real part of test data 
+    if args.time_train_split == 0.5:   
+        test_df = test_df.apply(cut_data, axis = 1)
 
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
