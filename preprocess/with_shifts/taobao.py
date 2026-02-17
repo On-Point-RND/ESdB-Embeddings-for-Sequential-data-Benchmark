@@ -16,7 +16,7 @@ from .common_pandas import (
     split_num_shifts,
 )
 
-CAT_FEATURES = ["item_id", "behavior_type", "item_category"]
+CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
