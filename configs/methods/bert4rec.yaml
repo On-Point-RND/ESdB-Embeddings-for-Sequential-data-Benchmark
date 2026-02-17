@@ -11,9 +11,8 @@ trainer:
   ckpt_track_metric: loss
   metrics_on_train: false
   patience: ${patience}
-  total_iters: 100_00
+  total_iters: 100_000
   # ckpt_resume: ''
-
 model:
   name: Bert4Rec
   params:
@@ -29,7 +28,7 @@ model:
     reconstruction_mse_weight: 1.0
     ignore_index: -100
     masker:
-      name: PointMasker
+      name: MixedMasker
       params:
         mask_prob: 0.2
         span_len: 10

@@ -1,18 +1,36 @@
 #!/usr/bin/env python3
-from argparse import ArgumentParser
+import logging
 from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-import logging
-from argparse import ArgumentParser
-from pathlib import Path
-
-from pyspark.sql import SparkSession
 logger = logging.getLogger(__name__)
 
-def post_processing(config, emb_path, data_mode, partitions=10):
+def trim_target_by_embedding_len(df, target_col: str, emb_col: str = "shift_emb"):
+    trimmed_target = F.expr(
+        f"slice(`{target_col}`, -size(`{emb_col}`), size(`{emb_col}`))"
+    )
+    return df.withColumn(
+        target_col,
+        F.when(F.col(target_col).isNull() | F.col(emb_col).isNull(), F.col(target_col))
+        .otherwise(trimmed_target),
+    )
+
+# Transformer len cutter cause this target's trimming
+def remove_skipped_target(
+    df,
+    emb_col: str = "shift_emb",
+) :
+    target_cols = [col for col in df.columns if col.startswith("target_")]
+
+    for target_col in target_cols:
+        df = trim_target_by_embedding_len(df, target_col=target_col, emb_col=emb_col)
+
+    return df
+
+
+def post_processing(config, emb_path, data_mode, partitions=10, transformer_skipped_target_removal=False):
     logger.info(f"Embeddings and data postprocessing in \"{data_mode}\"_mode has started")
     spark = (
         SparkSession.builder
@@ -68,6 +86,10 @@ def post_processing(config, emb_path, data_mode, partitions=10):
 
     joined_df = joined_df.drop("shifts")
 
+    if transformer_skipped_target_removal:
+        logger.info('Removing skipped targets caused by Transformer sequence trimming')
+        joined_df = remove_skipped_target(joined_df)
+
     # -------------------------------------------------------------------------
     # 4. Save result next to embeddings parquet
     # -------------------------------------------------------------------------
@@ -79,7 +101,3 @@ def post_processing(config, emb_path, data_mode, partitions=10):
         .write
         .parquet(output_path.as_posix(), mode=write_mode)
     )
-
-
-if __name__ == "__main__":
-    main()
