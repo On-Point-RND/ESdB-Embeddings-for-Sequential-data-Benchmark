@@ -22,7 +22,11 @@ def remove_skipped_target(
     df,
     emb_col: str = "shift_emb",
 ) :
-    target_cols = [col for col in df.columns if col.startswith("target_")]
+    target_cols = [
+        col
+        for col in df.columns
+        if col.startswith("target_") and "__local__" in col
+    ]
 
     for target_col in target_cols:
         df = trim_target_by_embedding_len(df, target_col=target_col, emb_col=emb_col)

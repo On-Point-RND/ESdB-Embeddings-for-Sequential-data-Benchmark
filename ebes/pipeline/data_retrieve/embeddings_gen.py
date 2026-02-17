@@ -130,7 +130,6 @@ class ResultsGetter:
                 new_t = torch.zeros(old_len, device=device)
                 new_t[:s] = t[:s]
                 if i < len(shifts)-1 and not np.allclose((t[s] * 1e3).round(decimals=0).int(), debug_f[i]):
-                    breakpoint()
 
                     raise ValueError("Check shifted data for embeddings.")
 
