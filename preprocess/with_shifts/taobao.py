@@ -49,42 +49,41 @@ def get_forecast_target(row):
 def get_anomaly_target(row):
     b = np.asarray(row["behavior_type"])
     i = np.asarray(row["item_id"])
+    s = row["shift_start"]
     out = []
-    for s in row["shifts"]:
-        s = int(s)
-        post_b = b[s:]
-        post_i = i[s:]
-        item_history = {}
-        for item, action in zip(post_i, post_b):
-            if item not in item_history:
-                item_history[item] = []
-            item_history[item].append(action)
+    post_b = b[s:]
+    post_i = i[s:]
+    item_history = {}
+    for item, action in zip(post_i, post_b):
+        if item not in item_history:
+            item_history[item] = []
+        item_history[item].append(action)
 
-        shift_has_anomaly = 0
-        for item, history in item_history.items():
+    shift_has_anomaly = 0
+    for item, history in item_history.items():
+        if shift_has_anomaly == 1:
+            break
+
+        collect_idx = [idx for idx, x in enumerate(history) if x == 2]
+        add_idx = [idx for idx, x in enumerate(history) if x == 3]
+        purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
+        if not collect_idx or not purchase_idx:
+            continue
+
+        for c_idx in collect_idx:
+            for p_idx in purchase_idx:
+                if p_idx > c_idx:
+                    cart_between = any(
+                        c_idx < cart_idx < p_idx for cart_idx in add_idx
+                    )
+
+                    if not cart_between:
+                        shift_has_anomaly = 1
+                        break
             if shift_has_anomaly == 1:
                 break
 
-            collect_idx = [idx for idx, x in enumerate(history) if x == 2]
-            add_idx = [idx for idx, x in enumerate(history) if x == 3]
-            purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
-            if not collect_idx or not purchase_idx:
-                continue
-
-            for c_idx in collect_idx:
-                for p_idx in purchase_idx:
-                    if p_idx > c_idx:
-                        cart_between = any(
-                            c_idx < cart_idx < p_idx for cart_idx in add_idx
-                        )
-
-                        if not cart_between:
-                            shift_has_anomaly = 1
-                            break
-                if shift_has_anomaly == 1:
-                    break
-
-        out.append(shift_has_anomaly)
+    out.append(shift_has_anomaly)
 
     return out
 
@@ -117,6 +116,7 @@ def get_ratio_raw(row):
             out.append(n_buys / n_views)
     return out
 
+
 def cut_data(row):
         start_idx = int(row["shift_start"])
         for col_name in row.index:
@@ -131,6 +131,7 @@ def cut_data(row):
         if not row["shifts"]: 
             row["shifts"] = [0]
         return row
+
 
 def main():
     parser = ArgumentParser()
