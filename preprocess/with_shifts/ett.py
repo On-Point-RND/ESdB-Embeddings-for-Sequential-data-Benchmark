@@ -220,8 +220,8 @@ def main():
     ]
     keep_cols = meta_cols + feature_cols + target_cols
 
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
 
 
 if __name__ == "__main__":
