@@ -1,5 +1,5 @@
 log_dir: log/age
-patience: 5
+patience: 10
 n_classes: 4
 main_metric: MulticlassAccuracy
 main_loss: 

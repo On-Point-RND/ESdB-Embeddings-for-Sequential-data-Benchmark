@@ -7,7 +7,7 @@ main_loss:
 
 cc: 
   behavior_type: 5
-  item_category: 8916
+  item_category: 8917
 nn:
 
 data:
