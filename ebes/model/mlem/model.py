@@ -38,17 +38,12 @@ class GenModel(BaseModel):
         # Loss weights:
         mse_weight=1,
         ce_weight=1,
-        l1_weight=0.001,
-        reconstruction_weight=1,
-        contrastive_weight=10,
     ):
         super().__init__()
 
         self.mse_weight = mse_weight
         self.ce_weight = ce_weight
-        self.l1_weight = l1_weight
         self.reconstruction_weight = reconstruction_weight
-        self.contrastive_weight = contrastive_weight
         ### PROCESSORS ###
         self.processor = Batch2Seq(
             cat_cardinalities=cat_cardinalities,
@@ -61,7 +56,6 @@ class GenModel(BaseModel):
         self.input_size = self.processor.output_dim
         ### NORMS ###
         self.post_encoder_norm = nn.LayerNorm(enc_hidden_size)
-        self.decoder_norm = nn.LayerNorm(dec_hidden_size)
 
         ### ENCODER ###
         self.encoder = GRU(
