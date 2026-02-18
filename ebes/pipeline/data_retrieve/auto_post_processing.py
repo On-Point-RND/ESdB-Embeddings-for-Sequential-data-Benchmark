@@ -8,9 +8,9 @@ from pyspark.sql import functions as F
 logger = logging.getLogger(__name__)
 
 def trim_target_by_embedding_len(df, target_col: str, emb_col: str = "shift_emb"):
-    trimmed_target = F.expr(
-        f"slice(`{target_col}`, -size(`{emb_col}`), size(`{emb_col}`))"
-    )
+    emb_size = F.size(F.col(emb_col))
+    start = F.when(emb_size == 0, F.lit(1)).otherwise(-emb_size)
+    trimmed_target = F.slice(F.col(target_col), start, emb_size)
     return df.withColumn(
         target_col,
         F.when(F.col(target_col).isNull() | F.col(emb_col).isNull(), F.col(target_col))
@@ -100,8 +100,13 @@ def post_processing(config, emb_path, data_mode, partitions=10, transformer_skip
     logger.info(f"Postprocessing deleted {joined_df_bad.count()} strings (for better...)")
 
     if transformer_skipped_target_removal:
+        empty_local_cond = F.col("shift_emb").isNull() | (F.size(F.col("shift_emb")) == 0)
+        empty_local_cnt = joined_df_good.filter(empty_local_cond).count()
+        if empty_local_cnt:
+            logger.info(f"Deleted {empty_local_cnt} rows with empty local embeddings (shift_emb)")
+        joined_df_good = joined_df_good.filter(~empty_local_cond)
         logger.info('Removing skipped targets caused by Transformer sequence trimming')
-        joined_df = remove_skipped_target(joined_df)
+        joined_df_good = remove_skipped_target(joined_df_good)
 
     # -------------------------------------------------------------------------
     # 4. Save result next to embeddings parquet

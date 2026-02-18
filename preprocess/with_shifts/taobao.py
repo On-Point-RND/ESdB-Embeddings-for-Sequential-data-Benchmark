@@ -20,6 +20,7 @@ CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
+HORIZON_HOURS = 48
 
 
 def get_reg_target(row, horizon_hours=300):
@@ -117,20 +118,22 @@ def get_ratio_raw(row):
             out.append(n_buys / n_views)
     return out
 
+
 def cut_data(row):
-        start_idx = int(row["shift_start"])
-        for col_name in row.index:
-            if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
-                continue
-            val = row[col_name]
-            if isinstance(val, (list ,np.ndarray)):
-                row[col_name] = val[start_idx:]
-        old_shifts = np.array(row["shifts"])
-        new_shifts = old_shifts - start_idx
-        row["shifts"] = new_shifts[new_shifts >= 0].tolist()
-        if not row["shifts"]: 
-            row["shifts"] = [0]
-        return row
+    start_idx = int(row["shift_start"])
+    for col_name in row.index:
+        if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
+            continue
+        val = row[col_name]
+        if isinstance(val, (list, np.ndarray)):
+            row[col_name] = val[start_idx:]
+    old_shifts = np.array(row["shifts"])
+    new_shifts = old_shifts - start_idx
+    row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+    if not row["shifts"]:
+        row["shifts"] = [0]
+    return row
+
 
 def main():
     parser = ArgumentParser()
@@ -172,7 +175,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=5,
+        default=10,
     )
     parser.add_argument(
         "--shift-seed",
@@ -247,8 +250,7 @@ def main():
     df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
 
-    horizon_hours = 300
-    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, horizon_hours))
+    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, HORIZON_HOURS))
 
     train_df, test_df = global_time_split(
         data=df,
@@ -274,14 +276,14 @@ def main():
     test_df.loc[valid_test_indices, "users_in_train"] = 1
 
     train_df["is_bad_user"] = train_df["time"].apply(
-        lambda x: trim_users(x, horizon_hours)
+        lambda x: trim_users(x, HORIZON_HOURS)
     )
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
 
     train_df["shift_end"] = train_df["time"].map(
-        lambda x: compute_shift_end(x, horizon_hours)
+        lambda x: compute_shift_end(x, HORIZON_HOURS)
     )
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
@@ -331,26 +333,33 @@ def main():
         get_anomaly_target, axis=1
     )
 
-    # get real part of test data 
-    if args.time_train_split == 0.5:   
-        test_df = test_df.apply(cut_data, axis = 1)
+    # get real part of test data
+    if time_test_split == 0.5:
+        test_df = test_df.apply(cut_data, axis=1)
 
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
 
-    keep_cols = INDEX_COLUMNS + ORDERING_COLUMNS + CAT_FEATURES + [
-        "_seq_len",
-        "shifts",
-        "target__clf__local__accuracy+f1_macro",
-        "target__reg__local__mse+r2",
-        "target__forecast__local__mse+r2",
-        "target__anomaly__local__roc_auc+f1_macro+accuracy",
-        "users_in_train",
-        "debug_f",
-    ]
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + CAT_FEATURES
+        + [
+            "_seq_len",
+            "shifts",
+            "target__clf__local__accuracy+f1_macro",
+            "target__reg__local__mse+r2",
+            "target__forecast__local__mse+r2",
+            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "users_in_train",
+            "debug_f",
+        ]
+    )
 
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
 
 
 if __name__ == "__main__":
