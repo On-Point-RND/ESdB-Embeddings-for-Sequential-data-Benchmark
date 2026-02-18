@@ -83,7 +83,7 @@ class Trainer:
 
         self._metrics = {}
         if metrics is not None:
-            self._metrics.update({m.__class__.__name__: m for m in metrics})
+            self._metrics.update({repr(m): m for m in metrics})
 
         if loss is not None:
             self._metrics.update({"loss": Mean()})

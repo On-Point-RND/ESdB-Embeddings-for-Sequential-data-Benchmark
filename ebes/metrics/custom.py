@@ -72,6 +72,9 @@ class LoggingMetric(torcheval.metrics.Metric):
         self.key = key
         self._add_state("sum", 0)
         self._add_state("total", 0)
+        
+    def __repr__(self):
+        return self.key
 
     @torch.inference_mode()
     def update(self, pred: torch.Tensor, _):  # pyright: ignore
