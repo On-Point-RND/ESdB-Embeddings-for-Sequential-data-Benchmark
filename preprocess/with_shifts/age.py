@@ -12,7 +12,6 @@ from .common_pandas import (
     add_shift_columns,
     add_debug_f,
     global_time_split,
-    duplicate_target_by_shifts,
     save_partitioned_parquet,
     filter_short,
     split_num_shifts,
@@ -31,17 +30,16 @@ TM = ORDERING_COLUMNS[0]
 def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
     def _cv_list(row):
         a = np.asarray(row["amount_rur"])
+        s = row["shift_start"]
         out = []
-        for s in row["shifts"]:
-            s = int(s)
-            post = a[s:]
-            assert (
-                len(post) != 0
-            ), "The column amount_rur after shifts shouldn't be empty."
-            mean = post.mean()
-            std = post.std()
-            assert mean != 0, "Mean of amount_rur shouldn't be zero even after shifts"
-            out.append(std / mean)
+        post = a[s:]
+        assert (
+            len(post) != 0
+        ), "The column amount_rur after shifts shouldn't be empty."
+        mean = post.mean()
+        std = post.std()
+        assert mean != 0, "Mean of amount_rur shouldn't be zero even after shifts"
+        out.append(std / mean)
         return out
 
     cv_list = df.apply(_cv_list, axis=1)
@@ -70,6 +68,22 @@ def get_forecast_target(row):
         mask[:s] = False
         out.append(np.log1p(np.sum(mask)))
     return out
+
+
+def cut_data(row):
+        start_idx = int(row["shift_start"])
+        for col_name in row.index:
+            if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
+                continue
+            val = row[col_name]
+            if isinstance(val, (list ,np.ndarray)):
+                row[col_name] = val[start_idx:]
+        old_shifts = np.array(row["shifts"])
+        new_shifts = old_shifts - start_idx
+        row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+        if not row["shifts"]: 
+            row["shifts"] = [0]
+        return row
 
 
 def main():
@@ -121,21 +135,38 @@ def main():
         type=int,
     )
     parser.add_argument(
-        "--global-split-ntp",
-        help="Global split with 0.5 or 0.1 test fraction using y/n ",
-        type=str,
-        default='n'
+        "--time-train-split",
+        help="Train fraction for global time split from 0 to 1",
+        type=float,
+        default=0.9,
+    )
+    parser.add_argument(
+        "--user-train-split",
+        help="User train split from 0 to 1",
+        type=float,
+        default=0.9,
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    spark = SparkSession.builder.master("local[32]").getOrCreate()  # pyright: ignore
-    df, df_kag_train = None, None
+    if not (0.0 < args.time_train_split < 1.0):
+        parser.error("--time-train-split must be in range (0, 1)")
+    if not (0.0 < args.user_train_split < 1.0):
+        parser.error("--user-train-split must be in range (0, 1)")
+    time_test_split = 1 - args.time_train_split
+    user_train_split = args.user_train_split
 
-    if args.global_split_ntp == 'y':
-        TEST_FRACTION = 0.5
-    else:
-        TEST_FRACTION = 0.1
+    spark = (
+        SparkSession.builder.master("local[*]")
+        .appName("AGEPreprocessing")
+        .config("spark.driver.memory", "12g")
+        .config("spark.executor.memory", "4g")
+        .config("spark.driver.maxResultSize", "0")
+        .config("spark.sql.execution.arrow.pyspark.enabled", "false")
+        .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC")
+        .getOrCreate()
+    ) 
+    df, df_kag_train = None, None
 
     if args.which_split == "train":
         df_kag_train = spark.read.csv(
@@ -183,7 +214,7 @@ def main():
 
     train_df, test_df = global_time_split(
         data=df,
-        test_frac=TEST_FRACTION,
+        test_frac=time_test_split,
         min_shift_start=2,
         time_col=TM,
         seqlen_col="_seq_len",
@@ -192,15 +223,17 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # 90% split per users
+    # User split with configurable train fraction.
     rng = np.random.default_rng(seed=args.split_seed)
-    n_train_users = int(len(train_df.index) * (1 - TEST_FRACTION))
-    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
-    train_df["global_train"] = 0
-    train_df.loc[train_indices, "global_train"] = 1
+    n_train_users = int(len(train_df.index) * user_train_split)
+    train_indices = rng.choice(
+        train_df.index, size=n_train_users, replace=False
+    ).tolist()
+    train_df["users_in_train"] = 0
+    train_df.loc[train_indices, "users_in_train"] = 1
     valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["global_train"] = 0
-    test_df.loc[valid_test_indices, "global_train"] = 1
+    test_df["users_in_train"] = 0
+    test_df.loc[valid_test_indices, "users_in_train"] = 1
 
     train_df["shift_end"] = train_df[TM].map(
         lambda x: compute_shift_end(x, horizon_days)
@@ -209,7 +242,7 @@ def main():
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
@@ -234,6 +267,10 @@ def main():
         train_df
     )
 
+    # get real part of test data 
+    if args.time_train_split == 0.5:   
+        test_df = test_df.apply(cut_data, axis = 1)
+
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
     keep_cols = [
@@ -248,7 +285,7 @@ def main():
         "target__age__global__accuracy+f1_macro",
         "target__forecast__local__mse+r2",
         "target__anomaly__local__roc_auc+f1_macro+accuracy",
-        "global_train",
+        "users_in_train",
         "debug_f",
     ]
 
