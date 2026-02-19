@@ -40,7 +40,7 @@ model:
       num_features: ${nn}
       cat_emb_dim: 16
       num_emb_dim: 16
-      time_process: ${coles_time_process.${log_dir}}
+      time_process: "${log_dir}"
       num_norm: True
       # Encoder:
       enc_num_layers: 1
