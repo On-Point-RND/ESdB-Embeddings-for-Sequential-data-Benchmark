@@ -84,7 +84,7 @@ class UnsupervisedRunner(Runner):
         del loaders["full_train"]  # type: ignore
         train_val_metrics = trainer.validate(loaders["train_val"])
         del loaders["train_val"]  # type: ignore
-        #hpo_metrics = trainer.validate(loaders["hpo_val"])
+        hpo_metrics = trainer.validate(loaders["hpo_val"])
         del loaders["hpo_val"]  # type: ignore
         test_metrics = trainer.validate(test_loaders["test"])
 

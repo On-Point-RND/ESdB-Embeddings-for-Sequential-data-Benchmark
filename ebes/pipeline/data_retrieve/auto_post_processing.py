@@ -1,18 +1,40 @@
 #!/usr/bin/env python3
-from argparse import ArgumentParser
+import logging
 from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-import logging
-from argparse import ArgumentParser
-from pathlib import Path
-
-from pyspark.sql import SparkSession
 logger = logging.getLogger(__name__)
 
-def post_processing(config, emb_path, data_mode, partitions=10):
+def trim_target_by_embedding_len(df, target_col: str, emb_col: str = "shift_emb"):
+    emb_size = F.size(F.col(emb_col))
+    start = F.when(emb_size == 0, F.lit(1)).otherwise(-emb_size)
+    trimmed_target = F.slice(F.col(target_col), start, emb_size)
+    return df.withColumn(
+        target_col,
+        F.when(F.col(target_col).isNull() | F.col(emb_col).isNull(), F.col(target_col))
+        .otherwise(trimmed_target),
+    )
+
+# Transformer len cutter cause this target's trimming
+def remove_skipped_target(
+    df,
+    emb_col: str = "shift_emb",
+) :
+    target_cols = [
+        col
+        for col in df.columns
+        if col.startswith("target_") and "__local__" in col
+    ]
+
+    for target_col in target_cols:
+        df = trim_target_by_embedding_len(df, target_col=target_col, emb_col=emb_col)
+
+    return df
+
+
+def post_processing(config, emb_path, data_mode, partitions=10, transformer_skipped_target_removal=False):
     logger.info(f"Embeddings and data postprocessing in \"{data_mode}\"_mode has started")
     spark = (
         SparkSession.builder
@@ -77,6 +99,15 @@ def post_processing(config, emb_path, data_mode, partitions=10):
     joined_df_good = joined_df.filter(~bad_cond)
     logger.info(f"Postprocessing deleted {joined_df_bad.count()} strings (for better...)")
 
+    if transformer_skipped_target_removal:
+        empty_local_cond = F.col("shift_emb").isNull() | (F.size(F.col("shift_emb")) == 0)
+        empty_local_cnt = joined_df_good.filter(empty_local_cond).count()
+        if empty_local_cnt:
+            logger.info(f"Deleted {empty_local_cnt} rows with empty local embeddings (shift_emb)")
+        joined_df_good = joined_df_good.filter(~empty_local_cond)
+        logger.info('Removing skipped targets caused by Transformer sequence trimming')
+        joined_df_good = remove_skipped_target(joined_df_good)
+
     # -------------------------------------------------------------------------
     # 4. Save result next to embeddings parquet
     # -------------------------------------------------------------------------
@@ -88,8 +119,3 @@ def post_processing(config, emb_path, data_mode, partitions=10):
         .write
         .parquet(output_path.as_posix(), mode=write_mode)
     )
-
-
-
-if __name__ == "__main__":
-    main()

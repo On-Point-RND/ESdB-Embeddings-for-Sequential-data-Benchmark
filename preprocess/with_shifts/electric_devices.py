@@ -3,13 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyspark.sql.functions as F
-from pyspark.sql import SparkSession, Window
 
 from .common_pandas import (
     add_shift_columns,
     add_debug_f,
-    duplicate_target_by_shifts,
     filter_short,
     global_time_split,
     save_partitioned_parquet,
@@ -19,9 +16,10 @@ from .common_pandas import (
 
 
 INDEX_COLUMNS = ["sequence_id"]
-TEST_FRACTION = 0.1
 ORDERING_COLUMNS = ["time"]
+NUM_FEATURES = ["sequence"]
 TM = ORDERING_COLUMNS[0]
+
 
 def get_forecast_target_row(row: pd.Series) -> list[float]:
     seq = np.asarray(row["sequence"])
@@ -38,65 +36,99 @@ def get_forecast_target_row(row: pd.Series) -> list[float]:
     return out
 
 
+def load_sequences(data_path: Path) -> pd.DataFrame:
+    if data_path.is_dir():
+        data_path = data_path / "ElectricDevices_TRAIN.txt"
+    rows = []
+    with data_path.open("r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            values = np.fromstring(line.strip(), sep=" ", dtype=np.float64)
+            sequence = values[1:].astype(np.float64).tolist()
+
+            rows.append(
+                {
+                    "sequence_id": i,
+                    "target": int(values[0]) - 1,
+                    "sequence": sequence,
+                    "time": [float(j + 1) for j in range(len(sequence))],
+                }
+            )
+
+    return pd.DataFrame(rows)
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument("--data-path", required=True, type=Path)
-    parser.add_argument("--save-path", required=True, type=Path)
-    parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--split-seed", type=int, default=42)
-    parser.add_argument("--num-shifts", type=int, default=100)
-    parser.add_argument("--shift-seed", type=int, default=1)
-    parser.add_argument("--global-split-ntp", type=str, default='n')
+    parser.add_argument(
+        "--data-path",
+        help="Path CSV train user",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--save-path",
+        help="Where to save preprocessed parquets",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--cat-codes-path",
+        help="Path where to save codes for categorical features",
+        type=Path,
+    )
+    parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
+    )
+    parser.add_argument(
+        "--split-seed",
+        help="Random seed for train-test split",
+        type=int,
+        default=42,
+    )
+    parser.add_argument(
+        "--num-shifts",
+        help="How many shifts to sample per sequence",
+        type=int,
+        default=100,
+    )
+    parser.add_argument(
+        "--shift-seed",
+        help="Random seed for shifts",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--time-train-split",
+        help="Train fraction for global time split from 0 to 1",
+        type=float,
+        default=0.9,
+    )
+    parser.add_argument(
+        "--user-train-split",
+        help="User train split from 0 to 1",
+        type=float,
+        default=0.9,
+    )
     args = parser.parse_args()
+    mode = "overwrite" if args.overwrite else "error"
 
-    spark = SparkSession.builder.master("local[32]").getOrCreate()  # type: ignore[attr-define]
+    if not (0.0 < args.time_train_split < 1.0):
+        parser.error("--time-train-split must be in range (0, 1)")
+    if not (0.0 < args.user_train_split < 1.0):
+        parser.error("--user-train-split must be in range (0, 1)")
+    time_test_split = 1 - args.time_train_split
+    user_train_split = args.user_train_split
 
-    if args.global_split_ntp == 'y':
-        TEST_FRACTION = 0.5
-    else:
-        TEST_FRACTION = 0.1
-
-    df = spark.read.text(args.data_path.as_posix())
-    df = df.withColumn(
-        "values",
-        F.expr("transform(split(trim(value), '\\\\s+'), x -> cast(x as float))"),
-    )
-    df = df.withColumn("first", F.col("values")[0])
-    df = df.withColumn(
-        "is_start",
-        F.when(
-            (F.col("first").between(1.0, 7.0)) & (F.col("first") == F.floor(F.col("first"))),
-            1,
-        ).otherwise(0),
-    )
-    w = Window.orderBy(F.monotonically_increasing_id())
-    df = df.withColumn("sequence_id", F.sum("is_start").over(w))
-    df = df.withColumn("target", F.when(F.col("is_start") == 1, F.col("first")))
-    df = df.withColumn("values", F.expr("slice(values, 2, size(values))"))
-
-    rows_df = (
-        df.groupBy("sequence_id")
-        .agg(
-            (F.first("target", ignorenulls=True) - 1).cast("int").alias("target"),
-            F.flatten(F.collect_list("values")).alias("sequence"),
-        )
-    )
-    full_df = rows_df
-
-    full_df = full_df.withColumn(
-        "time", F.expr("transform(sequence, (x, i) -> cast(i + 1 as float))")
-    )
-
-    df = full_df.toPandas()
-    full_df["_seq_len"] = full_df[TM].map(len)
+    df = load_sequences(args.data_path)
+    df["_seq_len"] = df[TM].map(len)
     df = filter_short(df)
 
-    # shift_end as index of last valid shift (len - 2)
-    df["shift_end"] = shift_end_by_len(df["sequence"], -2)
+    df["shift_end"] = shift_end_by_len(df[TM], -2)
 
     train_df, test_df = global_time_split(
         data=df,
-        test_frac=TEST_FRACTION,
+        test_frac=time_test_split,
         min_shift_start=2,
         time_col="time",
         seqlen_col="_seq_len",
@@ -105,10 +137,13 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # 90% split per users
-    rng = np.random.default_rng(seed=42)
-    n_train_users = int(len(train_df.index) * 0.9)
-    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
+    rng = np.random.default_rng(seed=args.split_seed)
+    n_train_users = int(len(train_df.index) * user_train_split)
+    train_indices = (
+        rng.choice(train_df.index, size=n_train_users, replace=False).tolist()
+        if n_train_users > 0
+        else []
+    )
     train_df["users_in_train"] = 0
     train_df.loc[train_indices, "users_in_train"] = 1
     valid_test_indices = test_df.index.intersection(train_indices)
@@ -116,41 +151,46 @@ def main():
     test_df.loc[valid_test_indices, "users_in_train"] = 1
 
     # recompute shift_end for train after trimming
-    train_df["shift_end"] = shift_end_by_len(train_df["sequence"], -2)
+    train_df["shift_end"] = shift_end_by_len(train_df[TM], -2)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
-    test_df["post_forecast_target"] = test_df.apply(get_forecast_target_row, axis=1)
-    test_df["post_target"] = duplicate_target_by_shifts(test_df, "target")
+    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+        get_forecast_target_row, axis=1
+    )
+    test_df["target__clf__global__accuracy+f1_macro"] = test_df["target"]
+    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+        get_forecast_target_row, axis=1
+    )
+    train_df["target__clf__global__accuracy+f1_macro"] = train_df["target"]
 
-    train_df["post_forecast_target"] = train_df.apply(get_forecast_target_row, axis=1)
-    train_df["post_target"] = duplicate_target_by_shifts(train_df, "target")
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
 
-    # debug: map shifts to timestamps
-    test_df = add_debug_f(test_df, time_col="time")
-    train_df = add_debug_f(train_df, time_col="time")
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + NUM_FEATURES
+        + [
+            "_seq_len",
+            "shifts",
+            "target__forecast__local__mse+r2",
+            "target__clf__global__accuracy+f1_macro",
+            "users_in_train",
+            "debug_f",
+        ]
+    )
 
-    keep_cols = [
-        "sequence_id",
-        "sequence",
-        "time",
-        "_seq_len",
-        "target",
-        "shifts",
-        "post_forecast_target",
-        "post_target",
-        "users_in_train",
-        "debug_f",
-    ]
-
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
 
 
 if __name__ == "__main__":

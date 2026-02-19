@@ -170,7 +170,6 @@ def main():
         "_seq_len",
         "post_char",
         "post_char_number",
-        "used_in_train"
     ]
     train_df = train_df[keep_cols]
     test_df = test_df[keep_cols]

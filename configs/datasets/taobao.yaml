@@ -1,13 +1,14 @@
 log_dir: log/taobao
 patience: 10
-n_classes: 2
+n_classes: 4
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 
 cc: 
   behavior_type: 5
-  item_category: 8916
+  item_category: 2000
+ee:
 nn:
 
 data:
@@ -23,9 +24,9 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000
+      max_seq_len: 1000000
       time_name: time
-      index_name: user_id
+      index_name: client_id
       target_name: shard
       cat_cardinalities: ${cc}
       batch_transforms:
@@ -55,9 +56,9 @@ data:
       <<: *common_pipeline
       target_name: item_category
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
+        - DatetimeToFloat:
+            loc: "2014-11-18"
+            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -110,9 +111,9 @@ test_data:
       <<: *common_pipeline
       target_name: item_category
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
+        - DatetimeToFloat:
+            loc: "2014-11-18"
+            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
