@@ -5,9 +5,10 @@ main_metric: MulticlassAccuracy
 main_loss: 
   name: nn.CrossEntropyLoss
 
+ee:
 cc: 
 nn:
-  - dim_0
+  - sequence
 
 data:
   dataset:
@@ -16,16 +17,16 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
+      - 0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 96
       time_name: time
-      index_name: index
-      target_name: class_vals
+      index_name: sequence_id
+      target_name: target
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
@@ -52,6 +53,16 @@ data:
             cnt_max: 50
             short_seq_crop_rate: 0.8
             seed: 0
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 96.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - TargetToLong
+        - MaskValid
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -98,6 +109,16 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 96.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - TargetToLong
+        - MaskValid
   loaders:
     test:
       split_idx: 0

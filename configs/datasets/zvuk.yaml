@@ -1,19 +1,19 @@
-log_dir: log/taobao
+log_dir: log/zvuk
 patience: 10
-n_classes: 4
+n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 
 cc: 
-  behavior_type: 5
-  item_id: 1904
-ee:
+  cluster_id: 128
 nn:
+  - play_duration
+ee:
 
 data:
   dataset:
-    parquet_path: "data/taobao/preprocessed_ntp/train"
+    parquet_path: "data/zvuk/preprocessed_ntp/train"
     random_split: true
     split_seed: 42
 
@@ -25,13 +25,14 @@ data:
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
-      time_name: time
+      time_name: datetime
       index_name: user_id
-      target_name: ratio_bucket
+      target_name: mock_target
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - DatetimeToFloat:
-            loc: "2014-11-18"
+            loc: "2023-01-01 00:00:00.000"
             scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -40,7 +41,7 @@ data:
       <<: *common_pipeline
       batch_transforms:
         - DatetimeToFloat:
-            loc: "2014-11-18"
+            loc: "2023-01-01 00:00:00.000"
             scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -56,7 +57,7 @@ data:
       <<: *common_pipeline
       batch_transforms:
         - DatetimeToFloat:
-            loc: "2014-11-18"
+            loc: "2023-01-01 00:00:00.000"
             scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -92,7 +93,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/taobao/preprocessed_ntp/test"
+    parquet_path: "data/zvuk/preprocessed_ntp/test"
     split_sizes: 
       - 1.0
   preprocessing:
