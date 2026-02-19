@@ -24,7 +24,7 @@ class GenModel(BaseModel):
         num_features,
         cat_emb_dim=16,
         num_emb_dim=16,
-        time_process: Literal["cat", "diff", "none"] = "cat",
+        time_process: "cat",
         num_norm=True,
         # Encoder:
         enc_hidden_size=128,  # get from contrastive model

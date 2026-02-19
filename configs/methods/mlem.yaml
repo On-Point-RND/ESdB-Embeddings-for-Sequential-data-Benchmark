@@ -9,11 +9,9 @@ data:
 unsupervised_loss:
   name: ModelLoss
 unsupervised_metrics:
-  - name: MLEM_total_mse_loss
-  - name: MLEM_total_CE_loss
-  - name: MLEM_sparcity_loss
-  - name: MLEM_reconstruction_loss
-
+    name: LoggingMetric
+    params: {"key": total_loss}
+    
 unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
@@ -30,20 +28,6 @@ unsupervised_model:
   preprocess:
     name: MLEMPretrainer
     params: ${model.preprocess.params}
-
-coles_time_process:
-  log/age: cat
-  log/taobao: diff
-  log/physionet2012: cat
-  log/mimic3: diff
-  log/pendulum: cat
-  log/x5: none
-  log/mbd: cat
-  log/mimic3_regr: cat
-  log/arabic: diff
-  log/electric_devices: diff
-  log/bpi_17: cat
-  log/pendulum_cls: cat
 
 model:
   preprocess:
