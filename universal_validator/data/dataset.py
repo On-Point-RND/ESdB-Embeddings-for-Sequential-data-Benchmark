@@ -48,26 +48,15 @@ class ValidatorDataset:
         print(f"Loading {self.data_conf.dataset_name} dataset...")
         _, target_type, metrics = self._parse_target_name(target_name)
         if target_type in ["local"]:
-            columns = ["shift_emb", target_name]
+            columns = ["embeddings", target_name]
             train = pd.read_parquet(self.data_conf.train_path, columns=columns)
             test = pd.read_parquet(self.data_conf.test_path, columns=columns)
             train, test = train.explode(columns), test.explode(columns)
 
-            X_train = np.stack(train["shift_emb"].values).astype(np.float32)
+            X_train = np.stack(train["embeddings"].values).astype(np.float32)
             y_train = train[target_name].values
 
-            X_test = np.stack(test["shift_emb"].values).astype(np.float32)
-            y_test = test[target_name].values
-        elif target_type == "global":
-            columns = ["global_emb", "global_train", target_name]
-            data = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            # TODO for user-wise split test should be loaded directly
-            train, test = data[data["global_train"] == 1], data[data["global_train"] == 0]
-
-            X_train = np.stack(train["global_emb"].values).astype(np.float32)
-            y_train = train[target_name].values
-
-            X_test = np.stack(test["global_emb"].values).astype(np.float32)
+            X_test = np.stack(test["embeddings"].values).astype(np.float32)
             y_test = test[target_name].values
         else:
             raise NotImplementedError(f"Target type {target_type} not supported!")

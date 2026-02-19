@@ -7,7 +7,7 @@ main_loss:
 
 cc: 
   behavior_type: 5
-  item_id: 1904
+  item_category: 8916
 nn:
 
 data:
@@ -17,16 +17,16 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
+      - 0.0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
       time_name: time
       index_name: user_id
-      target_name: payment_next_7d
+      target_name: shard
       cat_cardinalities: ${cc}
       batch_transforms:
         - DatetimeToFloat:
@@ -51,6 +51,16 @@ data:
             cnt_max: 200
             short_seq_crop_rate: 0.8
             seed: 0
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      target_name: item_category
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 1000.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -96,6 +106,16 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    bert4rec_pipeline:
+      <<: *common_pipeline
+      target_name: item_category
+      batch_transforms:
+        - RescaleTime:
+            loc: 0.0
+            scale: 1000.0
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
   loaders:
     test:
       split_idx: 0

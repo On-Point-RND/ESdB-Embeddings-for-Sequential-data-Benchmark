@@ -16,7 +16,7 @@ from .common_pandas import (
     split_num_shifts,
 )
 
-CAT_FEATURES = ["item_id", "behavior_type", "item_category"]
+CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
@@ -49,42 +49,41 @@ def get_forecast_target(row):
 def get_anomaly_target(row):
     b = np.asarray(row["behavior_type"])
     i = np.asarray(row["item_id"])
+    s = row["shift_start"]
     out = []
-    for s in row["shifts"]:
-        s = int(s)
-        post_b = b[s:]
-        post_i = i[s:]
-        item_history = {}
-        for item, action in zip(post_i, post_b):
-            if item not in item_history:
-                item_history[item] = []
-            item_history[item].append(action)
+    post_b = b[s:]
+    post_i = i[s:]
+    item_history = {}
+    for item, action in zip(post_i, post_b):
+        if item not in item_history:
+            item_history[item] = []
+        item_history[item].append(action)
 
-        shift_has_anomaly = 0
-        for item, history in item_history.items():
+    shift_has_anomaly = 0
+    for item, history in item_history.items():
+        if shift_has_anomaly == 1:
+            break
+
+        collect_idx = [idx for idx, x in enumerate(history) if x == 2]
+        add_idx = [idx for idx, x in enumerate(history) if x == 3]
+        purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
+        if not collect_idx or not purchase_idx:
+            continue
+
+        for c_idx in collect_idx:
+            for p_idx in purchase_idx:
+                if p_idx > c_idx:
+                    cart_between = any(
+                        c_idx < cart_idx < p_idx for cart_idx in add_idx
+                    )
+
+                    if not cart_between:
+                        shift_has_anomaly = 1
+                        break
             if shift_has_anomaly == 1:
                 break
 
-            collect_idx = [idx for idx, x in enumerate(history) if x == 2]
-            add_idx = [idx for idx, x in enumerate(history) if x == 3]
-            purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
-            if not collect_idx or not purchase_idx:
-                continue
-
-            for c_idx in collect_idx:
-                for p_idx in purchase_idx:
-                    if p_idx > c_idx:
-                        cart_between = any(
-                            c_idx < cart_idx < p_idx for cart_idx in add_idx
-                        )
-
-                        if not cart_between:
-                            shift_has_anomaly = 1
-                            break
-                if shift_has_anomaly == 1:
-                    break
-
-        out.append(shift_has_anomaly)
+    out.append(shift_has_anomaly)
 
     return out
 
@@ -116,6 +115,22 @@ def get_ratio_raw(row):
         else:
             out.append(n_buys / n_views)
     return out
+
+
+def cut_data(row):
+        start_idx = int(row["shift_start"])
+        for col_name in row.index:
+            if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
+                continue
+            val = row[col_name]
+            if isinstance(val, (list ,np.ndarray)):
+                row[col_name] = val[start_idx:]
+        old_shifts = np.array(row["shifts"])
+        new_shifts = old_shifts - start_idx
+        row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+        if not row["shifts"]: 
+            row["shifts"] = [0]
+        return row
 
 
 def main():
@@ -190,7 +205,7 @@ def main():
 
     spark = (
         SparkSession.builder.master("local[*]")
-        .appName("YambdaPreprocessing")
+        .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
         .config("spark.driver.maxResultSize", "0")
@@ -317,14 +332,14 @@ def main():
         get_anomaly_target, axis=1
     )
 
+    # get real part of test data 
+    if args.time_train_split == 0.5:   
+        test_df = test_df.apply(cut_data, axis = 1)
+
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
 
-    keep_cols = [
-        "client_id",
-        "time",
-        "behavior_type",
-        "item_id",
+    keep_cols = INDEX_COLUMNS + ORDERING_COLUMNS + CAT_FEATURES + [
         "_seq_len",
         "shifts",
         "target__clf__local__accuracy+f1_macro",
@@ -335,8 +350,8 @@ def main():
         "debug_f",
     ]
 
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
 
 
 if __name__ == "__main__":

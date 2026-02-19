@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -9,8 +10,26 @@ HORIZON_DAYS = 30
 MIN_SEQ_LEN = 2
 
 def save_partitioned_parquet(
-    df: pd.DataFrame, save_path: Path, num_shards: int
+    df: pd.DataFrame,
+    save_path: Path,
+    num_shards: int,
+    mode: str = "error",
 ) -> None:
+    if mode not in {"error", "overwrite"}:
+        raise ValueError(f"Unsupported mode: {mode}")
+
+    if save_path.exists():
+        if mode == "overwrite":
+            if save_path.is_dir():
+                shutil.rmtree(save_path)
+            else:
+                save_path.unlink()
+        else:
+            raise FileExistsError(
+                f"Output path already exists: {save_path}. "
+                "Use overwrite mode to replace existing data."
+            )
+
     df = df.copy()
     df["shard"] = np.arange(len(df)) % num_shards
     save_path.mkdir(parents=True, exist_ok=True)
