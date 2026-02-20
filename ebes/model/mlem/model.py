@@ -43,7 +43,6 @@ class GenModel(BaseModel):
 
         self.mse_weight = mse_weight
         self.ce_weight = ce_weight
-        self.reconstruction_weight = reconstruction_weight
         ### PROCESSORS ###
         self.processor = Batch2Seq(
             cat_cardinalities=cat_cardinalities,
@@ -131,31 +130,9 @@ class TransformerDecoder(nn.Module):
 
 
 class MLEMPretrainer(GenModel):
-    def __init__(
-        self, contr_model_folder: str, normalize_z: bool = False, *args, **kwargs
-    ):
-        contr_model_config = OmegaConf.load(Path(contr_model_folder) / "config.yaml")[
-            "unsupervised_model"
-        ]  # type: ignore
-        kwargs["enc_hidden_size"] = contr_model_config["encoder"]["params"][
-            "hidden_size"
-        ]
+    def __init__(self, normalize_z: bool = False, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.contrastive_model = build_model(contr_model_config)
-        contr_model_checkpoint = Path(contr_model_folder) / "pretrain/ckpt"
-        ckpts = list(glob.glob(f"{contr_model_checkpoint}/*.ckpt"))
-        if len(ckpts) != 1:
-            raise ValueError("Not 1 checkpoint in folder")
-        self.contrastive_model.load_state_dict(
-            torch.load(ckpts[0], map_location="cpu")["model"]
-        )
-        self.contrastive_model = FrozenModel(self.contrastive_model)
-
         self.normalize_z = normalize_z
-        init_temp = torch.tensor(10.0)
-        init_bias = torch.tensor(-10.0)
-        self.bias = nn.Parameter(init_bias)
-        print("Pretrain success")
 
     def forward(self, batch: Batch):
         check_batch = deepcopy(batch)

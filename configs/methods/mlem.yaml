@@ -9,8 +9,8 @@ data:
 unsupervised_loss:
   name: ModelLoss
 unsupervised_metrics:
-    name: LoggingMetric
-    params: {"key": total_loss}
+    - name: LoggingMetric
+      params: {"key": total_los
     
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -33,27 +33,22 @@ model:
   preprocess:
     name: MLEMEncoder
     params:
-      contr_model_folder: "${log_dir}/coles/correlation/seed_0/"
       normalize_z: False
       # Preprocess
       cat_cardinalities: ${cc}
       num_features: ${nn}
       cat_emb_dim: 16
       num_emb_dim: 16
-      time_process: "${log_dir}"
+      time_process: "cat"
       num_norm: True
       # Encoder:
       enc_num_layers: 1
-      enc_aggregation: TakeLastHidden
       # Decoder:
       dec_hidden_size: 128
       dec_num_layers: 3
       dec_num_heads: 8
       dec_scale_hidden: 2
       max_len: ${data.preprocessing.common_pipeline.max_seq_len}
-      # Loss weights:
-      l1_weight: 0.001
-      contrastive_weight: 10
   head:
     name: nn.Linear
     params:
