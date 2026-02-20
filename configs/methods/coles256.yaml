@@ -102,4 +102,4 @@ optuna:
     model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
 
     unsupervised_loss.params.margin: [suggest_float, {low: 0.2, high: 1, log: False}]
-    unsupervised_trainer.total_iters: [suggest_categorical, {choices: [0, 100_000]}]
+    # unsupervised_trainer.total_iters: [suggest_categorical, {choices: [0, 100_000]}]
