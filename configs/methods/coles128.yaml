@@ -1,5 +1,5 @@
 method_name: coles128
-runner_name: UnsupervisedRunner
+runner_name: UnsupervisedEmbedRunner
 
 data:
   loaders:
