@@ -38,7 +38,8 @@ model:
         partial_cat_feature_prob: 0.1
         partial_num_feature_prob: 0.1
     query_aggregation: last
-    max_len: 1024
+    take_emb_before_reconstruction: true
+    max_len: ${data.preprocessing.bert4rec_pipeline.max_seq_len}
     hidden_size: 128
     num_blocks: 2
     num_heads: 4

@@ -24,7 +24,7 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000000
+      max_seq_len: 2048
       time_name: time
       index_name: client_id
       target_name: shard

@@ -148,6 +148,7 @@ class Bert4Rec(BaseModel):
         num_emb_dim: int | None = None,
         num_norm: bool = False,
         query_aggregation: AggregationMode = "last",
+        take_emb_before_reconstruction: bool = True,
         enable_positional_embedding: bool = True,
         reconstruction_ce_weight: float = 1.0,
         reconstruction_mse_weight: float = 1.0,
@@ -163,6 +164,7 @@ class Bert4Rec(BaseModel):
         self.ignore_index = ignore_index
 
         self.query_aggregation = query_aggregation
+        self.take_emb_before_reconstruction = take_emb_before_reconstruction
 
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
@@ -249,14 +251,10 @@ class Bert4Rec(BaseModel):
     def get_query_embeddings(
         self,
         batch: Batch,
-        aggregation: AggregationMode | None = None,
     ) -> torch.Tensor:
         batch = batch.tail_clamp(self.max_len)
         x = self._encode(batch)
-        mode_raw = self.query_aggregation if aggregation is None else aggregation
-        if mode_raw not in {"last", "mean", "max"}:
-            raise ValueError(f"Unknown aggregation mode: {mode_raw}")
-        mode = cast(AggregationMode, mode_raw)
+        mode = cast(AggregationMode, self.query_aggregation)
         return self._aggregate_embeddings(x, batch.lengths, mode)
 
     @staticmethod
@@ -340,7 +338,7 @@ class Bert4Rec(BaseModel):
             "loss": loss,
             "total_ce_loss": total_ce,
             "total_mse_loss": total_mse,
-            "embeddings": x_emb,
+            "embeddings": x_emb if self.take_emb_before_reconstruction else self.take_emb_before_reconstruction,
         }
 
     def _get_pad_mask(self, batch: Batch) -> torch.Tensor:
