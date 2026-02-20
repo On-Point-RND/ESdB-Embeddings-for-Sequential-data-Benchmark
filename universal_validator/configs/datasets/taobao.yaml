@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "TAOBAO"
+  train_path: embeddings/taobao/preprocessed_emb/simple1/train_postproc
+  test_path: embeddings/taobao/preprocessed_emb/simple1/test_postproc
