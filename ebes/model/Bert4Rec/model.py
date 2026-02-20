@@ -338,7 +338,7 @@ class Bert4Rec(BaseModel):
             "loss": loss,
             "total_ce_loss": total_ce,
             "total_mse_loss": total_mse,
-            "embeddings": x_emb if self.take_emb_before_reconstruction else self.take_emb_before_reconstruction,
+            "embeddings": x_emb if self.take_emb_before_reconstruction else x,
         }
 
     def _get_pad_mask(self, batch: Batch) -> torch.Tensor:

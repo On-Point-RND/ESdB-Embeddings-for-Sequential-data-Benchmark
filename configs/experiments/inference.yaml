@@ -19,7 +19,8 @@ logging:
   cons_lvl: info
   
 trainer:
-  total_iters: 0
+  total_iters: 0 
+  ckpt_resume: '/home/dev/ESdB-Embeddings-for-Sequential-data-Benchmark/log/taobao/bert4rec/tests/simple(11)/seed_0/ckpt/epoch__0109_-_loss__1.711.ckpt'
 
 
 data:
@@ -34,6 +35,6 @@ test_data:
 
 model:
   params:
-    max_len: 2048
+    max_len: 1024
     query_aggregation: last
     take_emb_before_reconstruction: true

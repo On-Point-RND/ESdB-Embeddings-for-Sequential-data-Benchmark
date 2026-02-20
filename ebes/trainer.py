@@ -157,7 +157,7 @@ class Trainer:
                 kv = it.split("__")
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]
-                v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
+                v = float(kv[1])
                 metrics[k] = v
             return metrics[key]
 
@@ -299,7 +299,7 @@ class Trainer:
 
             loss.backward()
 
-            self._metrics["loss"].update(loss.detach().cpu())
+            self._metrics["loss"].update( -loss.detach().cpu())
             loss_np = loss.item()
             losses.append(loss_np)
             loss_ema = loss_np if i == 0 else 0.9 * loss_ema + 0.1 * loss_np
@@ -347,7 +347,7 @@ class Trainer:
 
             if self._loss is not None:
                 loss = self._loss(pred, gt).cpu()
-                self._metrics["loss"].update(loss.cpu())
+                self._metrics["loss"].update(- loss.cpu())
 
             if gt is not None:
                 gt = gt.to("cpu")
@@ -455,8 +455,6 @@ class Trainer:
                 and self._ckpt_track_metric in self._metric_values
             )
             target_metric = self._metric_values[self._ckpt_track_metric]
-            if self._ckpt_track_metric == "loss":
-                target_metric = -1 * target_metric
 
             if target_metric > best_metric:
                 best_metric = target_metric
