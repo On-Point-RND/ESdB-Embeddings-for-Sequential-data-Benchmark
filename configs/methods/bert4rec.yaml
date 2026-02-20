@@ -13,6 +13,7 @@ trainer:
   patience: ${patience}
   total_iters: 100_000
   # ckpt_resume: ''
+  
 model:
   name: Bert4Rec
   params:
@@ -22,8 +23,6 @@ model:
     cat_emb_dim: 128
     num_emb_dim: 128
     num_norm: false
-    target_cat_feature: small_group
-    reconstruction_mode: true
     reconstruction_ce_weight: 1.0
     reconstruction_mse_weight: 1.0
     ignore_index: -100
@@ -36,10 +35,10 @@ model:
         random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
         keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
         num_mask_fill: zero
-        partial_cat_feature_prob: 0.0
-        partial_num_feature_prob: 0.0
+        partial_cat_feature_prob: 0.1
+        partial_num_feature_prob: 0.1
     query_aggregation: last
-    max_len: ${data.preprocessing.bert4rec_pipeline.max_seq_len}
+    max_len: 1024
     hidden_size: 128
     num_blocks: 2
     num_heads: 4
@@ -48,7 +47,7 @@ model:
     enable_positional_embedding: true
   preprocess:
     params:
-      time_process: "diff"
+      time_process: "cat"
 
 data:
   loaders:
