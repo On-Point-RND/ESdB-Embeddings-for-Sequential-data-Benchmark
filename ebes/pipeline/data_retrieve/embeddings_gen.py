@@ -54,18 +54,18 @@ class ResultsGetter:
             for batch_old in tqdm(loader, disable=False):
                 batches_array = self.shift_transform(batch_old)
                 # If we want to check the memory consumption
-                # torch.cuda.reset_peak_memory_stats(trainer.device)  
+                # torch.cuda.reset_peak_memory_stats(trainer.device)
                 for batch in batches_array:
-                    batch.to(trainer.device)   
+                    batch.to(trainer.device)
                     with torch.no_grad():
                         if callable(get_query_embeddings):
                             emb = get_query_embeddings(batch)
                         else:
-                            emb = model(batch)  
+                            emb = model(batch)
                     emb_np = emb.detach().cpu().numpy()
 
                     del emb
-                    #torch.cuda.empty_cache()
+                    # torch.cuda.empty_cache()
                     index_data = batch.extract_indexes_from_batch()
 
                     for i in range(len(emb_np)):
@@ -84,27 +84,14 @@ class ResultsGetter:
         df_all = df_list[0]
         for i in range(1, len(df_list)):
             df_all = pd.concat([df_all, df_list[i]], ignore_index=True)
-        
+
         return df_all
 
-    def get_shifts(self, old_index, offset):
+    def get_shifts(self, old_index, full_len):
         shifts = self.shifts_by_index[old_index]
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
-
-        debug_f = self.debug_f_by_index[old_index]
-        if isinstance(debug_f, list):
-            debug_f = np.asarray(debug_f)
-
-        assert isinstance(debug_f, np.ndarray) and isinstance(
-            shifts, np.ndarray
-        ), "Provide correct types for sequential data in Dataframe."
-
-        shifts = shifts - offset
-        shifts_mask = shifts >= MIN_SHIFT_VALUE
-        shifts = shifts[shifts_mask]
-        debug_f = debug_f[shifts_mask]
-        return shifts, debug_f
+        return np.append(shifts, int(full_len))
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
@@ -131,10 +118,9 @@ class ResultsGetter:
         for b in range(old_batch):
             old_index = batch.index[b]
             orig_len = int(self.orig_len_by_index[old_index])
-            offset = max(0, orig_len - old_len)
+            shifts = self.get_shifts(old_index, batch.lengths[b])
+            assert (shifts >= (orig_len - old_len)).all(), 'Shifts out of seq_len'
 
-            shifts, _ = self.get_shifts(old_index, offset)
-            shifts = np.append(shifts, int(batch.lengths[b]))
             for i, s in enumerate(shifts):
                 s = int(s)
 
@@ -257,8 +243,6 @@ class ResultsGetter:
                 )
             )
         return batches_array
-        
-
 
     def shift_reverse_transform(self, df):
         # Разбиваем index на базовый индекс и сдвиг

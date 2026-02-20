@@ -109,7 +109,12 @@ class BertEmbedding(nn.Module):
             num_norm=num_norm,
         )
 
-        self.project = nn.Linear(self.processor.output_dim, hidden_size)
+        self.sequential = nn.Sequential(
+            nn.Linear(self.processor.output_dim, hidden_size * 2),
+            nn.GELU(),
+            nn.Linear(hidden_size * 2, hidden_size),   
+        )
+
         self.dropout = nn.Dropout(p=dropout)
         if self.enable_positional_embedding:
             self.position = PositionalEmbedding(max_len=max_len, d_model=hidden_size)
@@ -118,7 +123,7 @@ class BertEmbedding(nn.Module):
         if batch.emb_features is not None or batch.emb_features_names is not None:
             raise ValueError("Bert4Rec does not support emb_features")
         seq = self.processor(batch, copy=False)
-        x = self.project(seq.tokens.permute(1, 0, 2))
+        x = self.sequential(seq.tokens.permute(1, 0, 2))
         if self.enable_positional_embedding:
             x = x + self.position(x)
         return self.dropout(x)
@@ -132,7 +137,6 @@ class Bert4Rec(BaseModel):
         cat_cardinalities: Mapping[str, int],
         num_features: list[str] | None,
         masker: Mapping,
-        target_cat_feature: str,
         max_len: int = 100,
         hidden_size: int = 256,
         num_blocks: int = 2,
@@ -145,7 +149,6 @@ class Bert4Rec(BaseModel):
         num_norm: bool = False,
         query_aggregation: AggregationMode = "last",
         enable_positional_embedding: bool = True,
-        reconstruction_mode: bool = True,
         reconstruction_ce_weight: float = 1.0,
         reconstruction_mse_weight: float = 1.0,
         acceleration_config: Mapping | None = None,
@@ -155,7 +158,6 @@ class Bert4Rec(BaseModel):
 
         self.max_len = max_len
         self.num_passes_over_block = num_passes_over_block
-        self.reconstruction_mode = reconstruction_mode
         self.reconstruction_ce_weight = reconstruction_ce_weight
         self.reconstruction_mse_weight = reconstruction_mse_weight
         self.ignore_index = ignore_index
@@ -164,11 +166,6 @@ class Bert4Rec(BaseModel):
 
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
-
-        if target_cat_feature is None or target_cat_feature not in cat_cardinalities:
-            raise ValueError('\'target_cat_fature\' should be from cat_features')
-        else:
-            self.target_item = target_cat_feature
 
         self.item_embedder = BertEmbedding(
             cat_cardinalities=cat_cardinalities,
@@ -234,25 +231,27 @@ class Bert4Rec(BaseModel):
             },
         )
 
+        self.reconstruction_stem = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 2),
+            nn.GELU(),
+            nn.Linear(hidden_size * 2, hidden_size),
+        )
+
         self._init()
 
     def forward(self, batch: Batch):
-        if self.reconstruction_mode:
-            masked_batch, targets = self._mask_inputs(batch)
-            x = self._encode(masked_batch)
-            return self._reconstruction_output(x, targets)
+        batch = batch.tail_clamp(self.max_len)
+        masked_batch, targets = self._mask_inputs(batch)
+        x = self._encode(masked_batch)
+        return self._reconstruction_output(x, targets)
 
-        x = self._encode(batch)
-        return self.cat_heads[self.target_item](x).permute(0, 2, 1)
-
-    def get_sequence_embeddings(self, batch: Batch) -> torch.Tensor:
-        return self._encode(batch)
 
     def get_query_embeddings(
         self,
         batch: Batch,
         aggregation: AggregationMode | None = None,
     ) -> torch.Tensor:
+        batch = batch.tail_clamp(self.max_len)
         x = self._encode(batch)
         mode_raw = self.query_aggregation if aggregation is None else aggregation
         if mode_raw not in {"last", "mean", "max"}:
@@ -300,9 +299,10 @@ class Bert4Rec(BaseModel):
 
     def _reconstruction_output(
         self,
-        x: torch.Tensor,
+        x_emb: torch.Tensor,
         targets: dict[str, torch.Tensor | None],
     ):
+        x = self.reconstruction_stem(x_emb)
         total_ce = x.new_tensor(0.0)
         total_mse = x.new_tensor(0.0)
 
@@ -340,7 +340,7 @@ class Bert4Rec(BaseModel):
             "loss": loss,
             "total_ce_loss": total_ce,
             "total_mse_loss": total_mse,
-            "embeddings": x,
+            "embeddings": x_emb,
         }
 
     def _get_pad_mask(self, batch: Batch) -> torch.Tensor:
