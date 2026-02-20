@@ -14,12 +14,15 @@ from .common_pandas import (
     save_partitioned_parquet,
     filter_short,
     split_num_shifts,
+    global_train_column,
+    trim_test,
 )
 
-CAT_FEATURES = ["item_id", "behavior_type", "item_category"]
+CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
+HORIZON_HOURS = 48
 
 
 def get_reg_target(row, horizon_hours=300):
@@ -50,41 +53,37 @@ def get_anomaly_target(row):
     b = np.asarray(row["behavior_type"])
     i = np.asarray(row["item_id"])
     out = []
-    for s in row["shifts"]:
-        s = int(s)
-        post_b = b[s:]
-        post_i = i[s:]
-        item_history = {}
-        for item, action in zip(post_i, post_b):
-            if item not in item_history:
-                item_history[item] = []
-            item_history[item].append(action)
+    post_b = b[:]
+    post_i = i[:]
+    item_history = {}
+    for item, action in zip(post_i, post_b):
+        if item not in item_history:
+            item_history[item] = []
+        item_history[item].append(action)
 
-        shift_has_anomaly = 0
-        for item, history in item_history.items():
+    shift_has_anomaly = 0
+    for item, history in item_history.items():
+        if shift_has_anomaly == 1:
+            break
+
+        collect_idx = [idx for idx, x in enumerate(history) if x == 2]
+        add_idx = [idx for idx, x in enumerate(history) if x == 3]
+        purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
+        if not collect_idx or not purchase_idx:
+            continue
+
+        for c_idx in collect_idx:
+            for p_idx in purchase_idx:
+                if p_idx > c_idx:
+                    cart_between = any(c_idx < cart_idx < p_idx for cart_idx in add_idx)
+
+                    if not cart_between:
+                        shift_has_anomaly = 1
+                        break
             if shift_has_anomaly == 1:
                 break
 
-            collect_idx = [idx for idx, x in enumerate(history) if x == 2]
-            add_idx = [idx for idx, x in enumerate(history) if x == 3]
-            purchase_idx = [idx for idx, x in enumerate(history) if x == 4]
-            if not collect_idx or not purchase_idx:
-                continue
-
-            for c_idx in collect_idx:
-                for p_idx in purchase_idx:
-                    if p_idx > c_idx:
-                        cart_between = any(
-                            c_idx < cart_idx < p_idx for cart_idx in add_idx
-                        )
-
-                        if not cart_between:
-                            shift_has_anomaly = 1
-                            break
-                if shift_has_anomaly == 1:
-                    break
-
-        out.append(shift_has_anomaly)
+    out.append(shift_has_anomaly)
 
     return out
 
@@ -144,53 +143,51 @@ def main():
         type=Path,
     )
     parser.add_argument(
-        "--overwrite",
-        help='Toggle "overwrite" mode on all spark writes',
-        action="store_true",
-    )
-    parser.add_argument(
         "--split-seed",
         help="Random seed for train-test split",
         type=int,
         default=42,
     )
     parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
+    )
+    parser.add_argument(
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=5,
+        default=10,
     )
     parser.add_argument(
         "--shift-seed",
         help="Random seed for shifts",
+        default=1,
         type=int,
-        default=0,
     )
     parser.add_argument(
-        "--time-train-split",
-        help="Train fraction for global time split from 0 to 1",
-        type=float,
-        default=0.9,
-    )
-    parser.add_argument(
-        "--user-train-split",
-        help="User train split from 0 to 1",
-        type=float,
-        default=0.9,
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    if not (0.0 < args.time_train_split < 1.0):
-        parser.error("--time-train-split must be in range (0, 1)")
-    if not (0.0 < args.user_train_split < 1.0):
-        parser.error("--user-train-split must be in range (0, 1)")
-    time_test_split = 1 - args.time_train_split
-    user_train_split = args.user_train_split
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
+    else:
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
+
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
         SparkSession.builder.master("local[*]")
-        .appName("YambdaPreprocessing")
+        .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
         .config("spark.driver.maxResultSize", "0")
@@ -233,8 +230,7 @@ def main():
     df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
 
-    horizon_hours = 300
-    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, horizon_hours))
+    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, HORIZON_HOURS))
 
     train_df, test_df = global_time_split(
         data=df,
@@ -247,33 +243,19 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # User split with configurable train fraction.
-    rng = np.random.default_rng(seed=args.split_seed)
-    n_train_users = int(len(train_df.index) * user_train_split)
-    train_indices = rng.choice(
-        train_df.index, size=n_train_users, replace=False
-    ).tolist()
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
-    valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
-
     train_df["is_bad_user"] = train_df["time"].apply(
-        lambda x: trim_users(x, horizon_hours)
+        lambda x: trim_users(x, HORIZON_HOURS)
     )
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
 
     train_df["shift_end"] = train_df["time"].map(
-        lambda x: compute_shift_end(x, horizon_hours)
+        lambda x: compute_shift_end(x, HORIZON_HOURS)
     )
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
-
     train_df = train_df.loc[valid_mask_train].copy()
-
     valid_mask_test = test_df.index.intersection(valid_mask_train)
     test_df = test_df.loc[valid_mask_test].copy()
 
@@ -281,6 +263,13 @@ def main():
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
+
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+    )
 
     train_ratios = train_df.apply(get_ratio_raw, axis=1)
     test_ratios = test_df.apply(get_ratio_raw, axis=1)
@@ -320,23 +309,26 @@ def main():
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
 
-    keep_cols = [
-        "client_id",
-        "time",
-        "behavior_type",
-        "item_id",
-        "_seq_len",
-        "shifts",
-        "target__clf__local__accuracy+f1_macro",
-        "target__reg__local__mse+r2",
-        "target__forecast__local__mse+r2",
-        "target__anomaly__local__roc_auc+f1_macro+accuracy",
-        "users_in_train",
-        "debug_f",
-    ]
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + CAT_FEATURES
+        + [
+            "_seq_len",
+            "shifts",
+            "target__clf__local__accuracy+f1_macro",
+            "target__reg__local__mse+r2",
+            "target__forecast__local__mse+r2",
+            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "global_train",
+            "debug_f",
+        ]
+    )
 
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20)
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20)
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
 
 
 if __name__ == "__main__":

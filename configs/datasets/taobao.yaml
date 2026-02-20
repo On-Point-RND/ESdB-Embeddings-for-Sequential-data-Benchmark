@@ -7,7 +7,7 @@ main_loss:
 
 cc: 
   behavior_type: 5
-  item_id: 1904
+  item_category: 8916
 nn:
 
 data:
@@ -17,16 +17,16 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
+      - 0.0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
       time_name: time
       index_name: user_id
-      target_name: payment_next_7d
+      target_name: shard
       cat_cardinalities: ${cc}
       batch_transforms:
         - DatetimeToFloat:
