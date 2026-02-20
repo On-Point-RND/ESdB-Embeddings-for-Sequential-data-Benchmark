@@ -28,7 +28,7 @@ data:
       max_seq_len: 1000000 # length > max_len in dataset
       time_name: trans_date
       index_name: client_id
-      target_name: bins
+      target_name: age
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:

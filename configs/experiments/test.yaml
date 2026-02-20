@@ -1,4 +1,4 @@
-run_name: "${method_name}/tests/bert_random_last"
+run_name: "${method_name}/test"
 common_seed: 0
 device: "cuda:0"
 
