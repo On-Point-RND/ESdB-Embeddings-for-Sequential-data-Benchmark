@@ -13,7 +13,7 @@ nn:
 
 data:
   dataset:
-    parquet_path: "data/30music/preprocessed_ntp/train"
+    parquet_path: "data/30music/preprocessed/train"
     random_split: true
     split_seed: 42
 
@@ -84,7 +84,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/30music/preprocessed_ntp/test"
+    parquet_path: "data/30music/preprocessed/test"
     split_sizes: 
       - 1.0
   preprocessing:

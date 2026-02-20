@@ -13,7 +13,7 @@ ee:
 
 data:
   dataset:
-    parquet_path: "data/zvuk/preprocessed_ntp/train"
+    parquet_path: "data/zvuk/preprocessed/train"
     random_split: true
     split_seed: 42
 
@@ -93,7 +93,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/zvuk/preprocessed_ntp/test"
+    parquet_path: "data/zvuk/preprocessed/test"
     split_sizes: 
       - 1.0
   preprocessing:

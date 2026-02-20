@@ -18,7 +18,7 @@ nn:
 
 data:
   dataset:
-    parquet_path: "data/ett/preprocessed_ntp/train"
+    parquet_path: "data/ett/preprocessed/train"
     random_split: true
     split_seed: 42
 
@@ -89,7 +89,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/ett/preprocessed_ntp/test"
+    parquet_path: "data/ett/preprocessed/test"
     split_sizes: 
       - 1.0
   preprocessing:
