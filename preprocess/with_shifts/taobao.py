@@ -74,9 +74,7 @@ def get_anomaly_target(row):
         for c_idx in collect_idx:
             for p_idx in purchase_idx:
                 if p_idx > c_idx:
-                    cart_between = any(
-                        c_idx < cart_idx < p_idx for cart_idx in add_idx
-                    )
+                    cart_between = any(c_idx < cart_idx < p_idx for cart_idx in add_idx)
 
                     if not cart_between:
                         shift_has_anomaly = 1
@@ -132,7 +130,6 @@ def cut_data(row):
     if not row["shifts"]:
         row["shifts"] = [0]
     return row
-
 
 
 def main():
