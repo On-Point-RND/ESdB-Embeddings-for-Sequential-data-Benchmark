@@ -30,7 +30,7 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 300_000
+  total_iters: 1
 
 trainer:
   ckpt_track_metric: ${main_metric}

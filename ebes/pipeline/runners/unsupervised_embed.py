@@ -58,7 +58,7 @@ class UnsupervisedEmbedRunner(Runner):
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
             train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"full_train", "train_val"}
+            keys = {"gen_train", "gen_train_val"}
             subloaders = {k: loaders[k] for k in keys if k in loaders}
             df_train = train_embeddings_getter.df_get(subloaders, trainer)
             embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
@@ -67,17 +67,23 @@ class UnsupervisedEmbedRunner(Runner):
             post_processing(config, embed_train_file, "train")
 
             test_embeddings_getter = ResultsGetter(config, "test")
-            df_test = test_embeddings_getter.df_get(test_loaders, trainer)
+            keys = {"gen_test"}
+            subloaders = {k: test_loaders[k] for k in keys if k in test_loaders}
+            df_test = test_embeddings_getter.df_get(subloaders, trainer)
             embed_test_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
             embed_test_file.parent.mkdir(parents=True, exist_ok=True)
             df_test.to_parquet(embed_test_file, index=False)
             post_processing(config, embed_test_file, "test")
 
         del loaders["train"]  # type: ignore
-        train_metrics = trainer.validate(loaders["unsupervised_train"])
-        del loaders["full_train"]  # type: ignore
-        train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
+        del loaders["gen_train"]  # type: ignore
         del loaders["train_val"]  # type: ignore
+        del loaders["gen_train_val"]  # type: ignore
+        del loaders["hpo_val"]  # type: ignore
+        del test_loaders  # type: ignore
+
+        train_metrics = trainer.validate(loaders["unsupervised_train"])
+        train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
 
 
         train_metrics = {"train_" + k: v for k, v in train_metrics.items()}

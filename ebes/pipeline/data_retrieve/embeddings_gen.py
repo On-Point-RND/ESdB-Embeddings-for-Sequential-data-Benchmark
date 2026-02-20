@@ -54,7 +54,7 @@ class ResultsGetter:
             for batch_old in tqdm(loader, disable=False):
                 batches_array = self.shift_transform(batch_old)
                 # If we want to check the memory consumption
-                # torch.cuda.reset_peak_memory_stats(trainer.device)  
+                # torch.cuda.reset_peak_memory_stats(trainer.device) 
                 for batch in batches_array:
                     batch.to(trainer.device)   
                     with torch.no_grad():
@@ -74,7 +74,7 @@ class ResultsGetter:
                             "index": index_data[i],
                         }
                         records.append(record)
-                # If we want to check the memory consumption
+                    # If we want to check the memory consumption
                 # peak_bytes = torch.cuda.max_memory_allocated(trainer.device)  # [web:1][web:8]
                 # print(f"Peak allocated: {peak_bytes / 1024**2:.2f} MB")
             df = pd.DataFrame(records)

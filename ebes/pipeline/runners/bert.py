@@ -45,7 +45,7 @@ class BertRunner(Runner):
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
             train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"full_train", "train_val"}
+            keys = {"gen_train", "gen_train_val"}
             subloaders = {k: loaders[k] for k in keys if k in loaders}
             df_train = train_embeddings_getter.df_get(subloaders, trainer)
             embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
@@ -59,7 +59,9 @@ class BertRunner(Runner):
             )
 
             test_embeddings_getter = ResultsGetter(config, "test")
-            df_test = test_embeddings_getter.df_get(test_loaders, trainer)
+            keys = {"gen_test"}
+            subloaders = {k: test_loaders[k] for k in keys if k in test_loaders}
+            df_test = test_embeddings_getter.df_get(subloaders, trainer)
             embed_test_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
             embed_test_file.parent.mkdir(parents=True, exist_ok=True)
             df_test.to_parquet(embed_test_file, index=False)
@@ -70,7 +72,8 @@ class BertRunner(Runner):
                 transformer_skipped_target_removal=True,
             )
 
-        train_metrics = trainer.validate(loaders["full_train"])
+        # intervented here a little: no full_train exists anymore and gen_train is for generation only
+        train_metrics = trainer.validate(loaders["train"])
         train_val_metrics = trainer.validate(loaders["train_val"])
         test_metrics = trainer.validate(test_loaders["test"])
 
