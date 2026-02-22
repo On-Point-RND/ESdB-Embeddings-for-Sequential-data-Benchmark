@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
-from pyspark.sql.types import LongType, FloatType
+from pyspark.sql.types import FloatType, LongType
 
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
@@ -15,37 +15,31 @@ from .common_pandas import (
     save_partitioned_parquet,
     filter_short,
     split_num_shifts,
+    global_train_column,
+    trim_test,
 )
-
 
 CAT_FEATURES = ["small_group"]
 NUM_FEATURES = ["amount_rur"]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
 TARGET_VALS = [0, 1, 2, 3]
-TEST_FRACTION = 0.1
 TM = ORDERING_COLUMNS[0]
 
 
 def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
     def _cv_list(row):
         a = np.asarray(row["amount_rur"])
-        s = row["shift_start"]
-        out = []
-        post = a[s:]
-        assert (
-            len(post) != 0
-        ), "The column amount_rur after shifts shouldn't be empty."
-        mean = post.mean()
-        std = post.std()
+        mean = a.mean()
+        std = a.std()
         assert mean != 0, "Mean of amount_rur shouldn't be zero even after shifts"
-        out.append(std / mean)
-        return out
+        return std / mean
 
     cv_list = df.apply(_cv_list, axis=1)
-    all_cv = np.concatenate([np.asarray(v) for v in cv_list if len(v)])
+
+    all_cv = np.asarray(cv_list)
     q95 = np.nanquantile(all_cv, 0.95)
-    return cv_list.apply(lambda v: [int(x > q95) if not np.isnan(x) else 0 for x in v])
+    return np.asarray(cv_list > q95, dtype=np.int32).tolist()
 
 
 def reg_target_row(row, horizon=30):
@@ -113,9 +107,9 @@ def main():
     )
     parser.add_argument(
         "--split-seed",
-        help="Random seed used to split the data on train and test",
-        default=1,
+        help="Random seed for train-test split",
         type=int,
+        default=42,
     )
     parser.add_argument(
         "--overwrite",
@@ -124,9 +118,9 @@ def main():
     )
     parser.add_argument(
         "--num-shifts",
-        help="How many shifts to sample per test user",
-        default=10,
+        help="How many shifts to sample per sequence",
         type=int,
+        default=10,
     )
     parser.add_argument(
         "--shift-seed",
@@ -135,26 +129,25 @@ def main():
         type=int,
     )
     parser.add_argument(
-        "--time-train-split",
-        help="Train fraction for global time split from 0 to 1",
-        type=float,
-        default=0.9,
-    )
-    parser.add_argument(
-        "--user-train-split",
-        help="User train split from 0 to 1",
-        type=float,
-        default=0.9,
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    if not (0.0 < args.time_train_split < 1.0):
-        parser.error("--time-train-split must be in range (0, 1)")
-    if not (0.0 < args.user_train_split < 1.0):
-        parser.error("--user-train-split must be in range (0, 1)")
-    time_test_split = 1 - args.time_train_split
-    user_train_split = args.user_train_split
+
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
+    else:
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
+
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
         SparkSession.builder.master("local[*]")
@@ -165,7 +158,7 @@ def main():
         .config("spark.sql.execution.arrow.pyspark.enabled", "false")
         .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC")
         .getOrCreate()
-    ) 
+    )
     df, df_kag_train = None, None
 
     if args.which_split == "train":
@@ -196,11 +189,7 @@ def main():
         if args.cat_codes_path is not None:
             vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
 
-    df = collect_lists(
-        df,
-        group_by=INDEX_COLUMNS,
-        order_by=ORDERING_COLUMNS,
-    )
+    df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
     df = filter_short(df)
@@ -223,30 +212,22 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # User split with configurable train fraction.
-    rng = np.random.default_rng(seed=args.split_seed)
-    n_train_users = int(len(train_df.index) * user_train_split)
-    train_indices = rng.choice(
-        train_df.index, size=n_train_users, replace=False
-    ).tolist()
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
-    valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
-
     train_df["shift_end"] = train_df[TM].map(
         lambda x: compute_shift_end(x, horizon_days)
     )
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
-
     train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
-
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+    )
     test_df["target__reg_amount__local__mse+r2"] = test_df.apply(reg_target_row, axis=1)
     test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
@@ -289,7 +270,9 @@ def main():
         "debug_f",
     ]
 
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
 
 

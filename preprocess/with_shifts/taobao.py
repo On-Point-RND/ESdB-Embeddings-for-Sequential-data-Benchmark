@@ -14,6 +14,8 @@ from .common_pandas import (
     save_partitioned_parquet,
     filter_short,
     split_num_shifts,
+    global_train_column,
+    trim_test,
 )
 
 CAT_FEATURES = ["behavior_type", "item_category"]
@@ -52,8 +54,8 @@ def get_anomaly_target(row):
     i = np.asarray(row["item_id"])
     s = row["shift_start"]
     out = []
-    post_b = b[s:]
-    post_i = i[s:]
+    post_b = b[:]
+    post_i = i[:]
     item_history = {}
     for item, action in zip(post_i, post_b):
         if item not in item_history:
@@ -82,9 +84,7 @@ def get_anomaly_target(row):
             if shift_has_anomaly == 1:
                 break
 
-    out.append(shift_has_anomaly)
-
-    return out
+    return shift_has_anomaly
 
 
 def compute_shift_end(arr, horizon_hours):
@@ -116,22 +116,6 @@ def get_ratio_raw(row):
     return out
 
 
-def cut_data(row):
-    start_idx = int(row["shift_start"])
-    for col_name in row.index:
-        if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
-            continue
-        val = row[col_name]
-        if isinstance(val, (list, np.ndarray)):
-            row[col_name] = val[start_idx:]
-    old_shifts = np.array(row["shifts"])
-    new_shifts = old_shifts - start_idx
-    row["shifts"] = new_shifts[new_shifts >= 0].tolist()
-    if not row["shifts"]:
-        row["shifts"] = [0]
-    return row
-
-
 def main():
     parser = ArgumentParser()
     parser.add_argument(
@@ -158,15 +142,15 @@ def main():
         type=Path,
     )
     parser.add_argument(
-        "--overwrite",
-        help='Toggle "overwrite" mode on all spark writes',
-        action="store_true",
-    )
-    parser.add_argument(
         "--split-seed",
         help="Random seed for train-test split",
         type=int,
         default=42,
+    )
+    parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
     )
     parser.add_argument(
         "--num-shifts",
@@ -177,30 +161,28 @@ def main():
     parser.add_argument(
         "--shift-seed",
         help="Random seed for shifts",
+        default=1,
         type=int,
-        default=0,
     )
     parser.add_argument(
-        "--time-train-split",
-        help="Train fraction for global time split from 0 to 1",
-        type=float,
-        default=0.9,
-    )
-    parser.add_argument(
-        "--user-train-split",
-        help="User train split from 0 to 1",
-        type=float,
-        default=0.9,
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    if not (0.0 < args.time_train_split < 1.0):
-        parser.error("--time-train-split must be in range (0, 1)")
-    if not (0.0 < args.user_train_split < 1.0):
-        parser.error("--user-train-split must be in range (0, 1)")
-    time_test_split = 1 - args.time_train_split
-    user_train_split = args.user_train_split
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
+    else:
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
+
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
         SparkSession.builder.master("local[*]")
@@ -260,18 +242,6 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # User split with configurable train fraction.
-    rng = np.random.default_rng(seed=args.split_seed)
-    n_train_users = int(len(train_df.index) * user_train_split)
-    train_indices = rng.choice(
-        train_df.index, size=n_train_users, replace=False
-    ).tolist()
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
-    valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
-
     train_df["is_bad_user"] = train_df["time"].apply(
         lambda x: trim_users(x, HORIZON_HOURS)
     )
@@ -284,9 +254,7 @@ def main():
     )
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
-
     train_df = train_df.loc[valid_mask_train].copy()
-
     valid_mask_test = test_df.index.intersection(valid_mask_train)
     test_df = test_df.loc[valid_mask_test].copy()
 
@@ -294,6 +262,13 @@ def main():
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
+
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+    )
 
     train_ratios = train_df.apply(get_ratio_raw, axis=1)
     test_ratios = test_df.apply(get_ratio_raw, axis=1)
@@ -317,7 +292,7 @@ def main():
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df.apply(
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.apply(
         get_anomaly_target, axis=1
     )
 
@@ -326,13 +301,9 @@ def main():
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df.apply(
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
         get_anomaly_target, axis=1
     )
-
-    # get real part of test data
-    if time_test_split == 0.5:
-        test_df = test_df.apply(cut_data, axis=1)
 
     test_df = add_debug_f(test_df, time_col=TM)
     train_df = add_debug_f(train_df, time_col=TM)
@@ -347,8 +318,8 @@ def main():
             "target__clf__local__accuracy+f1_macro",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "users_in_train",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "global_train",
             "debug_f",
         ]
     )

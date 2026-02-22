@@ -9,6 +9,38 @@ MIN_SHIFT_START = 2
 HORIZON_DAYS = 30
 MIN_SEQ_LEN = 2
 
+
+def trim_test(row):
+    start_idx = int(row["shift_start"])
+    for col_name in row.index:
+        if col_name in ["shifts", "shift_start", "shift_end"]:
+            continue
+        val = row[col_name]
+        if isinstance(val, (list, np.ndarray)):
+            row[col_name] = val[start_idx:]
+    old_shifts = np.array(row["shifts"])
+    new_shifts = old_shifts - start_idx
+    row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+    if not row["shifts"]:
+        row["shifts"] = [0]
+    return row
+
+
+def global_train_column(train_df, test_df, train_ratio, seed):
+    # User split with configurable train fraction.
+    rng = np.random.default_rng(seed=seed)
+    n_train_users = int(len(train_df.index) * train_ratio)
+    train_indices = rng.choice(
+        train_df.index, size=n_train_users, replace=False
+    ).tolist()
+    train_df["global_train"] = 0
+    train_df.loc[train_indices, "global_train"] = 1
+    valid_test_indices = test_df.index.intersection(train_indices)
+    test_df["global_train"] = 0
+    test_df.loc[valid_test_indices, "global_train"] = 1
+    return train_df, test_df
+
+
 def save_partitioned_parquet(
     df: pd.DataFrame,
     save_path: Path,
@@ -34,6 +66,7 @@ def save_partitioned_parquet(
     df["shard"] = np.arange(len(df)) % num_shards
     save_path.mkdir(parents=True, exist_ok=True)
     df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow")
+
 
 def filter_short(
     df: pd.DataFrame,
@@ -66,6 +99,7 @@ def add_debug_f(
         axis=1,
     )
     return df
+
 
 def pandas_train_test_split(
     df: pd.DataFrame,
@@ -140,10 +174,10 @@ def global_time_split(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     trans_date = data[time_col].map(np.asarray)
-    shift_end_full = data['shift_end'] # index of last valid element
+    shift_end_full = data["shift_end"]  # index of last valid element
 
     valid_times = np.concatenate(
-        [a[: int(e) +1] for a, e in zip(trans_date, shift_end_full) if e >= 0]
+        [a[: int(e) + 1] for a, e in zip(trans_date, shift_end_full) if e >= 0]
     )
     assert len(valid_times) > 0, "No valid times for split"
 
@@ -169,7 +203,7 @@ def global_time_split(
 
     test_mask = pd.Series(
         [
-            np.any(m[: e+1]) if e >= 0 else False
+            np.any(m[: e + 1]) if e >= 0 else False
             for m, e in zip(is_test, shift_end_full)
         ],
         index=data.index,
