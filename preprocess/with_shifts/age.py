@@ -10,7 +10,6 @@ from pyspark.sql.types import FloatType, LongType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    add_debug_f,
     global_time_split,
     save_partitioned_parquet,
     filter_short,
@@ -150,7 +149,8 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder
+        .master("local[*]") # type: ignore[attr-defined]
         .appName("AGEPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -260,6 +260,7 @@ def main():
         "amount_rur",
         "_seq_len",
         "shifts",
+        'global_train',
         "target__reg_amount__local__mse+r2",
         "target__age__global__accuracy+f1_macro",
         "target__forecast__local__mse+r2",
