@@ -45,7 +45,7 @@ def load_and_aggregate(spark, path, transformer_id):
             rows_df = rows_df.withColumnRenamed(col_name, col_name.replace("_list", ""))
 
     sequence_col = "date"
-    rows_df = rows_df.withColumn("time", F.expr(f"sequence(1, size({sequence_col}))"))
+    rows_df = rows_df.withColumn(TM, F.expr(f"sequence(1, size({sequence_col}))"))
 
     return rows_df
 
