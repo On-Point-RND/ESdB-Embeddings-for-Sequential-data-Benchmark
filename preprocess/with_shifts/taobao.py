@@ -21,20 +21,18 @@ CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
-HORIZON_HOURS = 48
+HORIZON = 48
 
 
 def get_reg_target(row, horizon_hours=300):
+    horizon = np.timedelta64(horizon_hours * 3600, "s")
     t = np.array(row["time"])
-    horizon_seconds = np.timedelta64(horizon_hours * 3600, "s")
     out = []
     for s in row["shifts"]:
         s = int(s)
-        start_time = t[s - 1]
-        future_times = t[s:]
-        hours_from_shift = future_times - start_time
-        count_events = np.sum(hours_from_shift <= horizon_seconds)
-        out.append(np.log1p(count_events))
+        delta = t - t[s - 1]
+        mask = (delta > 0) & (delta < horizon)
+        out.append(np.log1p(np.sum(mask)))
     return out
 
 
@@ -184,7 +182,8 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder
+        .master("local[*]")  # type: ignore[attr-defined]
         .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -228,7 +227,7 @@ def main():
     df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
 
-    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, HORIZON_HOURS))
+    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, HORIZON))
 
     train_df, test_df = global_time_split(
         data=df,
@@ -242,14 +241,14 @@ def main():
     test_df = test_df.copy()
 
     train_df["is_bad_user"] = train_df["time"].apply(
-        lambda x: trim_users(x, HORIZON_HOURS)
+        lambda x: trim_users(x, HORIZON)
     )
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
 
     train_df["shift_end"] = train_df["time"].map(
-        lambda x: compute_shift_end(x, HORIZON_HOURS)
+        lambda x: compute_shift_end(x, HORIZON)
     )
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
@@ -303,9 +302,6 @@ def main():
     train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
         get_anomaly_target, axis=1
     )
-
-    test_df = add_debug_f(test_df, time_col=TM)
-    train_df = add_debug_f(train_df, time_col=TM)
 
     keep_cols = (
         INDEX_COLUMNS
