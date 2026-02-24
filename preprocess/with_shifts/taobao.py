@@ -9,7 +9,6 @@ import numpy as np
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    add_debug_f,
     global_time_split,
     save_partitioned_parquet,
     filter_short,
