@@ -16,6 +16,11 @@ from .common_pandas import (
     trim_test,
 )
 
+INDEX_COLUMNS = ["sequence_id"]
+ORDERING_COLUMNS = ["time"]
+NUM_FEATURES = ["sequence"]
+TM = ORDERING_COLUMNS[0]
+
 
 def load_sequences(data_path: Path) -> pd.DataFrame:
     if data_path.is_dir():
@@ -36,12 +41,6 @@ def load_sequences(data_path: Path) -> pd.DataFrame:
             )
 
     return pd.DataFrame(rows)
-
-
-INDEX_COLUMNS = ["sequence_id"]
-ORDERING_COLUMNS = ["time"]
-NUM_FEATURES = ["sequence"]
-TM = ORDERING_COLUMNS[0]
 
 
 def get_forecast_target_row(row: pd.Series) -> list[float]:
@@ -89,7 +88,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=100,
+        default=10,
     )
     parser.add_argument(
         "--shift-seed",
@@ -126,8 +125,7 @@ def main():
     train_df, test_df = global_time_split(
         data=df,
         test_frac=time_test_split,
-        min_shift_start=2,
-        time_col="time",
+        time_col=TM,
         seqlen_col="_seq_len",
     )
 
@@ -156,9 +154,6 @@ def main():
         get_forecast_target_row, axis=1
     )
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["target"]
-
-    test_df = add_debug_f(test_df, time_col=TM)
-    train_df = add_debug_f(train_df, time_col=TM)
 
     keep_cols = (
         INDEX_COLUMNS
