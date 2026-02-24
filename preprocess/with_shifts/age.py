@@ -22,7 +22,6 @@ CAT_FEATURES = ["small_group"]
 NUM_FEATURES = ["amount_rur"]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
-TARGET_VALS = [0, 1, 2, 3]
 TM = ORDERING_COLUMNS[0]
 
 
@@ -64,19 +63,19 @@ def get_forecast_target(row):
 
 
 def cut_data(row):
-        start_idx = int(row["shift_start"])
-        for col_name in row.index:
-            if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
-                continue
-            val = row[col_name]
-            if isinstance(val, (list ,np.ndarray)):
-                row[col_name] = val[start_idx:]
-        old_shifts = np.array(row["shifts"])
-        new_shifts = old_shifts - start_idx
-        row["shifts"] = new_shifts[new_shifts >= 0].tolist()
-        if not row["shifts"]: 
-            row["shifts"] = [0]
-        return row
+    start_idx = int(row["shift_start"])
+    for col_name in row.index:
+        if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
+            continue
+        val = row[col_name]
+        if isinstance(val, (list, np.ndarray)):
+            row[col_name] = val[start_idx:]
+    old_shifts = np.array(row["shifts"])
+    new_shifts = old_shifts - start_idx
+    row["shifts"] = new_shifts[new_shifts >= 0].tolist()
+    if not row["shifts"]:
+        row["shifts"] = [0]
+    return row
 
 
 def main():
@@ -135,7 +134,6 @@ def main():
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-
     if args.ntp:
         TIME_TRAIN_SPLIT = 0.5
     else:
@@ -149,8 +147,7 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder
-        .master("local[*]") # type: ignore[attr-defined]
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
         .appName("AGEPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -233,7 +230,7 @@ def main():
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         test_df
     )
 
@@ -244,28 +241,29 @@ def main():
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         train_df
     )
 
-    # get real part of test data 
+    # get real part of test data
     if args.ntp:
-        test_df = test_df.apply(cut_data, axis = 1)
+        test_df = test_df.apply(cut_data, axis=1)
 
-    keep_cols = [
-        "client_id",
-        "age",
-        TM,
-        "small_group",
-        "amount_rur",
-        "_seq_len",
-        "shifts",
-        'global_train',
-        "target__reg_amount__local__mse+r2",
-        "target__age__global__accuracy+f1_macro",
-        "target__forecast__local__mse+r2",
-        "target__anomaly__local__roc_auc+f1_macro+accuracy",
-    ]
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + NUM_FEATURES
+        + CAT_FEATURES
+        + [
+            "_seq_len",
+            "shifts",
+            "global_train",
+            "target__reg_amount__local__mse+r2",
+            "target__age__global__accuracy+f1_macro",
+            "target__forecast__local__mse+r2",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+        ]
+    )
 
     save_partitioned_parquet(
         train_df[keep_cols], args.save_path / "train", 20, mode=mode
