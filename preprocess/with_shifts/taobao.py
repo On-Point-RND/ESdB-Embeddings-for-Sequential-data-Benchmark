@@ -182,8 +182,7 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder
-        .master("local[*]")  # type: ignore[attr-defined]
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
         .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -240,9 +239,7 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["is_bad_user"] = train_df["time"].apply(
-        lambda x: trim_users(x, HORIZON)
-    )
+    train_df["is_bad_user"] = train_df["time"].apply(lambda x: trim_users(x, HORIZON))
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
@@ -310,11 +307,11 @@ def main():
         + [
             "_seq_len",
             "shifts",
+            "global_train",
             "target__clf__local__accuracy+f1_macro",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
-            "global_train",
         ]
     )
 
