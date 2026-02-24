@@ -41,12 +41,12 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
 
 
 def reg_target_row(row, horizon=30):
-    d = np.asarray(row["trans_date"])
     a = np.asarray(row["amount_rur"])
+    t = np.asarray(row["trans_date"])
     out = []
     for s in row["shifts"]:
-        s = int(s) - 1
-        delta = d - d[s]
+        s = int(s)
+        delta = t - t[s - 1]
         mask = (delta > 0) & (delta < horizon)
         out.append(np.log1p(a[mask].sum()))
     return out
