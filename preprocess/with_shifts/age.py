@@ -249,11 +249,9 @@ def main():
     )
 
     # get real part of test data 
-    if args.time_train_split == 0.5:   
+    if args.ntp:
         test_df = test_df.apply(cut_data, axis = 1)
 
-    test_df = add_debug_f(test_df, time_col=TM)
-    train_df = add_debug_f(train_df, time_col=TM)
     keep_cols = [
         "client_id",
         "age",
@@ -266,8 +264,6 @@ def main():
         "target__age__global__accuracy+f1_macro",
         "target__forecast__local__mse+r2",
         "target__anomaly__local__roc_auc+f1_macro+accuracy",
-        "users_in_train",
-        "debug_f",
     ]
 
     save_partitioned_parquet(
