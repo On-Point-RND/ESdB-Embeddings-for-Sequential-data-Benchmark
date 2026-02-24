@@ -10,4 +10,5 @@ from .mamba.mamba_es import MambaModel
 from .neural_hawkes.clustering import NHClustering
 from .mtand import MTAND
 from .mlem.model import MLEMEncoder, MLEMPretrainer
+from .ntp.model import NTPEncoder, NTPPretrainer
 from .convtran.model import ConvTran

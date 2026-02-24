@@ -1,4 +1,4 @@
-method_name: mlem
+method_name: NTP
 runner_name: UnsupervisedRunner
 
 data:
@@ -9,11 +9,9 @@ data:
 unsupervised_loss:
   name: ModelLoss
 unsupervised_metrics:
-  - name: MLEM_total_mse_loss
-  - name: MLEM_total_CE_loss
-  - name: MLEM_sparcity_loss
-  - name: MLEM_reconstruction_loss
-
+    - name: LoggingMetric
+      params: {"key": total_los}
+    
 unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
@@ -28,48 +26,29 @@ trainer:
 
 unsupervised_model:
   preprocess:
-    name: MLEMPretrainer
+    name: NTPPretrainer
     params: ${model.preprocess.params}
-
-coles_time_process:
-  log/age: cat
-  log/taobao: diff
-  log/physionet2012: cat
-  log/mimic3: diff
-  log/pendulum: cat
-  log/x5: none
-  log/mbd: cat
-  log/mimic3_regr: cat
-  log/arabic: diff
-  log/electric_devices: diff
-  log/bpi_17: cat
-  log/pendulum_cls: cat
 
 model:
   preprocess:
-    name: MLEMEncoder
+    name: NTPEncoder
     params:
-      contr_model_folder: "${log_dir}/coles/correlation/seed_0/"
       normalize_z: False
       # Preprocess
       cat_cardinalities: ${cc}
       num_features: ${nn}
       cat_emb_dim: 16
       num_emb_dim: 16
-      time_process: ${coles_time_process.${log_dir}}
+      time_process: "cat"
       num_norm: True
       # Encoder:
       enc_num_layers: 1
-      enc_aggregation: TakeLastHidden
       # Decoder:
       dec_hidden_size: 128
       dec_num_layers: 3
       dec_num_heads: 8
       dec_scale_hidden: 2
       max_len: ${data.preprocessing.common_pipeline.max_seq_len}
-      # Loss weights:
-      l1_weight: 0.001
-      contrastive_weight: 10
   head:
     name: nn.Linear
     params:
@@ -105,7 +84,7 @@ optuna:
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
-    # MLEM:
+    # NTP:
     model.preprocess.params.normalize_z: [suggest_categorical, {choices: [False, True]}]
     # Preprocess
     # model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat", "none"]}]
