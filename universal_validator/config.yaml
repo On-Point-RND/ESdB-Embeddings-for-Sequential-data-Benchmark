@@ -1,4 +1,4 @@
-config_factory: [datasets/taobao]
+config_factory: [datasets/age]
 seed: 0
 verbose: True
 
