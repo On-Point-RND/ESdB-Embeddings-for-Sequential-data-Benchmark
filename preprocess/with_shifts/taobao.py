@@ -31,7 +31,7 @@ def get_reg_target(row, horizon_hours=300):
     for s in row["shifts"]:
         s = int(s)
         delta = t - t[s - 1]
-        mask = (delta > 0) & (delta < horizon)
+        mask = (delta > np.timedelta64(0, "s")) & (delta < horizon)
         out.append(np.log1p(np.sum(mask)))
     return out
 
