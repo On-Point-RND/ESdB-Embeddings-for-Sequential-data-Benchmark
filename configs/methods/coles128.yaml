@@ -1,4 +1,4 @@
-method_name: coles
+method_name: coles128
 runner_name: UnsupervisedEmbedRunner
 
 data:
@@ -24,7 +24,7 @@ unsupervised_loss:
   params: 
     selector: HardNegativePairSelector
     neg_count: 5
-    margin: 1
+    margin: 0.5
 unsupervised_metrics: null
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -32,11 +32,6 @@ unsupervised_trainer:
   patience: ${patience}
   total_iters: 300_000
 
-trainer:
-  ckpt_track_metric: ${main_metric}
-  metrics_on_train: true
-  patience: ${patience}
-  total_iters: 1
 
 unsupervised_model:
   preprocess: ${model.preprocess}
@@ -53,7 +48,7 @@ model:
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
-  encoder:
+  encoder: 
     name: GRU
     params:
       input_size: output_dim_from_prev
@@ -66,7 +61,6 @@ model:
     params:
       in_features: output_dim_from_prev
       out_features: ${n_classes}
-
 
 optimizer:
   name: Adam
@@ -86,7 +80,7 @@ optuna:
         'model.preprocess.params.time_process': 'diff'
         'model.preprocess.params.num_norm': True
         'unsupervised_trainer.total_iters': 100_000
-    target_metric: loss
+    target_metric: "loss"
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
@@ -101,5 +95,4 @@ optuna:
 
     model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
 
-    unsupervised_loss.params.margin: [suggest_float, {low: 0.2, high: 1, log: False}]
-    #unsupervised_trainer.total_iters: [suggest_categorical, {choices: [0, 100_000]}]
+    unsupervised_trainer.total_iters: [suggest_categorical, {choices: [0, 100_000]}]

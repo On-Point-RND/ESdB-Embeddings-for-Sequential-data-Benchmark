@@ -1,18 +1,19 @@
-log_dir: log/twitter
+log_dir: log/zvuk
 patience: 10
-n_classes: 3
+n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 
-ee:
 cc: 
-  char: 190
+  cluster_id: 128
 nn:
+  - play_duration
+ee:
 
 data:
   dataset:
-    parquet_path: "data/twitter/preprocessed_ntp/train"
+    parquet_path: "data/zvuk/preprocessed_ntp/train"
     random_split: true
     split_seed: 42
 
@@ -24,24 +25,24 @@ data:
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
-      time_name: char_number
-      index_name: tweet_id
-      target_name: post_target
+      time_name: datetime
+      index_name: user_id
+      target_name: mock_target
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 160
+        - DatetimeToFloat:
+            loc: "2023-01-01 00:00:00.000"
+            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 160
+        - DatetimeToFloat:
+            loc: "2023-01-01 00:00:00.000"
+            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -55,9 +56,9 @@ data:
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 160
+        - DatetimeToFloat:
+            loc: "2023-01-01 00:00:00.000"
+            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -92,7 +93,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/twitter/preprocessed_ntp/test"
+    parquet_path: "data/zvuk/preprocessed_ntp/test"
     split_sizes: 
       - 1.0
   preprocessing:
