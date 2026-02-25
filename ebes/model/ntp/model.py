@@ -45,7 +45,8 @@ class NTPModel(BaseModel):
         # Encoder:
         enc_hidden_size=128,
         enc_num_layers=1,
-        # Decoder # TODO:
+        # Decoder:
+        use_transformer=False,
         dec_hidden_size=128,
         dec_num_layers=3,
         dec_num_heads=8,
@@ -81,8 +82,17 @@ class NTPModel(BaseModel):
             num_layers=enc_num_layers,
         )
         ### DECODER ###
-        self.use_transformer = False
+        self.use_transformer = use_transformer
         self.decoder = None
+        
+        if self.use_transformer:
+            self.decoder = TransformerDecoder(
+                d_model=enc_hidden_size,
+                nhead=dec_num_heads,
+                num_layers=dec_num_layers,
+                norm=nn.LayerNorm(enc_hidden_size),
+                dim_feedforward=enc_hidden_size * dec_scale_hidden,
+            )
 
         ### ACTIVATION ###
         self.act = nn.GELU()
@@ -115,20 +125,22 @@ class NTPModel(BaseModel):
     
     def reconstruct(self, batch: Batch):
         global_hidden = self.encode(batch)
-        if self.decoder is not None:
-            if self.use_transformer: # False now
-                # Для NTP decoder должен быть causal
-                raise NotImplimentedError
-                #tgt_mask = torch.nn.Transformer.generate_square_subsequent_mask(all_hid.size(0)).to(all_hid.device)
-                #dec_out = self.decoder(tgt=all_hid, memory=None, tgt_mask=tgt_mask)
-        else:
-            dec_out = global_hidden
-            
+        
         if isinstance(global_hidden, Seq):
             dec_out = global_hidden.tokens
         else:
             dec_out = global_hidden
         
+        if self.decoder is not None:
+            if self.use_transformer:
+                seq_len = dec_out.size(0)
+                tgt_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(dec_out.device)
+                dec_out = self.decoder(tgt=dec_out, memory=dec_out, tgt_mask=tgt_mask)
+            else:
+                raise NotImplementedError
+        else:
+            dec_out = global_hidden
+             
         #[0, ..., L-2]
         pred_input = dec_out[:-1, :, :] 
         

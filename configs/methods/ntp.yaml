@@ -52,6 +52,7 @@ model:
       # Encoder:
       enc_num_layers: 2
       # Decoder:
+      use_transformer: True
       dec_hidden_size: 128
       dec_num_layers: 3
       dec_num_heads: 8
