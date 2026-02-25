@@ -36,24 +36,24 @@ class ReconPredictor(nn.Module):
 
     def loss(self, predictions: dict[str, torch.Tensor], batch: Batch):
         ce_loss = {}
+        max_len = batch.lengths.max()
+        valid_mask = (torch.arange(max_len, device=batch.lengths.device)[:, None] < batch.lengths)
+        target_mask = valid_mask[1:]  # (L-1, Batch) - сдвиг для таргетов
+
         for name in self.cat_cardinalities:
-            distribution = predictions[name]
-            # We do this permutations for CrossEntropy
-            labels = batch[name].long().permute(1, 0)
-            assert batch.cat_mask is not None and batch.cat_features_names is not None
-            mask = batch.cat_mask[:, :, batch.cat_features_names.index(name)].permute(
-                1, 0
-            )
-            loss = self.cat_criterion(distribution.permute(1, 2, 0), labels) * mask
-            ce_loss[name] = loss.sum(dim=1).mean()
+            distribution = predictions[name]  # (L-1, Batch, Vocab)
+            labels = batch[name][1:].long()  # (L-1, Batch) - СДВИГ!
+            labels = labels.masked_fill(~target_mask, -100)
+
+            loss = self.cat_criterion(distribution.permute(1, 2, 0), labels.permute(1, 0))
+            ce_loss[name] = loss.mean()
 
         mse_loss = {}
         for name in self.num_features:
-            pred = predictions[name].squeeze(-1)
-            target = batch[name]
-            assert batch.num_mask is not None and batch.num_features_names is not None
-            mask = batch.num_mask[:, :, batch.num_features_names.index(name)]
-            loss = self.mse_fn(pred, target) * mask
-            mse_loss[name] = loss.sum(0).mean()
+            pred = predictions[name].squeeze(-1)  # (L-1, Batch)
+            target = batch[name][1:]  # (L-1, Batch) - СДВИГ!
+
+            loss = self.mse_fn(pred, target) * target_mask.float()
+            mse_loss[name] = (loss.sum(0) / target_mask.sum(0).clamp(min=1)).mean()
 
         return ce_loss, mse_loss

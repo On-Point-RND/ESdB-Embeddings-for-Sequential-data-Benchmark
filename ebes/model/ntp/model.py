@@ -8,13 +8,29 @@ import torch.nn.functional as F
 from .model_utils import (
     ReconPredictor,
 )
-from ...types import Batch
+from ...types import Batch, Seq
 from ...model import BaseModel
 from ..preprocess import Batch2Seq
 from ...model.seq2seq import GRU
 from copy import deepcopy
 from ...model import build_model, FrozenModel
 
+class TransformerDecoder(nn.Module):
+    def __init__(self, d_model, nhead, num_layers, norm, dim_feedforward):
+        super().__init__()
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+        )
+        self.decoder = nn.TransformerDecoder(
+            decoder_layer,
+            num_layers=num_layers,
+            norm=norm,
+        )
+
+    def forward(self, tgt, memory, tgt_mask):
+        return self.decoder(tgt=tgt, memory=memory, tgt_mask=tgt_mask)
 
 class NTPModel(BaseModel):
     def __init__(
@@ -27,9 +43,9 @@ class NTPModel(BaseModel):
         time_process="cat",
         num_norm=True,
         # Encoder:
-        enc_hidden_size=128,  # get from contrastive model
+        enc_hidden_size=128,
         enc_num_layers=1,
-        # Decoder:
+        # Decoder # TODO:
         dec_hidden_size=128,
         dec_num_layers=3,
         dec_num_heads=8,
@@ -37,12 +53,14 @@ class NTPModel(BaseModel):
         max_len=1000,
         # Loss weights:
         mse_weight=1,
+        reconstruction_weight=1,
         ce_weight=1,
     ):
         super().__init__()
 
         self.mse_weight = mse_weight
         self.ce_weight = ce_weight
+        self.reconstruction_weight = reconstruction_weight
         ### PROCESSORS ###
         self.processor = Batch2Seq(
             cat_cardinalities=cat_cardinalities,
@@ -62,6 +80,9 @@ class NTPModel(BaseModel):
             hidden_size=enc_hidden_size,
             num_layers=enc_num_layers,
         )
+        ### DECODER ###
+        self.use_transformer = False
+        self.decoder = None
 
         ### HIDDEN TO X0 PROJECTION ###
         self.hidden_to_x0 = nn.Linear(enc_hidden_size, self.input_size)
@@ -97,7 +118,25 @@ class NTPModel(BaseModel):
 
     def reconstruct(self, batch: Batch):
         global_hidden = self.encode(batch)
-        pred = self.decode(batch, global_hidden)
+        if self.decoder is not None:
+            if self.use_transformer: # False now
+                # Для NTP decoder должен быть causal
+                raise NotImplimentedError
+                #tgt_mask = torch.nn.Transformer.generate_square_subsequent_mask(all_hid.size(0)).to(all_hid.device)
+                #dec_out = self.decoder(tgt=all_hid, memory=None, tgt_mask=tgt_mask)
+        else:
+            dec_out = global_hidden
+            
+        if isinstance(global_hidden, Seq):
+            dec_out = global_hidden.tokens
+        else:
+            dec_out = global_hidden
+        
+        #[0, ..., L-2]
+        pred_input = dec_out[:-1, :, :] 
+        
+        pred = self.recon_predictor(pred_input)
+        
         res_dict = {
             "prediction": pred,
             "latent": global_hidden,
@@ -105,28 +144,9 @@ class NTPModel(BaseModel):
         return res_dict
 
     def encode(self, batch: Batch):
-        # encode + decode in fact
         x = self.processor(batch)
         all_hid = self.encoder(x)
         return all_hid
-
-
-class TransformerDecoder(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, norm, dim_feedforward):
-        super().__init__()
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-        )
-        self.decoder = nn.TransformerDecoder(
-            decoder_layer,
-            num_layers=num_layers,
-            norm=norm,
-        )
-
-    def forward(self, tgt, memory, tgt_mask):
-        return self.decoder(tgt=tgt, memory=memory, tgt_mask=tgt_mask)
 
 
 class NTPPretrainer(NTPModel):

@@ -10,7 +10,7 @@ unsupervised_loss:
   name: ModelLoss
 unsupervised_metrics:
     - name: LoggingMetric
-      params: {"key": total_loss}
+      params: {"key": loss}
     
 unsupervised_trainer:
   ckpt_track_metric: loss
