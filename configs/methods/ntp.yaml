@@ -15,6 +15,9 @@ unsupervised_metrics:
       params: {"key": accuracy}
     - name: LoggingMetric
       params: {"key": r2}
+    - name: LoggingMetric
+      params: {"key": perplexity}
+      
       
     
 unsupervised_trainer:
@@ -47,7 +50,7 @@ model:
       time_process: "cat"
       num_norm: True
       # Encoder:
-      enc_num_layers: 1
+      enc_num_layers: 2
       # Decoder:
       dec_hidden_size: 128
       dec_num_layers: 3
