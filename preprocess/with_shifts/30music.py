@@ -40,19 +40,17 @@ def get_reg_target(row):
         assert s > 0, "shift should be more than zero"
         delta = t - t[s - 1]
         mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
-        mask = mask & (a != -1)
+        mask = mask & (a > 0)
         out.append(np.log1p(a[mask].sum()))
     return out
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["timestamp"], dtype="datetime64[s]").astype("datetime64[D]")
+    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
-        mask = t == t[s - 1]
-        mask[:s] = False
-        out.append(np.log1p(np.sum(mask)))
+        out.append(np.log1p(np.sum(t[s:] == t[s - 1])))
     return out
 
 
@@ -60,17 +58,9 @@ def get_diversity(row):
     d = np.asarray(row["play_duration"], dtype=float)
     out = []
     for s in row["shifts"]:
-        s = int(s)
         post = d[s:]
-        if len(post) < 2:
-            assert len(post) >= 2
-        post_mean = np.mean(post)
-        post_std = np.std(post)
-        if post_mean == 0:
-            out.append(0.0)
-        else:
-            cv = post_std / post_mean
-            out.append(cv)
+        assert len(post) >= 2
+        out.append(np.std(post) / max(np.mean(post), np.finfo(float).eps))
     return out
 
 
@@ -99,13 +89,13 @@ def apply_threshold(diversity_list, mean_list, th_dv, th_mean):
 
 
 def compute_shift_end(arr):
-    arr = np.asarray(arr, dtype="datetime64[s]").astype("datetime64[D]")
+    arr = np.asarray(arr, dtype="datetime64[s]")
     diff = arr[-1] - arr
     return (diff > HORIZON).sum() - 1 if len(arr) else -1
 
 
 def trim_users(arr):
-    arr = np.asarray(arr, dtype="datetime64[s]").astype("datetime64[D]")
+    arr = np.asarray(arr, dtype="datetime64[s]")
     if len(arr) < 2:
         return True
     total_duration = arr[-1] - arr[0]
@@ -206,9 +196,8 @@ def main():
             ]
         )
 
-        df_raw = (
-            spark.read.option("sep", "\t")
-            .csv((args.data_path / "events.idomaar").as_posix())
+        df_raw = spark.read.option("sep", "\t").csv(
+            (args.data_path / "events.idomaar").as_posix()
         )
 
         df_parsed = df_raw.select(
@@ -274,7 +263,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
-        test_df['_seq_len'] = test_df[TM].apply(len)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed

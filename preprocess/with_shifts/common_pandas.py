@@ -144,7 +144,7 @@ def sample_shifts(
     vals = np.arange(lo, hi + 1)
     num_shifts = min(len(vals), num_shifts)
     shifts = rng.choice(vals, size=num_shifts, replace=False)
-    return np.sort(shifts).tolist()
+    return np.sort(shifts).astype(int).tolist()
 
 
 def add_shift_columns(
