@@ -313,7 +313,6 @@ def main():
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
-            "global_train",
             "debug_f",
         ]
     )
