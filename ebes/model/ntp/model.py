@@ -138,8 +138,6 @@ class NTPModel(BaseModel):
                 dec_out = self.decoder(tgt=dec_out, memory=dec_out, tgt_mask=tgt_mask)
             else:
                 raise NotImplementedError
-        else:
-            dec_out = global_hidden
              
         #[0, ..., L-2]
         pred_input = dec_out[:-1, :, :] 
