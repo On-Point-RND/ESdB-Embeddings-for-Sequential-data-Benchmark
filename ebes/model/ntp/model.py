@@ -84,9 +84,6 @@ class NTPModel(BaseModel):
         self.use_transformer = False
         self.decoder = None
 
-        ### HIDDEN TO X0 PROJECTION ###
-        self.hidden_to_x0 = nn.Linear(enc_hidden_size, self.input_size)
-
         ### ACTIVATION ###
         self.act = nn.GELU()
 
@@ -115,7 +112,7 @@ class NTPModel(BaseModel):
         losses_dict["reconstruction_loss"] = total_loss
 
         return losses_dict, output
-
+    
     def reconstruct(self, batch: Batch):
         global_hidden = self.encode(batch)
         if self.decoder is not None:
@@ -157,8 +154,10 @@ class NTPPretrainer(NTPModel):
     def forward(self, batch: Batch):
         check_batch = deepcopy(batch)
         losses, output = self.reconstruction_loss(batch)
+        metrics = self.recon_predictor.metrics(output["prediction"], batch)
         assert batch == check_batch
         losses["loss"] = self.reconstruction_weight * losses["reconstruction_loss"]
+        losses.update(metrics) 
         return losses
 
 

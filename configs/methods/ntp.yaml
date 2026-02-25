@@ -11,6 +11,11 @@ unsupervised_loss:
 unsupervised_metrics:
     - name: LoggingMetric
       params: {"key": loss}
+    - name: LoggingMetric
+      params: {"key": accuracy}
+    - name: LoggingMetric
+      params: {"key": r2}
+      
     
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -22,7 +27,7 @@ trainer:
   ckpt_track_metric: ${main_metric}
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 100_000
+  total_iters: 0
 
 unsupervised_model:
   preprocess:
