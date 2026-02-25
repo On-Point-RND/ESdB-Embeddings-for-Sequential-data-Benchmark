@@ -79,7 +79,6 @@ optuna:
         'model.encoder.params.dropout': 1.e-10
         'model.preprocess.params.time_process': 'diff'
         'model.preprocess.params.num_norm': True
-        'unsupervised_trainer.total_iters': 100_000
     target_metric: "loss"
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
@@ -95,4 +94,3 @@ optuna:
 
     model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
 
-    unsupervised_trainer.total_iters: [suggest_categorical, {choices: [0, 100_000]}]
