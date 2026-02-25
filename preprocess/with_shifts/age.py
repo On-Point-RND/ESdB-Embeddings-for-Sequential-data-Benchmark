@@ -23,7 +23,6 @@ CAT_FEATURES = ["small_group"]
 NUM_FEATURES = ["amount_rur"]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
-TARGET_VALS = [0, 1, 2, 3]
 TM = ORDERING_COLUMNS[0]
 
 
@@ -36,18 +35,18 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
         return std / mean
 
     cv_list = df.apply(_cv_list, axis=1)
-    all_cv = np.concatenate([np.asarray(v) for v in cv_list if len(v)])
+    all_cv = np.asarray(cv_list)
     q95 = np.nanquantile(all_cv, 0.95)
-    return cv_list.apply(lambda v: [int(x > q95) if not np.isnan(x) else 0 for x in v])
+    return np.asarray(cv_list > q95, dtype=np.int32).tolist()
 
 
 def reg_target_row(row, horizon=30):
-    d = np.asarray(row["trans_date"])
+    t = np.asarray(row["trans_date"])
     a = np.asarray(row["amount_rur"])
     out = []
     for s in row["shifts"]:
-        s = int(s) - 1
-        delta = d - d[s]
+        s = int(s)
+        delta = t - t[s - 1]
         mask = (delta > 0) & (delta < horizon)
         out.append(np.log1p(a[mask].sum()))
     return out
@@ -132,7 +131,7 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
         .appName("AGEPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -206,6 +205,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
@@ -215,7 +215,7 @@ def main():
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         test_df
     )
 
@@ -226,7 +226,7 @@ def main():
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         train_df
     )
 

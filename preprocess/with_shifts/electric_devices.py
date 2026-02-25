@@ -16,6 +16,11 @@ from .common_pandas import (
     trim_test,
 )
 
+INDEX_COLUMNS = ["sequence_id"]
+ORDERING_COLUMNS = ["time"]
+NUM_FEATURES = ["sequence"]
+TM = ORDERING_COLUMNS[0]
+
 
 def load_sequences(data_path: Path) -> pd.DataFrame:
     if data_path.is_dir():
@@ -36,12 +41,6 @@ def load_sequences(data_path: Path) -> pd.DataFrame:
             )
 
     return pd.DataFrame(rows)
-
-
-INDEX_COLUMNS = ["sequence_id"]
-ORDERING_COLUMNS = ["time"]
-NUM_FEATURES = ["sequence"]
-TM = ORDERING_COLUMNS[0]
 
 
 def get_forecast_target_row(row: pd.Series) -> list[float]:
@@ -89,7 +88,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=100,
+        default=30,
     )
     parser.add_argument(
         "--shift-seed",
@@ -126,8 +125,7 @@ def main():
     train_df, test_df = global_time_split(
         data=df,
         test_frac=time_test_split,
-        min_shift_start=2,
-        time_col="time",
+        time_col=TM,
         seqlen_col="_seq_len",
     )
 
@@ -144,6 +142,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed

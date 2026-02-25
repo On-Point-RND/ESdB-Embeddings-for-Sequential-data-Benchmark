@@ -4,9 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 
-TEST_FRAC = 0.1
 MIN_SHIFT_START = 2
-HORIZON_DAYS = 30
 MIN_SEQ_LEN = 2
 
 
@@ -65,7 +63,8 @@ def save_partitioned_parquet(
     df = df.copy()
     df["shard"] = np.arange(len(df)) % num_shards
     save_path.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow")
+    df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow", index=False)
+
 
 
 def filter_short(
@@ -146,7 +145,7 @@ def sample_shifts(
     vals = np.arange(lo, hi + 1)
     num_shifts = min(len(vals), num_shifts)
     shifts = rng.choice(vals, size=num_shifts, replace=False)
-    return np.sort(shifts).tolist()
+    return np.sort(shifts).astype(int).tolist()
 
 
 def add_shift_columns(

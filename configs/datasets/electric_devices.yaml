@@ -22,7 +22,7 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000
+      max_seq_len: 96
       time_name: time
       index_name: sequence_id
       target_name: target
