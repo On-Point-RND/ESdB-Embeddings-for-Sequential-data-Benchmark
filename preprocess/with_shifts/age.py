@@ -10,6 +10,7 @@ from pyspark.sql.types import FloatType, LongType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     global_time_split,
     save_partitioned_parquet,
     filter_short,
@@ -34,15 +35,14 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
         return std / mean
 
     cv_list = df.apply(_cv_list, axis=1)
-
     all_cv = np.asarray(cv_list)
     q95 = np.nanquantile(all_cv, 0.95)
     return np.asarray(cv_list > q95, dtype=np.int32).tolist()
 
 
 def reg_target_row(row, horizon=30):
-    a = np.asarray(row["amount_rur"])
     t = np.asarray(row["trans_date"])
+    a = np.asarray(row["amount_rur"])
     out = []
     for s in row["shifts"]:
         s = int(s)
@@ -60,22 +60,6 @@ def get_forecast_target(row):
         mask[:s] = False
         out.append(np.log1p(np.sum(mask)))
     return out
-
-
-def cut_data(row):
-    start_idx = int(row["shift_start"])
-    for col_name in row.index:
-        if col_name in ["shifts", "shift_start", "shift_end", "client_id"]:
-            continue
-        val = row[col_name]
-        if isinstance(val, (list, np.ndarray)):
-            row[col_name] = val[start_idx:]
-    old_shifts = np.array(row["shifts"])
-    new_shifts = old_shifts - start_idx
-    row["shifts"] = new_shifts[new_shifts >= 0].tolist()
-    if not row["shifts"]:
-        row["shifts"] = [0]
-    return row
 
 
 def main():
@@ -221,6 +205,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
@@ -245,25 +230,23 @@ def main():
         train_df
     )
 
-    # get real part of test data
-    if args.ntp:
-        test_df = test_df.apply(cut_data, axis=1)
-
-    keep_cols = (
-        INDEX_COLUMNS
-        + ORDERING_COLUMNS
-        + NUM_FEATURES
-        + CAT_FEATURES
-        + [
-            "_seq_len",
-            "shifts",
-            "global_train",
-            "target__reg_amount__local__mse+r2",
-            "target__age__global__accuracy+f1_macro",
-            "target__forecast__local__mse+r2",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
-        ]
-    )
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
+    keep_cols = [
+        "client_id",
+        "age",
+        TM,
+        "small_group",
+        "amount_rur",
+        "_seq_len",
+        "shifts",
+        "target__reg_amount__local__mse+r2",
+        "target__age__global__accuracy+f1_macro",
+        "target__forecast__local__mse+r2",
+        "target__anomaly__local__roc_auc+f1_macro+accuracy",
+        "global_train",
+        "debug_f",
+    ]
 
     save_partitioned_parquet(
         train_df[keep_cols], args.save_path / "train", 20, mode=mode

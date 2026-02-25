@@ -88,7 +88,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=10,
+        default=30,
     )
     parser.add_argument(
         "--shift-seed",
@@ -142,6 +142,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
@@ -154,6 +155,9 @@ def main():
         get_forecast_target_row, axis=1
     )
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["target"]
+
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
 
     keep_cols = (
         INDEX_COLUMNS

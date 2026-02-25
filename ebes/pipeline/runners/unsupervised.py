@@ -71,20 +71,12 @@ class UnsupervisedRunner(Runner):
         trainer.run()
         trainer.load_best_model()
 
-        df_train_1 = trainer.df_gatherer(loaders["train"])
-        df_train_2 = trainer.df_gatherer(loaders["train_val"])
-        df_all = pd.concat([df_train_1, df_train_2], ignore_index=True)
-        df_train_3 = trainer.df_gatherer(loaders["hpo_val"])
-        df_all = pd.concat([df_all, df_train_3], ignore_index=True)
-        df_test = trainer.df_gatherer(test_loaders["test"])
-        df_all = pd.concat([df_all, df_test], ignore_index=True)
-
         del loaders["train"]  # type: ignore
         train_metrics = trainer.validate(loaders["full_train"])
         del loaders["full_train"]  # type: ignore
         train_val_metrics = trainer.validate(loaders["train_val"])
         del loaders["train_val"]  # type: ignore
-        #hpo_metrics = trainer.validate(loaders["hpo_val"])
+        hpo_metrics = trainer.validate(loaders["hpo_val"])
         del loaders["hpo_val"]  # type: ignore
         test_metrics = trainer.validate(test_loaders["test"])
 
@@ -92,7 +84,7 @@ class UnsupervisedRunner(Runner):
         train_val_metrics = {"train_val_" + k: v for k, v in train_val_metrics.items()}
         test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
 
-        return dict(**hpo_metrics, **train_metrics, **train_val_metrics, **test_metrics), df_all
+        return dict(**hpo_metrics, **train_metrics, **train_val_metrics, **test_metrics)
 
     def param_grid(self, trial, config):
         suggest_conf(config["optuna"]["suggestions"], config, trial)

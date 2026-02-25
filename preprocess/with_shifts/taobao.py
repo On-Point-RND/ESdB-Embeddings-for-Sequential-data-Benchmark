@@ -9,6 +9,7 @@ import numpy as np
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
+    add_debug_f,
     global_time_split,
     save_partitioned_parquet,
     filter_short,
@@ -29,9 +30,9 @@ def get_reg_target(row):
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
-        delta = t - t[s - 1]
-        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
-        out.append(np.log1p(np.sum(mask)))
+        delta = t[s:] - t[s - 1]
+        mask = np.sum(delta <= HORIZON)
+        out.append(np.log1p(mask))
     return out
 
 
@@ -47,6 +48,7 @@ def get_forecast_target(row):
 def get_anomaly_target(row):
     b = np.asarray(row["behavior_type"])
     i = np.asarray(row["item_id"])
+    out = []
     post_b = b[:]
     post_i = i[:]
     item_history = {}
@@ -113,7 +115,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument(
         "--data-path",
-        help="Path to directory containing CSV files",
+        help="Path CSV train user",
         required=True,
         type=Path,
     )
@@ -296,6 +298,9 @@ def main():
         get_anomaly_target, axis=1
     )
 
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
+
     keep_cols = (
         INDEX_COLUMNS
         + ORDERING_COLUMNS
@@ -308,6 +313,7 @@ def main():
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
+            "debug_f",
         ]
     )
 

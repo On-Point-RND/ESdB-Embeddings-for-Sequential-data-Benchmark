@@ -3,7 +3,7 @@ from .runners.supervised import SupervisedRunner
 from .runners.evaluate import EvalRunner
 from .runners.primenet import PrimeNetRunner
 from .runners.unsupervised import UnsupervisedRunner
+from .runners.bert import BertRunner
 from .runners.unsupervised_embed import UnsupervisedEmbedRunner
-from .runners.unsupervised_embed_optuna import UnsupervisedEmbedOptunaRunner
 
 from . import utils
