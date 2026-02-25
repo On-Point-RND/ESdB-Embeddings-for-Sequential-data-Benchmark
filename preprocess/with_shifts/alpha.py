@@ -270,6 +270,11 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
+    train_df['is_bad_user'] = train_df[TM].apply(lambda x: trim_users(x, horizon_days))
+    bad_indices = train_df.index[train_df['is_bad_user']].tolist()
+    train_df = train_df.drop(index=bad_indices)
+    del train_df['is_bad_user']
+
     train_df["shift_end"] = train_df[TM].map(
         lambda x: compute_shift_end(x, horizon_days)
     )

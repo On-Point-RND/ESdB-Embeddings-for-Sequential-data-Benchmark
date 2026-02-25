@@ -4,9 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 
-TEST_FRAC = 0.1
 MIN_SHIFT_START = 2
-HORIZON_DAYS = 30
 MIN_SEQ_LEN = 2
 
 
@@ -23,7 +21,6 @@ def trim_test(row):
     row["shifts"] = new_shifts[new_shifts >= 0].tolist()
     if not row["shifts"]:
         row["shifts"] = [0]
-    row['_seq_len'] = row[row.index[0]].apply(len)
     return row
 
 

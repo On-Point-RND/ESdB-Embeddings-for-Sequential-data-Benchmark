@@ -117,7 +117,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument(
         "--data-path",
-        help="Path CSV train user",
+        help="Path to directory containing CSV files",
         required=True,
         type=Path,
     )
@@ -231,27 +231,27 @@ def main():
     train_df, test_df = global_time_split(
         data=df,
         test_frac=time_test_split,
-        min_shift_start=2,
-        time_col="time",
+        time_col=TM,
         seqlen_col="_seq_len",
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["is_bad_user"] = train_df["time"].apply(lambda x: trim_users(x, HORIZON))
+    train_df["is_bad_user"] = train_df[TM].apply(lambda x: trim_users(x, HORIZON))
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
 
-    train_df["shift_end"] = train_df["time"].map(
-        lambda x: compute_shift_end(x, HORIZON)
-    )
+    train_df["shift_end"] = train_df[TM].map(lambda x: compute_shift_end(x, HORIZON))
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
     train_df = train_df.loc[valid_mask_train].copy()
     valid_mask_test = test_df.index.intersection(valid_mask_train)
     test_df = test_df.loc[valid_mask_test].copy()
+
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
     train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
 
@@ -309,9 +309,9 @@ def main():
             "shifts",
             "global_train",
             "target__clf__local__accuracy+f1_macro",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
         ]
     )
 
