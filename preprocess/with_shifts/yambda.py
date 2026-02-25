@@ -34,7 +34,6 @@ def get_reg_target(row):
         delta = t - t[s - 1]
         mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
         mask = mask & (a > 0)
-        assert not np.isnan(a[mask]).any(), "NaN values in play_duration after mask"
         out.append(np.log1p(a[mask].sum()))
     return out
 
@@ -143,7 +142,6 @@ def main():
 
     spark = (
         SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
-        .master("local[*]")
         .appName("YambdaPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -157,7 +155,7 @@ def main():
     if args.which_split == "train":
         df_kag_train = spark.read.parquet(
             (args.data_path / "multi_event.parquet").as_posix(), header=True
-        ).limit(1_000_000)
+        )
         df_kag_train = df_kag_train.select(
             F.col("uid").cast(LongType()),
             F.col("timestamp").cast(LongType()),
