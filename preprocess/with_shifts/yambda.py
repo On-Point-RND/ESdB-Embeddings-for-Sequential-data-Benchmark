@@ -279,10 +279,10 @@ def main():
         ]
     )
 
-    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
     save_partitioned_parquet(
         train_df[keep_cols], args.save_path / "train", 20, mode=mode
     )
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
 
 
 if __name__ == "__main__":

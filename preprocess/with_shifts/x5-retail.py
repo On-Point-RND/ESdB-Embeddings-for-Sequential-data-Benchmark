@@ -40,7 +40,6 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    breakpoint()
     t = np.asarray(row["transaction_datetime"], dtype='datetime64[s]').astype("datetime64[h]")
     out = []
     for s in row["shifts"]:
