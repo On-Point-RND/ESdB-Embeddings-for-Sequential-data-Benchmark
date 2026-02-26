@@ -63,12 +63,12 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
 
 
 def compute_shift_end(arr):
-    breakpoint()
     arr = np.asarray(arr)
     diff = arr[-1] - arr
     return (diff > HORIZON).sum() - 1 if len(arr) else -1
+
+
 def trim_users(arr):
-    breakpoint()
     arr = np.asarray(arr, dtype="datetime64[s]")
     if len(arr) < 2:
         return True
