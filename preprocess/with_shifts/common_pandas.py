@@ -24,7 +24,7 @@ def trim_test(row):
     return row
 
 
-def global_train_column(train_df, test_df, train_ratio, seed):
+def global_train_column(train_df, test_df, train_ratio, seed) -> tuple[pd.DataFrame, pd.DataFrame]:
     # User split with configurable train fraction.
     rng = np.random.default_rng(seed=seed)
     n_train_users = int(len(train_df.index) * train_ratio)
@@ -64,7 +64,6 @@ def save_partitioned_parquet(
     df["shard"] = np.arange(len(df)) % num_shards
     save_path.mkdir(parents=True, exist_ok=True)
     df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow", index=False)
-
 
 
 def filter_short(
