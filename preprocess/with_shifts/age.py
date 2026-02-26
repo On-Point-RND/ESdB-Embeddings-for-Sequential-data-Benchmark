@@ -69,7 +69,7 @@ def compute_shift_end(arr):
 
 
 def trim_users(arr):
-    arr = np.asarray(arr, dtype="datetime64[s]")
+    arr = np.asarray(arr)
     if len(arr) < 2:
         return True
     total_duration = arr[-1] - arr[0]
