@@ -243,7 +243,7 @@ def main():
         "target__reg_amount__local__mse+r2",
         "target__age__global__accuracy+f1_macro",
         "target__forecast__local__mse+r2",
-        "target__anomaly__local__roc_auc+f1_macro+accuracy",
+        "target__anomaly__global__roc_auc+f1_macro+accuracy",
         "global_train",
         "debug_f",
     ]

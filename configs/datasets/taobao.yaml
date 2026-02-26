@@ -104,6 +104,9 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
   loaders:
     test:
       split_idx: 0
