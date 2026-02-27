@@ -22,30 +22,26 @@ CAT_FEATURES = ["behavior_type", "item_category"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
-HORIZON_HOURS = 48
+HORIZON =  np.timedelta64(48, "h")
 
 
-def get_reg_target(row, horizon_hours=300):
-    t = np.array(row["time"])
-    horizon_seconds = np.timedelta64(horizon_hours * 3600, "s")
+def get_reg_target(row):
+    t = np.array(row["time"]).astype('datetime64[h]')
     out = []
     for s in row["shifts"]:
-        s = int(s)
-        start_time = t[s - 1]
-        future_times = t[s:]
-        hours_from_shift = future_times - start_time
-        count_events = np.sum(hours_from_shift <= horizon_seconds)
-        out.append(np.log1p(count_events))
+        assert s > 0, "shift should be more than zero"
+        delta = t[s:] - t[s - 1]
+        mask = np.sum(delta <= HORIZON)
+        out.append(np.log1p(mask))
     return out
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["time"])
+    t = np.asarray(row["time"]).astype('datetime64[h]')
     out = []
     for s in row["shifts"]:
-        mask = t == t[s - 1]
-        mask[:s] = False
-        out.append(np.log1p(np.sum(mask)))
+        assert s > 0, "shift should be more than zero"
+        out.append(np.log1p(np.sum(t[s:] == t[s - 1])))
     return out
 
 
@@ -86,17 +82,18 @@ def get_anomaly_target(row):
     return shift_has_anomaly
 
 
-def compute_shift_end(arr, horizon_hours):
-    horizon = np.timedelta64(horizon_hours, "h")
-    return (arr[-1] - arr > horizon).sum() - 1
+def compute_shift_end(arr):
+    arr = np.asarray(arr, dtype="datetime64[s]")
+    diff = arr[-1] - arr
+    return (diff > HORIZON).sum() - 1
 
 
-def trim_users(arr, horizon_hours):
+def trim_users(arr):
+    arr = np.asarray(arr, dtype="datetime64[s]")
     if len(arr) < 2:
         return True
     total_duration = arr[-1] - arr[0]
-    limit = np.timedelta64(horizon_hours, "h")
-    return total_duration < limit
+    return total_duration < HORIZON
 
 
 def get_ratio_raw(row):
@@ -104,7 +101,6 @@ def get_ratio_raw(row):
     shifts = row["shifts"]
     out = []
     for s in shifts:
-        s = int(s)
         future_b = b[s:]
         n_views = np.sum(future_b == 1)
         n_buys = np.sum(future_b == 4)
@@ -184,7 +180,7 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
         .appName("TaobaoPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -225,37 +221,34 @@ def main():
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
-    df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
 
-    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, HORIZON_HOURS))
+    df["shift_end"] = df[TM].map(compute_shift_end)
 
     train_df, test_df = global_time_split(
         data=df,
         test_frac=time_test_split,
-        min_shift_start=2,
-        time_col="time",
+        time_col=TM,
         seqlen_col="_seq_len",
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["is_bad_user"] = train_df["time"].apply(
-        lambda x: trim_users(x, HORIZON_HOURS)
-    )
+    train_df["is_bad_user"] = train_df[TM].apply(trim_users)
     bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
     train_df = train_df.drop(index=bad_indices)
     del train_df["is_bad_user"]
 
-    train_df["shift_end"] = train_df["time"].map(
-        lambda x: compute_shift_end(x, HORIZON_HOURS)
-    )
+    train_df["shift_end"] = train_df[TM].map(compute_shift_end)
 
     valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
     train_df = train_df.loc[valid_mask_train].copy()
     valid_mask_test = test_df.index.intersection(valid_mask_train)
     test_df = test_df.loc[valid_mask_test].copy()
+
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
     train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
 
@@ -264,6 +257,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
@@ -314,11 +308,11 @@ def main():
         + [
             "_seq_len",
             "shifts",
+            "global_train",
             "target__clf__local__accuracy+f1_macro",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
-            "global_train",
             "debug_f",
         ]
     )

@@ -23,8 +23,29 @@ CAT_FEATURES = ["small_group"]
 NUM_FEATURES = ["amount_rur"]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["trans_date"]
-TARGET_VALS = [0, 1, 2, 3]
 TM = ORDERING_COLUMNS[0]
+HORIZON = np.timedelta64(30, "D")
+
+
+def get_reg_target(row):
+    a = np.asarray(row["amount_rur"])
+    t = np.asarray(row["trans_date"])
+    out = []
+    for s in row["shifts"]:
+        assert s > 0, "shift should be more than zero"
+        delta = t - t[s - 1]
+        mask = (delta > 0) & (delta < HORIZON)
+        out.append(np.log1p(a[mask].sum()))
+    return out
+
+
+def get_forecast_target(row):
+    t = np.asarray(row["trans_date"])
+    out = []
+    for s in row["shifts"]:
+        assert s > 0, "shift should be more than zero"
+        out.append(np.log1p(np.sum(t[s:] == t[s - 1])))
+    return out
 
 
 def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
@@ -36,32 +57,23 @@ def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
         return std / mean
 
     cv_list = df.apply(_cv_list, axis=1)
-
     all_cv = np.asarray(cv_list)
     q95 = np.nanquantile(all_cv, 0.95)
     return np.asarray(cv_list > q95, dtype=np.int32).tolist()
 
 
-def reg_target_row(row, horizon=30):
-    d = np.asarray(row["trans_date"])
-    a = np.asarray(row["amount_rur"])
-    out = []
-    for s in row["shifts"]:
-        s = int(s) - 1
-        delta = d - d[s]
-        mask = (delta > 0) & (delta < horizon)
-        out.append(np.log1p(a[mask].sum()))
-    return out
+def compute_shift_end(arr):
+    arr = np.asarray(arr)
+    diff = arr[-1] - arr
+    return (diff > HORIZON).sum() - 1 if len(arr) else -1
 
 
-def get_forecast_target(row):
-    t = np.asarray(row["trans_date"])
-    out = []
-    for s in row["shifts"]:
-        mask = t == t[s - 1]
-        mask[:s] = False
-        out.append(np.log1p(np.sum(mask)))
-    return out
+def trim_users(arr):
+    arr = np.asarray(arr)
+    if len(arr) < 2:
+        return True
+    total_duration = arr[-1] - arr[0]
+    return total_duration < HORIZON
 
 
 def main():
@@ -133,7 +145,7 @@ def main():
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
         .appName("AGEPreprocessing")
         .config("spark.driver.memory", "12g")
         .config("spark.executor.memory", "4g")
@@ -177,17 +189,11 @@ def main():
     df = df.sort("client_id").toPandas()
     df = filter_short(df)
 
-    def compute_shift_end(arr, horizon):
-        arr = np.asarray(arr)
-        return (arr[-1] - arr > horizon).sum() - 1 if len(arr) else -1
-
-    horizon_days = 30
-    df["shift_end"] = df[TM].map(lambda x: compute_shift_end(x, horizon_days))
+    df["shift_end"] = df[TM].map(compute_shift_end)
 
     train_df, test_df = global_time_split(
         data=df,
         test_frac=time_test_split,
-        min_shift_start=2,
         time_col=TM,
         seqlen_col="_seq_len",
     )
@@ -195,39 +201,50 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    train_df["shift_end"] = train_df[TM].map(
-        lambda x: compute_shift_end(x, horizon_days)
-    )
+    train_df["is_bad_user"] = train_df[TM].apply(trim_users)
+    bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
+    train_df = train_df.drop(index=bad_indices)
+    del train_df["is_bad_user"]
+
+    train_df["shift_end"] = train_df[TM].map(compute_shift_end)
+
+    valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
+    train_df = train_df.loc[valid_mask_train].copy()
+    valid_mask_test = test_df.index.intersection(valid_mask_train)
+    test_df = test_df.loc[valid_mask_test].copy()
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
     train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
+
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
-    test_df["target__reg_amount__local__mse+r2"] = test_df.apply(reg_target_row, axis=1)
+    test_df["target__reg_amount__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         test_df
     )
 
     train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
-        reg_target_row, axis=1
+        get_reg_target, axis=1
     )
     train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         train_df
     )
 
@@ -244,7 +261,7 @@ def main():
         "target__reg_amount__local__mse+r2",
         "target__age__global__accuracy+f1_macro",
         "target__forecast__local__mse+r2",
-        "target__anomaly__local__roc_auc+f1_macro+accuracy",
+        "target__anomaly__global__roc_auc+f1_macro+accuracy",
         "global_train",
         "debug_f",
     ]
