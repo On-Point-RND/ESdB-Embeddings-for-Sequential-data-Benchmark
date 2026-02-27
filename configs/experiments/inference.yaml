@@ -37,4 +37,3 @@ model:
   params:
     max_len: 1024
     query_aggregation: last
-    take_emb_before_reconstruction: true

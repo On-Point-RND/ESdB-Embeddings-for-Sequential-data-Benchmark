@@ -139,6 +139,7 @@ class Bert4Rec(BaseModel):
         masker: Mapping,
         max_len: int = 100,
         hidden_size: int = 256,
+        embedding_size: int = 128,
         num_blocks: int = 2,
         num_heads: int = 4,
         num_passes_over_block: int = 1,
@@ -148,7 +149,6 @@ class Bert4Rec(BaseModel):
         num_emb_dim: int | None = None,
         num_norm: bool = False,
         query_aggregation: AggregationMode = "last",
-        take_emb_before_reconstruction: bool = True,
         enable_positional_embedding: bool = True,
         reconstruction_ce_weight: float = 1.0,
         reconstruction_mse_weight: float = 1.0,
@@ -164,7 +164,6 @@ class Bert4Rec(BaseModel):
         self.ignore_index = ignore_index
 
         self.query_aggregation = query_aggregation
-        self.take_emb_before_reconstruction = take_emb_before_reconstruction
 
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
@@ -215,12 +214,12 @@ class Bert4Rec(BaseModel):
 
         self.cat_heads = nn.ModuleDict(
             {
-                name: nn.Linear(hidden_size, card)
+                name: nn.Linear(embedding_size, card)
                 for name, card in cat_cardinalities.items()
             }
         )
         self.num_head = (
-            nn.Linear(hidden_size, len(self.num_feature_names))
+            nn.Linear(embedding_size, len(self.num_feature_names))
             if len(self.num_feature_names) > 0
             else None
         )
@@ -236,7 +235,7 @@ class Bert4Rec(BaseModel):
         self.reconstruction_stem = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 2),
             nn.GELU(),
-            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Linear(hidden_size * 2, embedding_size),
         )
 
         self._init()
@@ -254,6 +253,7 @@ class Bert4Rec(BaseModel):
     ) -> torch.Tensor:
         batch = batch.tail_clamp(self.max_len)
         x = self._encode(batch)
+        x = self.reconstruction_stem(x)
         mode = cast(AggregationMode, self.query_aggregation)
         return self._aggregate_embeddings(x, batch.lengths, mode)
 
@@ -297,10 +297,10 @@ class Bert4Rec(BaseModel):
 
     def _reconstruction_output(
         self,
-        x_emb: torch.Tensor,
+        x: torch.Tensor,
         targets: dict[str, torch.Tensor | None],
     ):
-        x = self.reconstruction_stem(x_emb)
+        x = self.reconstruction_stem(x)
         total_ce = x.new_tensor(0.0)
         total_mse = x.new_tensor(0.0)
 
@@ -338,7 +338,6 @@ class Bert4Rec(BaseModel):
             "loss": loss,
             "total_ce_loss": total_ce,
             "total_mse_loss": total_mse,
-            "embeddings": x_emb if self.take_emb_before_reconstruction else x,
         }
 
     def _get_pad_mask(self, batch: Batch) -> torch.Tensor:
