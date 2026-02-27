@@ -4,9 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 
-TEST_FRAC = 0.1
 MIN_SHIFT_START = 2
-HORIZON_DAYS = 30
 MIN_SEQ_LEN = 2
 
 
@@ -23,11 +21,12 @@ def trim_test(row):
     row["shifts"] = new_shifts[new_shifts >= 0].tolist()
     if not row["shifts"]:
         row["shifts"] = [0]
-    row['_seq_len'] = row[row.index[0]].apply(len)
     return row
 
 
-def global_train_column(train_df, test_df, train_ratio, seed) -> tuple[pd.DataFrame, pd.DataFrame]:
+def global_train_column(
+    train_df, test_df, train_ratio, seed
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     # User split with configurable train fraction.
     rng = np.random.default_rng(seed=seed)
     n_train_users = int(len(train_df.index) * train_ratio)
@@ -147,7 +146,7 @@ def sample_shifts(
     vals = np.arange(lo, hi + 1)
     num_shifts = min(len(vals), num_shifts)
     shifts = rng.choice(vals, size=num_shifts, replace=False)
-    return np.sort(shifts).tolist()
+    return np.sort(shifts).astype(int).tolist()
 
 
 def add_shift_columns(

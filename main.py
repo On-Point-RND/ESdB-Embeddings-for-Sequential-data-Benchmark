@@ -60,7 +60,9 @@ if __name__ == "__main__":
     config = collect_config(
         args.dataset, args.method, args.experiment, args.specify, args.gpu
     )
-    config["trainer"]["verbose"] = args.tqdm  # type: ignore
+    for k in ["trainer", "unsupervised_trainer"]:
+        if k in config:
+            config[k]["verbose"] = args.tqdm  # type: ignore
 
     if args.ablation_type != "none":
         config["run_name"] = (

@@ -9,7 +9,7 @@ from ..tasks.scorers import METRIC_INFO, TaskType
 
 @dataclass(frozen=True)
 class DataConfig:
-    dataset_name: str = "taobao"
+    dataset_name: str = "age"
     train_path: str = ""
     test_path: str = ""
 

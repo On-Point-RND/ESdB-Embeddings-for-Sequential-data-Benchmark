@@ -21,33 +21,28 @@ data:
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
-      - 0.0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000000 # length > max_len in dataset
+      max_seq_len: 1000
       time_name: trans_date
       index_name: client_id
       target_name: age
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - TargetToLong
         - MaskValid
         - Logarithm:
             names: ["amount_rur"]
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
     contrastive_pipeline:
       <<: *common_pipeline
-      max_seq_len: 1000
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -60,24 +55,9 @@ data:
             cnt_max: 220
             short_seq_crop_rate: 0.8
             seed: 0
-    bert4rec_pipeline:
-      <<: *common_pipeline
-      target_name: small_group
-      batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - Logarithm:
-            names: ["amount_rur"]
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - TargetToLong
@@ -97,7 +77,7 @@ data:
       loop: false
       num_workers: 4
       random_seed: 42
-    gen_train:
+    full_train:
       split_idx: 0
       preprocessing: common_pipeline
       batch_size: 128
@@ -107,16 +87,17 @@ data:
       preprocessing: common_pipeline
       batch_size: 128
       num_workers: 4
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
     gen_train_val:
       split_idx: 1
-      preprocessing: common_pipeline
-      batch_size: 128
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
-    hpo_val:
-      split_idx: 2
-      preprocessing: common_pipeline
-      batch_size: 128
-      num_workers: 4
+
 
 test_data:
   dataset:
@@ -125,18 +106,9 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
-    bert4rec_pipeline:
+    gen_pipeline:
       <<: *common_pipeline
-      target_name: small_group
-      batch_transforms:
-        - RescaleTime:
-            loc: 0.0
-            scale: 1000.0
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - Logarithm:
-            names: ["amount_rur"]
+      max_seq_len: 1000000
   loaders:
     test:
       split_idx: 0
@@ -145,8 +117,8 @@ test_data:
       num_workers: 4
     gen_test:
       split_idx: 0
-      preprocessing: common_pipeline
-      batch_size: 128
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
 
 metrics:
