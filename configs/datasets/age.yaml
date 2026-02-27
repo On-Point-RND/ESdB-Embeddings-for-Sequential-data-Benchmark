@@ -21,11 +21,10 @@ data:
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
-      - 0.0  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000000 # length > max_len in dataset
+      max_seq_len: 1024
       time_name: trans_date
       index_name: client_id
       target_name: bins
@@ -43,7 +42,7 @@ data:
             names: ["amount_rur"]
     contrastive_pipeline:
       <<: *common_pipeline
-      max_seq_len: 1000
+      max_seq_len: 1024
       batch_transforms:
         - RescaleTime:
             loc: 0.0
