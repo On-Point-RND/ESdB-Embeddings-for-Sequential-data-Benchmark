@@ -138,7 +138,7 @@ class ContrastiveLoss(nn.Module):
         ).pow(2)
         loss = torch.cat([positive_loss, negative_loss], dim=0)
 
-        return loss.sum()
+        return loss.mean()
 
 
 class InfoNCELoss(nn.Module):
@@ -189,6 +189,6 @@ class InfoNCELoss(nn.Module):
             lsm,
             positive_pairs[:, [1]],
             dim=1,
-        ).sum()
+        ).mean()
 
         return loss

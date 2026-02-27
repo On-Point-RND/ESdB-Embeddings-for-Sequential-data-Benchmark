@@ -79,7 +79,7 @@ class UnsupervisedEmbedRunner(Runner):
         del loaders["gen_train"]  # type: ignore
         del loaders["train_val"]  # type: ignore
         del loaders["gen_train_val"]  # type: ignore
-        del loaders["hpo_val"]  # type: ignore
+        # del loaders["hpo_val"]  # type: ignore
         del test_loaders  # type: ignore
 
         train_metrics = trainer.validate(loaders["unsupervised_train"])
