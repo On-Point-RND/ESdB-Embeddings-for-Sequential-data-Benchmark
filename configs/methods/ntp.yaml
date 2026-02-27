@@ -52,11 +52,8 @@ model:
       dec_num_heads: 8
       dec_scale_hidden: 2
       max_len: ${data.preprocessing.common_pipeline.max_seq_len}
-  head:
-    name: nn.Linear
-    params:
-      in_features: output_dim_from_prev
-      out_features: ${n_classes}
+  aggregation:
+    name: ValidHiddenMean
 
 optimizer:
   name: Adam

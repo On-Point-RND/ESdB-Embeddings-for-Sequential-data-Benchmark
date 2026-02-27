@@ -54,6 +54,15 @@ class UnsupervisedEmbedRunner(Runner):
         net.eval()
 
         trainer.load_best_model()
+        # TODO maybe change to uncodintional step here
+        if 'NTP' in config['method_name']:
+            embed_net = build_model(config["model"])
+            if config["unsupervised_trainer"]["total_iters"]:
+                embed_net.load_state_dict(
+                    torch.load(trainer.best_checkpoint(), map_location="cpu")["model"],
+                    strict=False,
+                )
+                trainer._model = embed_net.eval().to(config["device"])
 
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
@@ -64,7 +73,7 @@ class UnsupervisedEmbedRunner(Runner):
             embed_train_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
             embed_train_file.parent.mkdir(parents=True, exist_ok=True)
             df_train.to_parquet(embed_train_file, index=False)
-            post_processing(config, embed_train_file, "train")
+            post_processing(config, embed_train_file, "train", partitions=4)
 
             test_embeddings_getter = ResultsGetter(config, "test")
             keys = {"gen_test"}
@@ -73,15 +82,19 @@ class UnsupervisedEmbedRunner(Runner):
             embed_test_file = Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
             embed_test_file.parent.mkdir(parents=True, exist_ok=True)
             df_test.to_parquet(embed_test_file, index=False)
-            post_processing(config, embed_test_file, "test")
+            post_processing(config, embed_test_file, "test", partitions=4)
 
         del loaders["train"]  # type: ignore
         del loaders["gen_train"]  # type: ignore
         del loaders["train_val"]  # type: ignore
         del loaders["gen_train_val"]  # type: ignore
-        del loaders["hpo_val"]  # type: ignore
+        if "hpo_val" in loaders.keys():
+            del loaders["hpo_val"]  # type: ignore
         del test_loaders  # type: ignore
 
+        if 'NTP' in config['method_name']:
+            trainer._model = net.eval().to(config["device"])
+            trainer.load_best_model()
         train_metrics = trainer.validate(loaders["unsupervised_train"])
         train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
 
@@ -94,4 +107,3 @@ class UnsupervisedEmbedRunner(Runner):
     def param_grid(self, trial, config):
         suggest_conf(config["optuna"]["suggestions"], config, trial)
         return trial, config
-
