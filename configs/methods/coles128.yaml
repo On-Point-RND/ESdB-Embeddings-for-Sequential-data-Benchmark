@@ -30,10 +30,11 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 300_000
+  total_iters: 100_000
 
-
-unsupervised_model:
+additional_params:
+  split_count: 5
+training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
@@ -48,6 +49,7 @@ model:
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
+      split_count: 5
   encoder: 
     name: GRU
     params:

@@ -1,5 +1,6 @@
-method_name: coles256
+method_name: SimCLR64
 runner_name: UnsupervisedEmbedRunner
+
 
 data:
   loaders:
@@ -20,11 +21,12 @@ data:
 
 
 unsupervised_loss:
-  name: ContrastiveLoss
+  name: InfoNCELoss
   params: 
     selector: HardNegativePairSelector
-    neg_count: 5
-    margin: 0.5
+    neg_count: 1
+    temperature: 1
+    angular_margin: 0.5
 unsupervised_metrics: null
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -33,11 +35,24 @@ unsupervised_trainer:
   total_iters: 100_000
 
 additional_params:
-  split_count: 5
+  split_count: 2
 training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
+  head0:
+    name: nn.Linear
+    params:
+      in_features: output_dim_from_prev
+      out_features: output_dim_from_prev
+  relu:
+    name: nn.ReLU
+  head1:
+    name: nn.Linear
+    params:
+      in_features: output_dim_from_prev
+      out_features: output_dim_from_prev  
+  
 model:
   preprocess:
     name: Batch2Seq
@@ -49,20 +64,14 @@ model:
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
-      split_count: 5
   encoder: 
     name: GRU
     params:
       input_size: output_dim_from_prev
-      hidden_size: 256
+      hidden_size: 64
       num_layers: 1
   aggregation:
     name: ValidHiddenMean
-  head:
-    name: nn.Linear
-    params:
-      in_features: output_dim_from_prev
-      out_features: ${n_classes}
 
 optimizer:
   name: Adam
@@ -87,6 +96,9 @@ optuna:
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
 
     data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [64, 128, 256, 512]}]
+
+    unsupervised_loss.params.temperature: [suggest_float, {low: 1.e-2, high: 1.e2, log: True}]
+    training_model.head0.out_features: [suggest_int, {low: 64, high: 512, log: True}]
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 3, log: False}]
     model.encoder.params.dropout: [suggest_float, {low: 1.e-10, high: 0.3, log: True}]

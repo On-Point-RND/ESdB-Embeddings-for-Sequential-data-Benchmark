@@ -159,7 +159,7 @@ class InfoNCELoss(nn.Module):
         self.angular_margin = angular_margin
 
     def forward(self, embeddings, target):
-        embeddings = self.project(embeddings)
+        #embeddings = self.project(embeddings)
 
         positive_pairs, _ = self.pair_selector.get_pairs(embeddings, target)
         dev = positive_pairs.device

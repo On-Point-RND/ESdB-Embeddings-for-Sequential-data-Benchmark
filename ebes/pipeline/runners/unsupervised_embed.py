@@ -25,13 +25,37 @@ class UnsupervisedEmbedRunner(Runner):
         loaders = build_loaders(**config["data"])
         test_loaders = build_loaders(**config["test_data"])
 
-        net = build_model(config["unsupervised_model"])
+        net = build_model(config["training_model"])
         opt = get_optimizer(net.parameters(), **config["optimizer"])
         lr_scheduler = None
         if "lr_scheduler" in config:
             lr_scheduler = get_scheduler(opt, **config["lr_scheduler"])
         loss = get_loss(**config["unsupervised_loss"])
         metrics = get_metrics(config.get("unsupervised_metrics"), "cpu")
+        real_trainer = Trainer(
+            model=net,
+            loss=loss,
+            optimizer=opt,
+            lr_scheduler=lr_scheduler,
+            train_loader=loaders["unsupervised_train"],
+            val_loader=loaders["unsupervised_train_val"],
+            run_name=config["run_name"] + "/pretrain",
+            ckpt_dir=Path(config["log_dir"]) / config["run_name"] / "pretrain" / "ckpt",
+            device=config["device"],
+            metrics=metrics,
+            **config["unsupervised_trainer"],
+        )
+        real_trainer.run()
+
+        gc.collect()
+
+        net = build_model(config["model"])
+        net.load_state_dict(
+            torch.load(real_trainer.best_checkpoint(), map_location="cpu")["model"],
+            strict=False,
+        )
+        net.eval()
+
         trainer = Trainer(
             model=net,
             loss=loss,
@@ -45,15 +69,6 @@ class UnsupervisedEmbedRunner(Runner):
             metrics=metrics,
             **config["unsupervised_trainer"],
         )
-        trainer.run()
-
-        # loaders["unsupervised_train"]  # type: ignore
-        # loaders["unsupervised_train_val"]  # type: ignore
-        gc.collect()
-
-        net.eval()
-
-        trainer.load_best_model()
 
         run_type = config["runner"]["run_type"]
         if run_type == "simple":

@@ -1,6 +1,7 @@
 method_name: coles64
 runner_name: UnsupervisedEmbedRunner
 
+
 data:
   loaders:
     unsupervised_train:
@@ -30,10 +31,11 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 300_000
+  total_iters: 100_000
 
-
-unsupervised_model:
+additional_params:
+  split_count: 5
+training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
