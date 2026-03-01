@@ -48,7 +48,7 @@ model:
       use_transformer: False
       n_head: 4
       n_layer: 4
-      max_len: ${data.preprocessing.common_pipeline.max_seq_len}
+      max_len: ${data.preprocessing.gen_pipeline.max_seq_len}
   aggregation:
     name: ValidHiddenMean
 
