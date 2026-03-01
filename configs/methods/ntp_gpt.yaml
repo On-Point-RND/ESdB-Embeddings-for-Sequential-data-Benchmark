@@ -1,4 +1,4 @@
-method_name: NTP
+method_name: NTP_GPT
 runner_name: UnsupervisedEmbedRunner
 
 data:
@@ -45,7 +45,7 @@ model:
       num_norm: True
       # Encoder:
       enc_num_layers: 2
-      use_transformer: False
+      use_transformer: True
       n_head: 4
       n_layer: 4
       max_len: ${data.preprocessing.common_pipeline.max_seq_len}
