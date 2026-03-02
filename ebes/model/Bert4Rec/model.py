@@ -83,7 +83,7 @@ class BertEmbedding(nn.Module):
 
     def __init__(
         self,
-        cat_cardinalities: Mapping[str, int],
+        cat_cardinalities: Mapping[str, int] | None,
         num_features: list[str] | None,
         hidden_size: int,
         max_len: int,
@@ -98,6 +98,7 @@ class BertEmbedding(nn.Module):
         self.max_len = max_len
         self.enable_positional_embedding = enable_positional_embedding
 
+        cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
         adjusted_cards = {name: card + 1 for name, card in cat_cardinalities.items()}
 
         self.processor = Batch2Seq(
@@ -134,7 +135,7 @@ class Bert4Rec(BaseModel):
 
     def __init__(
         self,
-        cat_cardinalities: Mapping[str, int],
+        cat_cardinalities: Mapping[str, int] | None,
         num_features: list[str] | None,
         masker: Mapping,
         max_len: int = 100,
@@ -167,8 +168,12 @@ class Bert4Rec(BaseModel):
         self.query_aggregation = query_aggregation
         self.query_aggregation_k = query_aggregation_k
 
+        cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
+        self.num_feature_count = len(self.num_feature_names) + (
+            0 if time_process == "none" else 1
+        )
 
         self.item_embedder = BertEmbedding(
             cat_cardinalities=cat_cardinalities,
@@ -220,9 +225,10 @@ class Bert4Rec(BaseModel):
                 for name, card in cat_cardinalities.items()
             }
         )
+
         self.num_head = (
-            nn.Linear(embedding_size, len(self.num_feature_names))
-            if len(self.num_feature_names) > 0
+            nn.Linear(embedding_size, self.num_feature_count)
+            if self.num_feature_count > 0
             else None
         )
 
