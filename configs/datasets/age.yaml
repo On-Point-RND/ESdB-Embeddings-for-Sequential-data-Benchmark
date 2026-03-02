@@ -21,6 +21,7 @@ data:
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
+      - 0.0
 
   preprocessing:
     common_pipeline: &common_pipeline

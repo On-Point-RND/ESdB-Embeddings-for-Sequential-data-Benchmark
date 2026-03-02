@@ -7,7 +7,7 @@ main_loss:
 
 cc: 
   behavior_type: 5
-  item_category: 8916
+  item_category: 2000
 ee:
 nn:
 
@@ -20,6 +20,7 @@ data:
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
+      - 0.0
 
   preprocessing:
     common_pipeline: &common_pipeline
