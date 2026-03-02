@@ -12,7 +12,7 @@ from ..basemodel import BaseModel
 from ..preprocess import Batch2Seq
 from ...types import Batch
 
-AggregationMode = Literal["last", "mean", "max"]
+AggregationMode = Literal["last", "mean", "max", "mean_last_k"]
 
 
 class PositionalEmbedding(nn.Module):
@@ -149,6 +149,7 @@ class Bert4Rec(BaseModel):
         num_emb_dim: int | None = None,
         num_norm: bool = False,
         query_aggregation: AggregationMode = "last",
+        query_aggregation_k: int | None = None,
         enable_positional_embedding: bool = True,
         reconstruction_ce_weight: float = 1.0,
         reconstruction_mse_weight: float = 1.0,
@@ -164,6 +165,7 @@ class Bert4Rec(BaseModel):
         self.ignore_index = ignore_index
 
         self.query_aggregation = query_aggregation
+        self.query_aggregation_k = query_aggregation_k
 
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
@@ -255,13 +257,14 @@ class Bert4Rec(BaseModel):
         x = self._encode(batch)
         x = self.reconstruction_stem(x)
         mode = cast(AggregationMode, self.query_aggregation)
-        return self._aggregate_embeddings(x, batch.lengths, mode)
+        return self._aggregate_embeddings(x, batch.lengths, mode, self.query_aggregation_k)
 
     @staticmethod
     def _aggregate_embeddings(
         x: torch.Tensor,
         lengths: torch.Tensor,
         aggregation: AggregationMode,
+        k: int | None = None,
     ) -> torch.Tensor:
         
         if aggregation == "last":
@@ -269,12 +272,23 @@ class Bert4Rec(BaseModel):
             last_idx = lengths.clamp_min(1) - 1
             return x[batch_idx, last_idx]
 
-        valid = torch.arange(x.shape[1], device=x.device)[None, :] < lengths[:, None]
-        valid = valid.unsqueeze(-1)
+        idx = torch.arange(x.shape[1], device=x.device)[None, :]   # [1, T]
+        valid_2d = idx < lengths[:, None]                          # [B, T]
+        valid = valid_2d.unsqueeze(-1)
 
         if aggregation == "mean":
             summed = (x * valid).sum(dim=1)
             denom = lengths.clamp_min(1).unsqueeze(-1)
+            return summed / denom
+
+        if aggregation == "mean_last_k":
+            if k is None or k < 1:
+                raise ValueError("mean_last_k requires k >= 1")
+            start = (lengths - k).clamp_min(0)[:, None]            # [B, 1]
+            tail_2d = (idx >= start) & valid_2d                    # [B, T]
+            tail = tail_2d.unsqueeze(-1)                           # [B, T, 1]
+            summed = (x * tail).sum(dim=1)
+            denom = tail_2d.sum(dim=1).clamp_min(1).unsqueeze(-1)
             return summed / denom
 
         if aggregation == "max":

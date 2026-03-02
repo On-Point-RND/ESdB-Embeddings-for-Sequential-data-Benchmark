@@ -37,3 +37,4 @@ model:
   params:
     max_len: 1024
     query_aggregation: last
+    query_aggregation_k: 10
