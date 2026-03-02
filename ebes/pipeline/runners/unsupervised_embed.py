@@ -48,6 +48,15 @@ class UnsupervisedEmbedRunner(Runner):
         real_trainer.run()
 
         gc.collect()
+        #metrics collection on training model
+        ###############
+        train_metrics = real_trainer.validate(loaders["unsupervised_train"])
+        train_val_metrics = real_trainer.validate(loaders["unsupervised_train_val"])
+
+        train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
+        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
+        #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
+        ###############
 
         net = build_model(config["model"])
         net.load_state_dict(
@@ -55,6 +64,8 @@ class UnsupervisedEmbedRunner(Runner):
             strict=False,
         )
         net.eval()
+
+        del real_trainer
 
         trainer = Trainer(
             model=net,
@@ -97,13 +108,6 @@ class UnsupervisedEmbedRunner(Runner):
         # del loaders["hpo_val"]  # type: ignore
         del test_loaders  # type: ignore
 
-        train_metrics = trainer.validate(loaders["unsupervised_train"])
-        train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
-
-
-        train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
-        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
-        #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
         return dict(**train_metrics, **train_val_metrics)
 
     def param_grid(self, trial, config):

@@ -49,7 +49,6 @@ model:
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
-      split_count: 5
   encoder: 
     name: GRU
     params:
@@ -72,7 +71,7 @@ optimizer:
 
 optuna:
   params:
-    n_trials: 70
+    n_trials: 30
     n_startup_trials: 5
     request_list: 
       - 'optimizer.params.weight_decay': 1.e-08
