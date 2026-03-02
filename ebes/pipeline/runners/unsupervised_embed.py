@@ -51,10 +51,6 @@ class UnsupervisedEmbedRunner(Runner):
         trainer.load_best_model()
         #metrics collection on training model
         ###############
-        if 'NTP' in config['method_name']:
-            trainer._model = net.eval().to(config["device"])
-            trainer.load_best_model()
-
         train_metrics = trainer.validate(loaders["unsupervised_train"])
         train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
 
