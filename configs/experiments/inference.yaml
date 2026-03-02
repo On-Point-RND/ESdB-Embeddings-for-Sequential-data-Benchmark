@@ -20,8 +20,7 @@ logging:
   
 trainer:
   total_iters: 0 
-  ckpt_resume: '/home/dev/ESdB-Embeddings-for-Sequential-data-Benchmark/log/taobao/bert4rec/tests/simple(11)/seed_0/ckpt/epoch__0109_-_loss__1.711.ckpt'
-
+  ckpt_resume: '${oc.env:PTH,}'
 
 data:
   preprocessing:
