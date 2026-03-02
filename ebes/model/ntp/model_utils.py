@@ -24,6 +24,7 @@ class ReconPredictor(nn.Module):
         self.num_predictors = nn.ModuleDict()
         for name in self.num_features:
             self.num_predictors[name] = nn.Linear(dec_hidden_size, 1)
+        self._metrics = ["accuracy", "perplexity", "r2"]
 
     def forward(self, x_recon):
         predictions = {}
@@ -37,6 +38,8 @@ class ReconPredictor(nn.Module):
 
     def metrics(self, predictions: dict[str, torch.Tensor], batch: Batch):
         metrics_dict = {}
+        for m in self._metrics:
+            metrics_dict[m] = torch.tensor(0.0)
         rng = torch.arange(batch.time.shape[0], device=batch.lengths.device)
         mask = (rng[:, None] < batch.lengths)[1:].float()
         total = mask.sum().clamp(min=1)
