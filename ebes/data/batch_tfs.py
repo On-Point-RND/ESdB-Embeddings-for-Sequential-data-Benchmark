@@ -183,11 +183,7 @@ class DatetimeToFloat(BatchTransform):
             self.scale = np.timedelta64(*self.scale)
 
     def __call__(self, batch: Batch):
-        # fix for taobao, todo ask later
-        assert isinstance(batch.time, (np.ndarray, torch.Tensor))
-        if torch.is_tensor(batch.time):
-            batch.time = batch.time.cpu().numpy()
-            batch.time = batch.time.astype('datetime64[D]')
+        assert isinstance(batch.time, np.ndarray)
         assert isinstance(self.loc, np.datetime64)
         assert isinstance(self.scale, np.timedelta64)
         batch.time = torch.asarray(
