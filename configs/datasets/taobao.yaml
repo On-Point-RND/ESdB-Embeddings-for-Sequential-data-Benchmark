@@ -49,7 +49,7 @@ data:
         - MaskValid
         - ContrastiveTarget
         - RandomSlices:
-            split_count: 5
+            split_count: ${oc.select:additional_params.split_count, 5}
             cnt_min: 64
             cnt_max: 192
             short_seq_crop_rate: 0.8

@@ -221,6 +221,7 @@ def main():
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
+    df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
 
     df["shift_end"] = df[TM].map(compute_shift_end)

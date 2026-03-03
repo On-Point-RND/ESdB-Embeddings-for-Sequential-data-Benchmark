@@ -25,7 +25,7 @@ class UnsupervisedEmbedRunner(Runner):
         loaders = build_loaders(**config["data"])
         test_loaders = build_loaders(**config["test_data"])
 
-        net = build_model(config["unsupervised_model"])
+        net = build_model(config["training_model"])
         opt = get_optimizer(net.parameters(), **config["optimizer"])
         lr_scheduler = None
         if "lr_scheduler" in config:
@@ -46,23 +46,24 @@ class UnsupervisedEmbedRunner(Runner):
             **config["unsupervised_trainer"],
         )
         trainer.run()
-
-        # loaders["unsupervised_train"]  # type: ignore
-        # loaders["unsupervised_train_val"]  # type: ignore
         gc.collect()
-
         net.eval()
-
         trainer.load_best_model()
-        # TODO maybe change to uncodintional step here
-        if 'NTP' in config['method_name']:
-            embed_net = build_model(config["model"])
-            if config["unsupervised_trainer"]["total_iters"]:
-                embed_net.load_state_dict(
-                    torch.load(trainer.best_checkpoint(), map_location="cpu")["model"],
-                    strict=False,
-                )
-                trainer._model = embed_net.eval().to(config["device"])
+        #metrics collection on training model
+        ###############
+        train_metrics = trainer.validate(loaders["unsupervised_train"])
+        train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
+
+        train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
+        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
+        #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
+        ###############
+        embed_net = build_model(config["model"])
+        embed_net.load_state_dict(
+            torch.load(trainer.best_checkpoint(), map_location="cpu")["model"],
+            strict=False,
+        )
+        trainer._model = embed_net.eval().to(config["device"])
 
         run_type = config["runner"]["run_type"]
         if run_type == "simple":
@@ -92,16 +93,6 @@ class UnsupervisedEmbedRunner(Runner):
             del loaders["hpo_val"]  # type: ignore
         del test_loaders  # type: ignore
 
-        if 'NTP' in config['method_name']:
-            trainer._model = net.eval().to(config["device"])
-            trainer.load_best_model()
-        train_metrics = trainer.validate(loaders["unsupervised_train"])
-        train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
-
-
-        train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
-        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
-        #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
         return dict(**train_metrics, **train_val_metrics)
 
     def param_grid(self, trial, config):
