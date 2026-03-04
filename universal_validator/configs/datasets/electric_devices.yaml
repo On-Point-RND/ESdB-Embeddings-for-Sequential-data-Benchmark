@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "Electric_devices"
+  train_path: log/electric_devices/bert4rec/tests/random_last/seed_0/embeddings/train_postproc
+  test_path: log/electric_devices/bert4rec/tests/random_last/seed_0/embeddings/test_postproc
