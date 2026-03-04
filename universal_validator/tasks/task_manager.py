@@ -80,7 +80,7 @@ class TaskManager:
         self._print_task_info(split_data)
         if self.use_hpo:
             print("Using HPO optimization")
-        print(f"Models: {models}")
+        #print(f"Models: {models}")
         results = {}
         for name in models:
             print(f"\nTraining {name}...")

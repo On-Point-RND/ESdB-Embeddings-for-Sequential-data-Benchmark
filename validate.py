@@ -23,7 +23,7 @@ def main(cfg: ValidatorConfig):
     
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
-        print(report)
+        #print(report)
         reports += [report]
     
     return reports
@@ -32,7 +32,7 @@ def main(cfg: ValidatorConfig):
 if __name__ == "__main__":
     try:
         result = run_with_config(main, "universal_validator")
-        print(result)
+        #print(result)
     except Exception as e:
         print(f"Error: {e}")
         import traceback
