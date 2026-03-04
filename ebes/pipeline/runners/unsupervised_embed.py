@@ -25,7 +25,7 @@ class UnsupervisedEmbedRunner(Runner):
         loaders = build_loaders(**config["data"])
         test_loaders = build_loaders(**config["test_data"])
 
-        net = build_model(config["training_model"])
+        net = build_model(config["unsupervised_model"])
         opt = get_optimizer(net.parameters(), **config["optimizer"])
         lr_scheduler = None
         if "lr_scheduler" in config:
