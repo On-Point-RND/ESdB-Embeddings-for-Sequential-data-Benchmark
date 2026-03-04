@@ -57,11 +57,6 @@ model:
       num_layers: 1
   aggregation:
     name: ValidHiddenMean
-  head:
-    name: nn.Linear
-    params:
-      in_features: output_dim_from_prev
-      out_features: ${n_classes}
 
 optimizer:
   name: Adam
