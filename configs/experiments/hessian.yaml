@@ -1,0 +1,49 @@
+run_name: "${method_name}/hessian/${oc.env:TASK_NAME,simple}"
+common_seed: 0
+device: "cuda:0"
+
+runner:
+  name: BertHessianRunner
+  run_type: simple
+  seed_keys:
+    - "common_seed"
+    - "data.loaders.train.random_seed"
+    - "data.dataset.split_seed"
+  params:
+    n_runs: 1
+    n_workers: 1
+
+logging:
+  file_lvl: info
+  cons_lvl: info
+
+trainer:
+  total_iters: 0
+  # ckpt_resume: "${oc.env:PTH,''}"
+
+data:
+  preprocessing:
+    bert4rec_pipeline:
+      max_seq_len: 1000000
+
+test_data:
+  preprocessing:
+    bert4rec_pipeline:
+      max_seq_len: 1000000
+
+model:
+  params:
+    max_len: 1024
+    query_aggregation: mean
+    query_aggregation_k: 10
+
+hessian:
+  enabled: true
+  estimator: efim # hutchinson | efim | both
+  loader: train_val
+  n_batches: 1
+  K: 2
+  efim_per_sample: true
+  per_param: true
+  params_scope: all
+
