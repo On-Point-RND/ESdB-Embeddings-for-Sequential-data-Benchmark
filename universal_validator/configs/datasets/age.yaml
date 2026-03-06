@@ -1,4 +1,4 @@
 data_conf:
   dataset_name: "AGE"
-  train_path: embeddings/age/preprocessed_emb/bert_random/train_postproc
-  test_path: embeddings/age/preprocessed_emb/bert_random/test_postproc
+  train_path: log/age/bert4rec/tests/test39/seed_0/embeddings/train_postproc
+  test_path: log/age/bert4rec/tests/test39/seed_0/embeddings/test_postproc

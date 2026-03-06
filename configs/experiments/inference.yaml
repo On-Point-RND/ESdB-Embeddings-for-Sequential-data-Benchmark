@@ -20,7 +20,7 @@ logging:
   
 trainer:
   total_iters: 0 
-  ckpt_resume: '${oc.env:PTH,}'
+  ckpt_resume: "${oc.env:PTH,''}"
 
 data:
   preprocessing:
@@ -35,5 +35,5 @@ test_data:
 model:
   params:
     max_len: 1024
-    query_aggregation: last
+    query_aggregation: mean
     query_aggregation_k: 10

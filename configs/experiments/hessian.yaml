@@ -19,7 +19,7 @@ logging:
 
 trainer:
   total_iters: 0
-  # ckpt_resume: "${oc.env:PTH,''}"
+  ckpt_resume: "${oc.env:PTH,''}"
 
 data:
   preprocessing:
@@ -41,7 +41,7 @@ hessian:
   enabled: true
   estimator: efim # hutchinson | efim | both
   loader: train_val
-  n_batches: 1
+  n_batches: 1000
   K: 2
   efim_per_sample: true
   per_param: true
