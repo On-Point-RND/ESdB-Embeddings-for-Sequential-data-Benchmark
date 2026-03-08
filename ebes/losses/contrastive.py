@@ -184,7 +184,11 @@ class InfoNCELoss(nn.Module):
                 sim[all_idx, positive_pairs[:, 1]] = target_sim
 
         sim /= self.temperature
+
+        n_negatives = embeddings.shape[0] - 2 # here should be 2 or 3, does not really matter
+        #print(embeddings.shape)
         lsm = -F.log_softmax(sim, dim=-1)
+        lsm = lsm - torch.tensor(n_negatives, dtype=torch.float, device=dev).log()
         loss = torch.take_along_dim(
             lsm,
             positive_pairs[:, [1]],
