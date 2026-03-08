@@ -40,6 +40,7 @@ def post_processing(config, emb_path, data_mode, partitions=10, transformer_skip
         spark = (
             SparkSession.builder
             .appName("JoinEmbeddings")
+            .config("spark.sql.legacy.parquet.nanosAsLong", "true") 
             .config("spark.driver.memory", "4g")           # ← was "2g"
             .config("spark.driver.memoryOverhead", "1g")   # ← add this
             .config("spark.executor.memory", "2g")

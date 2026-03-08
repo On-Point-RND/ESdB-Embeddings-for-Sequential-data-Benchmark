@@ -31,7 +31,7 @@ data:
       max_seq_len: 1000
       time_name: Date
       index_name: Store
-      target_name: mock_target
+      target_name: _seq_len
       num_names: ${nn}
       cat_cardinalities: ${cc}
       batch_transforms:

@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "AGE"
+  train_path: embeddings/ett/coles128/seed_0/embeddings/train_postproc
+  test_path: embeddings/ett/coles128/seed_0/embeddings/test_postproc
