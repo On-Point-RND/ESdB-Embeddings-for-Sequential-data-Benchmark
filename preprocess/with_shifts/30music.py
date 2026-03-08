@@ -46,7 +46,7 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
+    t = np.asarray(row["timestamp"], dtype="datetime64[s]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
