@@ -46,7 +46,7 @@ model:
       enc_num_layers: 2
       use_transformer: True
       n_head: 4
-      max_len: ${data.preprocessing.gen_pipeline.max_seq_len}
+      max_len: ${data.preprocessing.common_pipeline.max_seq_len}
   aggregation:
     name: ValidHiddenMean
 

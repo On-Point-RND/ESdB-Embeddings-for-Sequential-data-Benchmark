@@ -127,6 +127,8 @@ class NTPPretrainer(NTPModel):
         super().__init__(*args, **kwargs)
 
     def forward(self, batch: Batch):
+        if self.use_transformer:
+            batch = batch.tail_clamp(self.encoder.config.max_len)
         check_batch = deepcopy(batch)
         losses, output = self.reconstruction_loss(batch)
         metrics = self.recon_predictor.metrics(output["prediction"], batch)
@@ -142,4 +144,6 @@ class NTPEncoder(NTPPretrainer):
         return self.encoder.output_dim
 
     def forward(self, batch: Batch):
+        if self.use_transformer:
+            batch = batch.tail_clamp(self.encoder.config.max_len)
         return self.encode(batch)
