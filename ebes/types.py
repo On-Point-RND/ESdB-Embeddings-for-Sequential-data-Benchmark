@@ -1,8 +1,18 @@
-from dataclasses import fields, dataclass
+from dataclasses import fields, dataclass, replace
+from copy import copy
 from typing import Any
 
 import numpy as np
 import torch
+
+
+def gather(tensor, target_ids):
+    if tensor is None:
+        return None
+    ndim_diff = tensor.ndim - target_ids.ndim
+    target_expanded = target_ids.view(*target_ids.shape, *(1,) * ndim_diff)
+    target_expanded = target_expanded.expand(-1, -1, *tensor.shape[2:])
+    return torch.gather(tensor, 0, target_expanded)  # [L, B, ...]
 
 
 @dataclass(kw_only=True)
@@ -111,6 +121,31 @@ class Batch:
                 idx = idx.cpu().tolist()
         
         return idx
+    
+    def tail_clamp(self, len_max: int):
+        """Returns a new batch containing only last tail_len elements of each sequence."""
+        assert self.time is not None, "Why time feature is None?"
+        seq_len = self.time.shape[0]
+        if seq_len <= len_max:
+            return self
+        new_lengths = self.lengths.clamp_max(len_max)
+        start_index = (self.lengths - new_lengths).clip(0)  # [1, B]
+        target_ids = (
+            torch.arange(len_max, device=start_index.device)[:, None] + start_index
+        )  # [target_len, B]
+
+        return replace(
+            self,
+            lengths=new_lengths,
+            time=gather(self.time, target_ids),
+            index=copy(self.index),
+            num_features=gather(self.num_features, target_ids),
+            cat_features=gather(self.cat_features, target_ids),
+            cat_features_names=copy(self.cat_features_names),
+            num_features_names=copy(self.num_features_names),
+            cat_mask=gather(self.cat_mask, target_ids),
+            num_mask=gather(self.num_mask, target_ids),
+        )
 
 
 @dataclass(kw_only=True)
