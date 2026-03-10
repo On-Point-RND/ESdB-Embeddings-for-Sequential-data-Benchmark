@@ -88,7 +88,6 @@ class TaskManager:
             if base_model.__class__.__module__ == "universal_validator.models.torch_mlp":
                 base_model.set_params(
                     early_stopping_scorer=scorers[0],
-                    early_stopping_scorer_name=scorers[0].name,
                 )
             if self.use_hpo:
                 model, cv_results = self.hpo_optimizer.optimize(

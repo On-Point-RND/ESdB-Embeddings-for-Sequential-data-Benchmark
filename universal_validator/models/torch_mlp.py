@@ -8,8 +8,9 @@ from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from torchvision.ops import MLP as TorchvisionMLP
+from torchvision.ops import MLP
 from tqdm import tqdm
+
 
 class BaseMLP:
     def __init__(self, **params):
@@ -41,8 +42,20 @@ class BaseMLP:
         self.sync_params()
         return self
 
-    def get_param(self, key: str, default=None):
-        return self.params.get(key, default)
+    def resolve_early_stopping(self):
+        early_stopping_scorer = self.params.get("early_stopping_scorer")
+        if early_stopping_scorer is not None and not callable(early_stopping_scorer):
+            raise TypeError("early_stopping_scorer must be callable.")
+
+        early_stopping_enabled = bool(
+            self.params.get("early_stopping", False) or early_stopping_scorer is not None
+        )
+        score_monitor_name = (
+            getattr(early_stopping_scorer, "name", "val_score")
+            if early_stopping_scorer is not None
+            else "val_loss"
+        )
+        return early_stopping_enabled, early_stopping_scorer, score_monitor_name
 
     def set_random_seed(self):
         if self.random_state is None:
@@ -54,29 +67,27 @@ class BaseMLP:
 
     def resolve_device(self) -> torch.device:
         device = self.device
-        if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        if str(device).startswith("cuda") and not torch.cuda.is_available():
+        if device.startswith("cuda:") or device == "cuda":
+            return torch.device(device)
+        else:
             raise RuntimeError("CUDA device requested, but CUDA is not available")
-            breakpoint()
-        return torch.device(device)
 
     def build_hidden_channels(self, output_dim: int) -> list[int]:
-        hidden = self.get_param("hidden_layer_sizes", [100])
+        hidden = self.params.get("hidden_layer_sizes", [100])
         if isinstance(hidden, int):
             hidden = [hidden]
         return [int(v) for v in hidden] + [output_dim]
 
     def build_model(self, input_dim: int, output_dim: int):
-        self.model_ = TorchvisionMLP(
+        self.model_ = MLP(
             in_channels=input_dim,
             hidden_channels=self.build_hidden_channels(output_dim),
             activation_layer=self.activation_layer,
             dropout=self.dropout,
         ).to(self.device)
 
-    def make_loader(self, X: torch.Tensor, y: torch.Tensor):
-        dataset = TensorDataset(X, y)
+    def make_loader(self, x_data: torch.Tensor, y_data: torch.Tensor):
+        dataset = TensorDataset(x_data, y_data)
 
         generator = None
         if self.random_state is not None:
@@ -91,17 +102,21 @@ class BaseMLP:
             num_workers=self.num_workers,
         )
 
-    def split_train_val(self, X: np.ndarray, y: np.ndarray, stratify=None):
-        if not bool(self.get_param("early_stopping", False)):
-            return X, None, y, None
-
-        return train_test_split(
-            X,
-            y,
-            test_size=self.validation_fraction,
-            random_state=self.random_state,
-            stratify=stratify,
-        )
+    def split_train_val(self, x_data: np.ndarray, y_data: np.ndarray, stratify=None):
+        early_stopping_enabled, _, _ = self.resolve_early_stopping()
+        if not early_stopping_enabled:
+            return x_data, None, y_data, None
+        else:
+            assert (
+                self.validation_fraction > 0
+            ), "Provide validation set for early stopping."
+            return train_test_split(
+                x_data,
+                y_data,
+                test_size=self.validation_fraction,
+                random_state=self.random_state,
+                stratify=stratify,
+            )
 
     def train_model(
         self,
@@ -115,29 +130,36 @@ class BaseMLP:
         weight_decay = float(self.params["weight_decay"])
         optimizer = torch.optim.Adam(
             self.model_.parameters(),
-            lr=float(self.get_param("learning_rate_init", 1e-3)),
+            lr=float(self.params.get("learning_rate_init", 1e-3)),
             weight_decay=weight_decay,
         )
 
-        X_train_tensor = torch.as_tensor(x_train, dtype=torch.float32)
-        y_train_tensor = torch.as_tensor(y_train, dtype=y_dtype)
-        loader = self.make_loader(X_train_tensor, y_train_tensor)
-        max_epoch = int(self.get_param("max_epoch", 200))
-        patience = int(self.get_param("n_iter_no_change", self.get_param("patience", 20)))
-        tol = float(self.get_param("tol", 1e-4))
-        verbose = bool(self.get_param("verbose", False))
-        use_early_stopping = x_val is not None and y_val is not None
-        early_stopping_scorer = self.get_param("early_stopping_scorer", None)
-        early_stopping_scorer_name = self.get_param("early_stopping_scorer_name", "val_score")
-        use_score_monitor = use_early_stopping and callable(early_stopping_scorer)
+        loader = self.make_loader(
+            torch.as_tensor(x_train, dtype=torch.float32),
+            torch.as_tensor(y_train, dtype=y_dtype),
+        )
+
+        max_epoch = int(self.params.get("max_epoch", 200))
+        patience = int(
+            self.params.get("n_iter_no_change", self.params.get("patience", 20))
+        )
+        tol = float(self.params.get("tol", 1e-4))
+        verbose = bool(self.params.get("verbose", False))
+
+        early_stopping, early_stopper, early_stopper_name = self.resolve_early_stopping()
+        use_score_monitor = early_stopper is not None
+        if early_stopping and (x_val is None or y_val is None):
+            raise ValueError(
+                "early_stopping=True requires validation data (x_val and y_val).",
+            )
 
         best_state = None
-        best_val_loss = float("inf")
-        best_val_score = float("-inf")
+        best_monitor = float("-inf") if use_score_monitor else float("inf")
         stale_epochs = 0
         val_input = None
         val_target = None
-        if use_early_stopping and not use_score_monitor:
+        if early_stopping and not use_score_monitor:
+            assert x_val is not None and y_val is not None
             val_input = torch.as_tensor(x_val, dtype=torch.float32).to(
                 self.device,
             )
@@ -169,42 +191,30 @@ class BaseMLP:
 
             train_loss = total_loss / max(total_items, 1)
 
-            if not use_early_stopping:
+            if not early_stopping:
                 if verbose:
                     print(f"Epoch {epoch + 1}/{max_epoch}: train_loss={train_loss:.6f}")
                 continue
 
             self.model_.eval()
             if use_score_monitor:
-                assert early_stopping_scorer is not None
-                assert x_val is not None and y_val is not None
-                val_score = float(early_stopping_scorer(self, x_val, y_val))
-                improved = val_score > best_val_score + tol
+                monitor_value = float(early_stopper(self, x_val, y_val))
+                improved = monitor_value > best_monitor + tol
             else:
                 with torch.inference_mode():
-                    assert val_input is not None and val_target is not None
                     val_pred = self.model_(val_input)
-                    val_loss = loss_fn(val_pred, val_target).item()
-                improved = val_loss + tol < best_val_loss
+                    monitor_value = loss_fn(val_pred, val_target).item()
+                improved = monitor_value + tol < best_monitor
 
             if verbose:
-                if use_score_monitor:
-                    print(
-                        f"Epoch {epoch + 1}/{max_epoch}: "
-                        f"train_loss={train_loss:.6f}, "
-                        f"{early_stopping_scorer_name}={val_score:.6f}"
-                    )
-                else:
-                    print(
-                        f"Epoch {epoch + 1}/{max_epoch}: "
-                        f"train_loss={train_loss:.6f}, val_loss={val_loss:.6f}"
-                    )
+                print(
+                    f"Epoch {epoch + 1}/{max_epoch}: "
+                    f"train_loss={train_loss:.6f}, "
+                    f"{early_stopper_name}={monitor_value:.6f}"
+                )
 
             if improved:
-                if use_score_monitor:
-                    best_val_score = val_score
-                else:
-                    best_val_loss = val_loss
+                best_monitor = monitor_value
                 best_state = deepcopy(self.model_.state_dict())
                 stale_epochs = 0
             else:
@@ -220,76 +230,76 @@ class BaseMLP:
 
 
 class TorchMLPClassifier(BaseMLP, ClassifierMixin):
-    def fit(self, X: np.ndarray, y: np.ndarray):
-        X = np.asarray(X, dtype=np.float32)
-        y = np.asarray(y)
+    def fit(self, x_data: np.ndarray, y_data: np.ndarray):
+        x_data = np.asarray(x_data, dtype=np.float32)
+        y_data = np.asarray(y_data)
 
-        self.classes_, y_encoded = np.unique(y, return_inverse=True)
+        self.classes_, y_encoded = np.unique(y_data, return_inverse=True)
         if len(self.classes_) < 2:
             raise ValueError("Classifier requires at least two classes")
 
         self.set_random_seed()
         self.device = self.resolve_device()
-        self.n_features_in_ = X.shape[1]
+        self.n_features_in_ = x_data.shape[1]
 
         self.build_model(input_dim=self.n_features_in_, output_dim=len(self.classes_))
-        X_train, X_val, y_train, y_val = self.split_train_val(
-            X,
+        x_train, x_val, y_train, y_val = self.split_train_val(
+            x_data,
             y_encoded.astype(np.int64),
             stratify=y_encoded,
         )
         self.train_model(
-            x_train=X_train,
+            x_train=x_train,
             y_train=y_train,
             y_dtype=torch.long,
             loss_fn=nn.CrossEntropyLoss(),
-            x_val=X_val,
+            x_val=x_val,
             y_val=y_val,
         )
         return self
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x_data: np.ndarray) -> np.ndarray:
         if not hasattr(self, "model_"):
             raise ValueError("Model is not fitted yet")
-        X = np.asarray(X, dtype=np.float32)
+        x_data = np.asarray(x_data, dtype=np.float32)
         with torch.inference_mode():
-            X_tensor = torch.as_tensor(X, dtype=torch.float32).to(self.device)
-            logits = self.model_(X_tensor)
+            x_tensor = torch.as_tensor(x_data, dtype=torch.float32).to(self.device)
+            logits = self.model_(x_tensor)
             return torch.softmax(logits, dim=1).cpu().numpy()
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        proba = self.predict_proba(X)
+    def predict(self, x_data: np.ndarray) -> np.ndarray:
+        proba = self.predict_proba(x_data)
         return self.classes_[np.argmax(proba, axis=1)]
 
 
 class TorchMLPRegressor(BaseMLP, RegressorMixin):
-    def fit(self, X: np.ndarray, y: np.ndarray):
-        X = np.asarray(X, dtype=np.float32)
-        y = np.asarray(y, dtype=np.float32)
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+    def fit(self, x_data: np.ndarray, y_data: np.ndarray):
+        x_data = np.asarray(x_data, dtype=np.float32)
+        y_data = np.asarray(y_data, dtype=np.float32)
+        if y_data.ndim == 1:
+            y_data = y_data.reshape(-1, 1)
 
         self.set_random_seed()
         self.device = self.resolve_device()
-        self.n_features_in_ = X.shape[1]
+        self.n_features_in_ = x_data.shape[1]
 
-        self.build_model(input_dim=self.n_features_in_, output_dim=y.shape[1])
-        X_train, X_val, y_train, y_val = self.split_train_val(X, y)
+        self.build_model(input_dim=self.n_features_in_, output_dim=y_data.shape[1])
+        x_train, x_val, y_train, y_val = self.split_train_val(x_data, y_data)
         self.train_model(
-            x_train=X_train,
+            x_train=x_train,
             y_train=y_train,
             y_dtype=torch.float32,
             loss_fn=nn.MSELoss(),
-            x_val=X_val,
+            x_val=x_val,
             y_val=y_val,
         )
         return self
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        X = np.asarray(X, dtype=np.float32)
+    def predict(self, x_data: np.ndarray) -> np.ndarray:
+        x_data = np.asarray(x_data, dtype=np.float32)
         with torch.inference_mode():
-            X_tensor = torch.as_tensor(X, dtype=torch.float32).to(self.device)
-            pred = self.model_(X_tensor).cpu().numpy()
+            x_tensor = torch.as_tensor(x_data, dtype=torch.float32).to(self.device)
+            pred = self.model_(x_tensor).cpu().numpy()
         if pred.shape[1] == 1:
             return pred[:, 0]
         return pred
