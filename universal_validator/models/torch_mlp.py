@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision.ops import MLP as TorchvisionMLP
-
+from tqdm import tqdm
 
 class BaseMLP:
     def __init__(self, **params):
@@ -58,6 +58,7 @@ class BaseMLP:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if str(device).startswith("cuda") and not torch.cuda.is_available():
             raise RuntimeError("CUDA device requested, but CUDA is not available")
+            breakpoint()
         return torch.device(device)
 
     def build_hidden_channels(self, output_dim: int) -> list[int]:
@@ -104,35 +105,28 @@ class BaseMLP:
 
     def train_model(
         self,
-        X_train: np.ndarray,
+        x_train: np.ndarray,
         y_train: np.ndarray,
         y_dtype: torch.dtype,
         loss_fn: nn.Module,
-        X_val: np.ndarray | None,
+        x_val: np.ndarray | None,
         y_val: np.ndarray | None,
     ):
-        n_train = max(len(X_train), 1)
-        if "weight_decay" in self.params:
-            weight_decay = float(self.params["weight_decay"])
-        elif "weight_decay_init" in self.params:
-            weight_decay = float(self.params["weight_decay_init"])
-        else:
-            # Backward compatibility with older configs.
-            weight_decay = float(self.get_param("alpha", 0.0)) / n_train
+        weight_decay = float(self.params["weight_decay"])
         optimizer = torch.optim.Adam(
             self.model_.parameters(),
             lr=float(self.get_param("learning_rate_init", 1e-3)),
             weight_decay=weight_decay,
         )
 
-        X_train_tensor = torch.as_tensor(X_train, dtype=torch.float32)
+        X_train_tensor = torch.as_tensor(x_train, dtype=torch.float32)
         y_train_tensor = torch.as_tensor(y_train, dtype=y_dtype)
         loader = self.make_loader(X_train_tensor, y_train_tensor)
         max_epoch = int(self.get_param("max_epoch", 200))
         patience = int(self.get_param("n_iter_no_change", self.get_param("patience", 20)))
         tol = float(self.get_param("tol", 1e-4))
         verbose = bool(self.get_param("verbose", False))
-        use_early_stopping = X_val is not None and y_val is not None
+        use_early_stopping = x_val is not None and y_val is not None
         early_stopping_scorer = self.get_param("early_stopping_scorer", None)
         early_stopping_scorer_name = self.get_param("early_stopping_scorer_name", "val_score")
         use_score_monitor = use_early_stopping and callable(early_stopping_scorer)
@@ -144,19 +138,20 @@ class BaseMLP:
         val_input = None
         val_target = None
         if use_early_stopping and not use_score_monitor:
-            val_input = torch.as_tensor(X_val, dtype=torch.float32).to(
+            val_input = torch.as_tensor(x_val, dtype=torch.float32).to(
                 self.device,
             )
             val_target = torch.as_tensor(y_val, dtype=y_dtype).to(
                 self.device,
             )
+
         for epoch in range(max_epoch):
             self.model_.train()
             total_loss = 0.0
             total_items = 0
 
-            for X_batch, y_batch in loader:
-                X_batch = X_batch.to(
+            for x_batch, y_batch in tqdm(loader):
+                x_batch = x_batch.to(
                     self.device,
                 )
                 y_batch = y_batch.to(
@@ -164,11 +159,11 @@ class BaseMLP:
                     dtype=y_dtype,
                 )
                 optimizer.zero_grad(set_to_none=True)
-                pred = self.model_(X_batch)
+                pred = self.model_(x_batch)
                 loss = loss_fn(pred, y_batch)
                 loss.backward()
                 optimizer.step()
-                batch_items = X_batch.shape[0]
+                batch_items = x_batch.shape[0]
                 total_loss += loss.item() * batch_items
                 total_items += batch_items
 
@@ -182,8 +177,8 @@ class BaseMLP:
             self.model_.eval()
             if use_score_monitor:
                 assert early_stopping_scorer is not None
-                assert X_val is not None and y_val is not None
-                val_score = float(early_stopping_scorer(self, X_val, y_val))
+                assert x_val is not None and y_val is not None
+                val_score = float(early_stopping_scorer(self, x_val, y_val))
                 improved = val_score > best_val_score + tol
             else:
                 with torch.inference_mode():
@@ -244,11 +239,11 @@ class TorchMLPClassifier(BaseMLP, ClassifierMixin):
             stratify=y_encoded,
         )
         self.train_model(
-            X_train=X_train,
+            x_train=X_train,
             y_train=y_train,
             y_dtype=torch.long,
             loss_fn=nn.CrossEntropyLoss(),
-            X_val=X_val,
+            x_val=X_val,
             y_val=y_val,
         )
         return self
@@ -281,11 +276,11 @@ class TorchMLPRegressor(BaseMLP, RegressorMixin):
         self.build_model(input_dim=self.n_features_in_, output_dim=y.shape[1])
         X_train, X_val, y_train, y_val = self.split_train_val(X, y)
         self.train_model(
-            X_train=X_train,
+            x_train=X_train,
             y_train=y_train,
             y_dtype=torch.float32,
             loss_fn=nn.MSELoss(),
-            X_val=X_val,
+            x_val=X_val,
             y_val=y_val,
         )
         return self

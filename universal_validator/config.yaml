@@ -35,15 +35,15 @@ models:
     shared_params:
       hidden_layer_sizes: []
       random_state: 42
-      max_epoch: 1000
+      max_epoch: 200
       early_stopping: true
       validation_fraction: 0.1
       verbose: true
-      device: cuda:0
-      batch_size: 256
+      device: cuda:2
+      batch_size: 128
       num_workers: 4
-      learning_rate_init: 1e-3
-      weight_decay: 1e-4
+      learning_rate_init: 0.0005008040520508883
+      weight_decay: 2.2407699411695492e-06
     search_space:
       weight_decay: { low: 1e-6, high: 1e-2, log: true }
       learning_rate_init: { low: 1e-4, high: 1e-2, log: true }
