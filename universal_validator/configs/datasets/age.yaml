@@ -1,4 +1,4 @@
 data_conf:
   dataset_name: "AGE"
-  train_path: embeddings/age/preprocessed_emb/train
-  test_path: embeddings/age/preprocessed_emb/test
+  train_path: embeddings/age/preprocessed_emb/zh/mean/train_postproc
+  test_path: embeddings/age/preprocessed_emb/zh/mean/test_postproc
