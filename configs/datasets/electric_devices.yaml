@@ -25,7 +25,7 @@ data:
       max_seq_len: 96
       time_name: time
       index_name: sequence_id
-      target_name: target
+      target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:

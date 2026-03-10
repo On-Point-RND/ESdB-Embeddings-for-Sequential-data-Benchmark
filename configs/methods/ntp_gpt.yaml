@@ -1,4 +1,4 @@
-method_name: NTP
+method_name: NTP_GPT
 runner_name: UnsupervisedEmbedRunner
 
 data:
@@ -45,18 +45,12 @@ model:
       num_norm: True
       # Encoder:
       enc_num_layers: 2
-      # Decoder:
-      use_transformer: False
-      dec_hidden_size: 128
-      dec_num_layers: 3
-      dec_num_heads: 8
-      dec_scale_hidden: 2
-      max_len: ${data.preprocessing.common_pipeline.max_seq_len}
-  head:
-    name: nn.Linear
-    params:
-      in_features: output_dim_from_prev
-      out_features: ${n_classes}
+      use_transformer: True
+      n_head: 4
+      n_layer: 4
+      max_len: ${data.preprocessing.gen_pipeline.max_seq_len}
+  aggregation:
+    name: ValidHiddenMean
 
 optimizer:
   name: Adam

@@ -9,9 +9,9 @@ from pyspark.sql.types import FloatType
 from ..common import collect_lists
 from .common_pandas import (
     add_shift_columns,
-    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    filter_short,
     shift_end_by_len,
     split_num_shifts,
     global_train_column,
@@ -161,6 +161,7 @@ def main():
 
     if args.ntp:
         test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed

@@ -46,7 +46,7 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
+    t = np.asarray(row["timestamp"], dtype="datetime64[s]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
@@ -56,36 +56,20 @@ def get_forecast_target(row):
 
 def get_diversity(row):
     d = np.asarray(row["play_duration"], dtype=float)
-    out = []
-    for s in row["shifts"]:
-        post = d[s:]
-        assert len(post) >= 2
-        out.append(np.std(post) / max(np.mean(post), np.finfo(float).eps))
-    return out
+    std_val = np.std(d)
+    mean_val = np.mean(d)
+    return std_val / max(mean_val, np.finfo(float).eps)
 
 
 def get_mean(row):
     d = np.asarray(row["play_duration"], dtype=float)
-    out = []
-    for s in row["shifts"]:
-        s = int(s)
-        post = d[s:]
-        out.append(np.mean(post))
-    return out
+    return np.mean(d)
 
 
-def apply_threshold(diversity_list, mean_list, th_dv, th_mean):
-    if not isinstance(diversity_list, (list, np.ndarray)):
-        diversity_list = []
-    if not isinstance(mean_list, (list, np.ndarray)):
-        mean_list = []
-    out = []
-    for d, m in zip(diversity_list, mean_list):
-        if (d > th_dv) and (m < th_mean):
-            out.append(1)
-        else:
-            out.append(0)
-    return out
+def apply_threshold(d, m, th_dv, th_mean):
+    if (d > th_dv) and (m < th_mean):
+        return 1
+    return 0
 
 
 def compute_shift_end(arr):
@@ -274,43 +258,38 @@ def main():
     train_df["diversity"] = train_df.apply(get_diversity, axis=1)
     train_df["mean"] = train_df.apply(get_mean, axis=1)
 
-    threshold_diversity = np.quantile(
-        np.concatenate(train_df["diversity"].values), 0.95
-    )
-    threshold_mean = np.quantile(np.concatenate(train_df["mean"].values), 0.95)
+    threshold_diversity = train_df["diversity"].quantile(0.95)
+    threshold_mean = train_df["mean"].quantile(0.95)
 
-    _, bins = pd.qcut(
-        np.concatenate(train_df["diversity"].values),
-        q=4,
-        retbins=True,
-        duplicates="drop",
+    _, bins = pd.qcut(train_df["diversity"], q=4, retbins=True, duplicates="drop")
+
+    train_df["target__clf__global__accuracy+f1_macro"] = np.clip(
+        np.digitize(train_df["diversity"], bins) - 1, 0, 3
     )
-    test_df["target__clf__local__accuracy+f1_macro"] = test_df["diversity"].apply(
-        lambda x: np.clip(np.digitize(x, bins) - 1, 0, 3)
+    test_df["target__clf__global__accuracy+f1_macro"] = np.clip(
+        np.digitize(test_df["diversity"], bins) - 1, 0, 3
     )
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
+        lambda x: apply_threshold(
+            x["diversity"], x["mean"], threshold_diversity, threshold_mean
+        ),
+        axis=1,
+    )
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.apply(
+        lambda x: apply_threshold(
+            x["diversity"], x["mean"], threshold_diversity, threshold_mean
+        ),
+        axis=1,
+    )
+
     test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df.apply(
-        lambda x: apply_threshold(
-            x["diversity"], x["mean"], threshold_diversity, threshold_mean
-        ),
-        axis=1,
-    )
 
-    train_df["target__clf__local__accuracy+f1_macro"] = train_df["diversity"].apply(
-        lambda x: np.clip(np.digitize(x, bins) - 1, 0, 3)
-    )
     train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
-    )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df.apply(
-        lambda x: apply_threshold(
-            x["diversity"], x["mean"], threshold_diversity, threshold_mean
-        ),
-        axis=1,
     )
 
     keep_cols = (
@@ -322,8 +301,8 @@ def main():
             "_seq_len",
             "shifts",
             "global_train",
-            "target__clf__local__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "target__clf__global__accuracy+f1_macro",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
         ]

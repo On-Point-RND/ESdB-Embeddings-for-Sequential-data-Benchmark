@@ -346,20 +346,19 @@ nn:
   
 data:
   dataset:
-    parquet_path: "data/favorita/preprocessed_ntp/train"
+    parquet_path: "data/favorita/preprocessed/train"
     random_split: true
     split_seed: 42
     split_sizes: 
-      - 0.7
-      - 0.15
-      - 0.15
+      - 0.85   # train
+      - 0.15  # train_val
 
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 512
       time_name: date
       index_name: store_nbr
-      target_name: mock_target
+      target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
@@ -371,19 +370,9 @@ data:
         - MaskValid
         - FillNans:
             fill_value: 0
-    primenet_pipeline:
+    gen_pipeline:
       <<: *common_pipeline
-      batch_transforms:
-        - DatetimeToFloat:
-            loc: "2013-01-01"
-            scale: [30, "D"]
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - FillNans:
-            fill_value: 0
-        - PrimeNetSampler:
-            segment_num: 3
+      max_seq_len: 1000000
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -403,45 +392,58 @@ data:
             seed: 0
 
   loaders:
-    train:  # dataset name
-      split_idx: 0  # split index from dataset
+    train:
+      split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 2
-      drop_incomplete: true  # default false
-      shuffle: true  # default false
+      batch_size: 128
+      drop_incomplete: true
+      shuffle: true
       loop: false
       num_workers: 4
       random_seed: 42
     full_train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 2
+      batch_size: 128
       num_workers: 4
     train_val:
       split_idx: 1
       preprocessing: common_pipeline
-      batch_size: 2
+      batch_size: 128
       num_workers: 4
-    hpo_val:
-      split_idx: 2
-      preprocessing: common_pipeline
-      batch_size: 2
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
+    gen_train_val:
+      split_idx: 1
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+
 
 test_data:
   dataset:
-    parquet_path: "data/favorita/preprocessed_ntp/test"
+    parquet_path: "data/favorita/preprocessed/test"
     split_sizes: 
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
   loaders:
     test:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 2
+      batch_size: 128
       num_workers: 4
-
+    gen_test:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
 
 metrics:
   - name: ${main_metric}

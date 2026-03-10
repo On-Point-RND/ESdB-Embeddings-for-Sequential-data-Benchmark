@@ -37,7 +37,7 @@ class ReconPredictor(nn.Module):
 
     def metrics(self, predictions: dict[str, torch.Tensor], batch: Batch):
         metrics_dict = {}
-        rng = torch.arange(batch.lengths.max(), device=batch.lengths.device)
+        rng = torch.arange(batch.time.shape[0], device=batch.lengths.device)
         mask = (rng[:, None] < batch.lengths)[1:].float()
         total = mask.sum().clamp(min=1)
 
@@ -76,7 +76,7 @@ class ReconPredictor(nn.Module):
         mse_loss = {}
 
         valid_mask = (
-            torch.arange(y_true.lengths.max(), device=y_true.lengths.device)[:, None]
+            torch.arange(y_true.time.shape[0], device=y_true.lengths.device)[:, None]
             < y_true.lengths
         )
         current_mask = valid_mask[1:]

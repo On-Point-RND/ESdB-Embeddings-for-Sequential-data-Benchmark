@@ -49,13 +49,11 @@ def get_forecast_target(row):
 
 def get_ratio(row):
     events = np.asarray(row["event_type"])
-    out = []
-    for s in row["shifts"]:
-        post = events[s:]
-        n_dislike = (post == 3).sum()
-        n_listens = (post == 1).sum()
-        out.append((n_dislike + 1) / (n_listens + 1))
-    return out
+    # Count total dislikes (3) and listens (1) in the whole sequence
+    n_dislike = (events == 3).sum()
+    n_listens = (events == 1).sum()
+    # Return single scalar ratio
+    return (n_dislike + 1) / (n_listens + 1)
 
 
 def compute_shift_end(arr):
@@ -243,25 +241,27 @@ def main():
     test_df["ratio"] = test_df.apply(get_ratio, axis=1)
     train_df["ratio"] = train_df.apply(get_ratio, axis=1)
 
-    threshold = np.quantile(np.concatenate(train_df["ratio"].values), 0.95)
+    threshold = train_df["ratio"].quantile(0.95)
+
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+        test_df["ratio"] > threshold
+    ).astype(int)
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+        train_df["ratio"] > threshold
+    ).astype(int)
+
 
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["mode_is_organic"]
     test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__forecast__local__mse+r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df[
-        "ratio"
-    ].apply(lambda x: [1 if r > threshold else 0 for r in x])
 
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["mode_is_organic"]
     train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
     train_df["target__forecast__local__mse+r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
-        "ratio"
-    ].apply(lambda x: [1 if r > threshold else 0 for r in x])
 
     keep_cols = (
         INDEX_COLUMNS
@@ -273,7 +273,7 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg__local__mse+r2",
             "target__forecast__local__mse+r2",
         ]
