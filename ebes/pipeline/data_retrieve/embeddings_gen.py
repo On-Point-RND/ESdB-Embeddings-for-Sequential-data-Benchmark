@@ -31,11 +31,14 @@ class ResultsGetter:
         self.index_name = config["data"]["preprocessing"]["common_pipeline"][
             "index_name"
         ]
+        #data_df = pd.read_parquet(
+        #    data_path, columns=[self.index_name, "shifts", "_seq_len", "debug_f"]
+        #)
         data_df = pd.read_parquet(
-            data_path, columns=[self.index_name, "shifts", "_seq_len", "debug_f"]
+            data_path, columns=[self.index_name, "shifts", "_seq_len"]
         )
         self.shifts_by_index = data_df.set_index(self.index_name)["shifts"].to_dict()
-        self.debug_f_by_index = data_df.set_index(self.index_name)["debug_f"].to_dict()
+        #self.debug_f_by_index = data_df.set_index(self.index_name)["debug_f"].to_dict()
         self.orig_len_by_index = data_df.set_index(self.index_name)[
             "_seq_len"
         ].to_dict()
@@ -92,19 +95,24 @@ class ResultsGetter:
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
 
-        debug_f = self.debug_f_by_index[old_index]
-        if isinstance(debug_f, list):
-            debug_f = np.asarray(debug_f)
+        #debug_f = self.debug_f_by_index[old_index]
+        #if isinstance(debug_f, list):
+        #    debug_f = np.asarray(debug_f)
 
-        assert isinstance(debug_f, np.ndarray) and isinstance(
+        #assert isinstance(debug_f, np.ndarray) and isinstance(
+        #    shifts, np.ndarray
+        #), "Provide correct types for sequential data in Dataframe."
+
+        assert isinstance(
             shifts, np.ndarray
         ), "Provide correct types for sequential data in Dataframe."
 
         shifts = shifts - offset
         shifts_mask = shifts >= MIN_SHIFT_VALUE
         shifts = shifts[shifts_mask]
-        debug_f = debug_f[shifts_mask]
-        return shifts, debug_f
+        #debug_f = debug_f[shifts_mask]
+        #return shifts, debug_f
+        return shifts
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
@@ -133,7 +141,8 @@ class ResultsGetter:
             orig_len = int(self.orig_len_by_index[old_index])
             offset = max(0, orig_len - old_len)
 
-            shifts, _ = self.get_shifts(old_index, offset)
+            #shifts, _ = self.get_shifts(old_index, offset)
+            shifts = self.get_shifts(old_index, offset)
             shifts = np.append(shifts, int(batch.lengths[b]))
             for i, s in enumerate(shifts):
                 s = int(s)

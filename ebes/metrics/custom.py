@@ -70,6 +70,7 @@ class LoggingMetric(torcheval.metrics.Metric):
     def __init__(self, key, *_, **__):
         super().__init__()
         self.key = key
+        self._name = key
         self._add_state("sum", 0)
         self._add_state("total", 0)
 
