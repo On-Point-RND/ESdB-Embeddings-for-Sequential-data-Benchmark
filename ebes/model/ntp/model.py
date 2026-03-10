@@ -32,18 +32,15 @@ class NTPModel(BaseModel):
         enc_num_layers=1,
         use_transformer=False,
         n_head=4,
-        n_layer=4,
         max_len=1000,
         # Loss weights:
         mse_weight=1,
-        reconstruction_weight=1,
         ce_weight=1,
     ):
         super().__init__()
 
         self.mse_weight = mse_weight
         self.ce_weight = ce_weight
-        self.reconstruction_weight = reconstruction_weight
         ### PROCESSORS ###
         self.processor = Batch2Seq(
             cat_cardinalities=cat_cardinalities,
@@ -55,23 +52,20 @@ class NTPModel(BaseModel):
         )
         self.use_transformer = use_transformer
         self.input_size = self.processor.output_dim
-        ### NORMS ###
-        self.post_encoder_norm = nn.LayerNorm(enc_hidden_size)
-
         ### ENCODER ###
         if self.use_transformer:
             self.encoder = GPT(
                 input_size=self.processor.output_dim,
                 n_embd=enc_hidden_size,
                 n_head=n_head,
-                n_layer=n_layer,
+                n_layer=enc_num_layers,
                 max_len=max_len,
             )
         else:
             self.encoder = GRU(
                 input_size=self.processor.output_dim,
                 hidden_size=enc_hidden_size,
-                num_layers=4*enc_num_layers,
+                num_layers=enc_num_layers,
             )
         
         ### ACTIVATION ###
@@ -129,16 +123,15 @@ class NTPModel(BaseModel):
 
 
 class NTPPretrainer(NTPModel):
-    def __init__(self, normalize_z: bool = False, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.normalize_z = normalize_z
 
     def forward(self, batch: Batch):
         check_batch = deepcopy(batch)
         losses, output = self.reconstruction_loss(batch)
         metrics = self.recon_predictor.metrics(output["prediction"], batch)
         assert batch == check_batch
-        losses["loss"] = self.reconstruction_weight * losses["reconstruction_loss"]
+        losses["loss"] = losses["reconstruction_loss"]
         losses.update(metrics) 
         return losses
 
