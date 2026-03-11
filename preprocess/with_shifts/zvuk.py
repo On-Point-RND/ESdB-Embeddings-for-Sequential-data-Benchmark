@@ -50,9 +50,12 @@ def get_forecast_target(row):
 
 def get_clf_target(row):
     c = np.asarray(row["cluster_id"])
+    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
-        post_c = c[s:]
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        post_c = c[mask]
         assert len(post_c) > 0, "Sequence after shift is empty"
         vals, counts = np.unique(post_c, return_counts=True)
         out.append(int(vals[np.argmax(counts)]))
@@ -61,9 +64,12 @@ def get_clf_target(row):
 
 def get_diversity(row):
     d = np.asarray(row["play_duration"], dtype=float)
+    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
-        post = d[s:]
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        post = d[mask]
         assert len(post) >= 2
         out.append(np.std(post) / max(np.mean(post), np.finfo(float).eps))
     return out
@@ -208,7 +214,7 @@ def main():
         df = vc.encode(df)
         if args.cat_codes_path is not None:
             vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
-
+    breakpoint()
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
