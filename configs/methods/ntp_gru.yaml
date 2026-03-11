@@ -26,7 +26,7 @@ unsupervised_trainer:
   patience: ${patience}
   total_iters: 100_000
 
-unsupervised_model:
+training_model:
   preprocess:
     name: NTPPretrainer
     params: ${model.preprocess.params}
@@ -35,7 +35,6 @@ model:
   preprocess:
     name: NTPEncoder
     params:
-      normalize_z: False
       # Preprocess
       cat_cardinalities: ${cc}
       num_features: ${nn}
@@ -46,9 +45,7 @@ model:
       # Encoder:
       enc_num_layers: 2
       use_transformer: False
-      n_head: 4
-      n_layer: 4
-      max_len: ${data.preprocessing.gen_pipeline.max_seq_len}
+      max_len: ${data.preprocessing.common_pipeline.max_seq_len}
   aggregation:
     name: ValidHiddenMean
 
@@ -62,38 +59,16 @@ optuna:
   params:
     n_trials: 70
     n_startup_trials: 5
-    request_list: 
-      - 'optimizer.params.weight_decay': 1.e-08
-        'optimizer.params.lr': 1.e-3
-        'model.preprocess.params.normalize_z': false
-        # 'model.preprocess.params.time_process': 'diff'
-        'model.preprocess.params.num_norm': True
-        'model.preprocess.params.cat_emb_dim': 16
-        'model.preprocess.params.num_emb_dim': 16
-        'model.preprocess.params.enc_num_layers': 3
-        'model.preprocess.params.dec_hidden_size': 128
-        'model.preprocess.params.dec_num_layers': 3
-        'model.preprocess.params.dec_num_heads': 8
-        'model.preprocess.params.dec_scale_hidden': 4
+    request_list: []
     target_metric: "loss"
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
-    # NTP:
-    model.preprocess.params.normalize_z: [suggest_categorical, {choices: [False, True]}]
     # Preprocess
-    # model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat", "none"]}]
     model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
     model.preprocess.params.cat_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     model.preprocess.params.num_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     # Encoder:
-    model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 3, log: False}]
+    model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 10, log: False}]
     model.preprocess.params.enc_aggregation: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
-    # Decoder:
-    model.preprocess.params.dec_hidden_size: [suggest_int, {low: 32, high: 512, log: False, step: 32}]
-    model.preprocess.params.dec_num_layers: [suggest_int, {low: 1, high: 3, log: False}]
-    model.preprocess.params.dec_num_heads: [suggest_categorical, {choices: [1, 2, 4, 8]}]
-    model.preprocess.params.dec_scale_hidden: [suggest_int, {low: 1, high: 16, log: False}]
-    # Loss weights:
-    # model.preprocess.params.l1_weight: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
-
+   
