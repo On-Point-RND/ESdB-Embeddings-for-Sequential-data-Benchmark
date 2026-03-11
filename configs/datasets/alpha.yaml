@@ -6,24 +6,24 @@ main_loss:
   name: nn.CrossEntropyLoss
 
 cc: 
-  currency: 11
-  operation_kind: 7
-  card_type: 173
-  operation_type: 22
-  operation_type_group: 4
-  ecommerce_flag: 3
-  payment_system: 7
-  income_flag: 3
-  mcc: 108
-  country: 24
-  city: 163
+  currency: 12
+  operation_kind: 8
+  card_type: 174
+  operation_type: 23
+  operation_type_group: 5
+  ecommerce_flag: 4
+  payment_system: 8
+  income_flag: 4
+  mcc: 109
+  country: 25
+  city: 164
   mcc_category: 28
-  day_of_week: 7
-  hour: 24
+  day_of_week: 8
+  weekofyear: 55
 ee:  
 nn:
+  - hour
   - amnt
-  - days_before
   - hour_diff
 
 data:
@@ -33,16 +33,15 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
-      time_name: transaction_number
+      time_name: time_from_first_trn
       index_name: app_id
-      target_name: mock_target
+      target_name: shard
       num_names: ${nn}
       cat_cardinalities: ${cc}
       batch_transforms:
