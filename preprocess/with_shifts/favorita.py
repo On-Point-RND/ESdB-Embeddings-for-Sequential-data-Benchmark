@@ -304,7 +304,7 @@ def main():
         + [
             "shifts",
             "global_train",
-            "_seq_len"
+            "_seq_len",
             "target__store_type__global__accuracy+f1_macro",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg_amount__local__mse+r2",
