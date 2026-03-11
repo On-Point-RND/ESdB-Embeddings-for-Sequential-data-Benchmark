@@ -18,7 +18,12 @@ def start_debugging(_, frame):
 
 
 def collect_config(
-    dataset, method, experiment, specify=None, gpu=None
+    dataset,
+    method,
+    experiment,
+    specify=None,
+    gpu=None,
+    downstream_validator="universal_validator/config.yaml",
 ) -> dict[str, Any]:
     data_config = OmegaConf.load(Path(f"configs/datasets/{dataset}.yaml"))
     method_config = OmegaConf.load(Path(f"configs/methods/{method}.yaml"))
@@ -33,6 +38,20 @@ def collect_config(
             raise ValueError(f"No specification {specify}")
 
     config = OmegaConf.merge(*configs)
+
+    if downstream_validator:
+        validator_config_path = Path(downstream_validator)
+        if validator_config_path.exists():
+            validator_config = OmegaConf.load(validator_config_path)
+            config["universal_validator"] = OmegaConf.to_container(
+                validator_config, resolve=True
+            )
+            config["universal_validator"]["dataset_name"] = dataset
+        else:
+            raise ValueError("Config for downstream validator is not found.")
+    else:
+        config["universal_validator"] = None
+
     if gpu is not None:
         assert config.runner.get("device_list") is None
         config["device"] = gpu
@@ -45,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--method", type=str, default="gru")
     parser.add_argument("-e", "--experiment", type=str, default="test")
     parser.add_argument("-s", "--specify", type=str, default=None)
+    parser.add_argument("-dv", "--downstream_validator", action="store_true")
     parser.add_argument("-g", "--gpu", type=str, default=None)
     parser.add_argument(
         "-a",
@@ -58,7 +78,12 @@ if __name__ == "__main__":
     signal.signal(signal.SIGUSR1, start_debugging)
 
     config = collect_config(
-        args.dataset, args.method, args.experiment, args.specify, args.gpu
+        args.dataset,
+        args.method,
+        args.experiment,
+        args.specify,
+        args.gpu,
+        args.downstream_validator,
     )
     for k in ["trainer", "unsupervised_trainer"]:
         if k in config:
