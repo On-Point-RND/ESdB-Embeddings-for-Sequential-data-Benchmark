@@ -1,0 +1,75 @@
+method_name: NTP_GPT
+runner_name: UnsupervisedEmbedRunner
+
+data:
+  loaders:
+    unsupervised_train: ${data.loaders.train}
+    unsupervised_train_val: ${data.loaders.train_val}
+
+unsupervised_loss:
+  name: ModelLoss
+unsupervised_metrics:
+    - name: LoggingMetric
+      params: {"key": loss}
+    - name: LoggingMetric
+      params: {"key": accuracy}
+    - name: LoggingMetric
+      params: {"key": r2}
+    - name: LoggingMetric
+      params: {"key": perplexity}
+      
+      
+    
+unsupervised_trainer:
+  ckpt_track_metric: loss
+  metrics_on_train: true
+  patience: ${patience}
+  total_iters: 100_000
+
+training_model:
+  preprocess:
+    name: NTPPretrainer
+    params: ${model.preprocess.params}
+
+model:
+  preprocess:
+    name: NTPEncoder
+    params:
+      # Preprocess
+      cat_cardinalities: ${cc}
+      num_features: ${nn}
+      cat_emb_dim: 16
+      num_emb_dim: 16
+      time_process: "cat"
+      num_norm: True
+      # Encoder:
+      enc_num_layers: 2
+      use_transformer: True
+      n_head: 4
+      max_len: ${data.preprocessing.common_pipeline.max_seq_len}
+  aggregation:
+    name: ValidHiddenMean
+
+optimizer:
+  name: Adam
+  params:
+    lr: 1.e-3
+    weight_decay: 1.e-8
+
+optuna:
+  params:
+    n_trials: 70
+    n_startup_trials: 5
+    request_list: []
+    target_metric: "loss"
+  suggestions:
+    optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
+    optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
+    # Preprocess
+    model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
+    model.preprocess.params.cat_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
+    model.preprocess.params.num_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
+    # Encoder:
+    model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 10, log: False}]
+    model.preprocess.params.enc_aggregation: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
+    model.preprocess.params.n_head: [suggest_categorical, {choices: [1, 2, 4, 8]}]

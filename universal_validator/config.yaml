@@ -1,4 +1,4 @@
-config_factory: [datasets/age]
+config_factory: [datasets/ett]
 seed: 0
 verbose: True
 
