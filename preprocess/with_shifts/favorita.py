@@ -281,20 +281,20 @@ def main():
     test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.city.apply(
         lambda x: int(x in anomaly_cities)
     )
-    test_df["target__reg_amount__local__mse+r2"] = test_df.apply(
+    test_df["target__reg_amount__local__r2"] = test_df.apply(
         lambda r: reg_target_row(r, sales_cols, horizon=horizon), axis=1
     )
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__forecast__local__r2"] = test_df.apply(
         lambda r: get_forecast_target(r, sales_cols), axis=1
     )
     train_df["target__store_type__global__accuracy+f1_macro"] = train_df["type_code"]
     train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
         train_df.city.apply(lambda x: int(x in anomaly_cities))
     )
-    train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
+    train_df["target__reg_amount__local__r2"] = train_df.apply(
         lambda r: reg_target_row(r, sales_cols, horizon=horizon), axis=1
     )
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__forecast__local__r2"] = train_df.apply(
         lambda r: get_forecast_target(r, sales_cols), axis=1
     )
 
@@ -307,8 +307,8 @@ def main():
             "_seq_len",
             "target__store_type__global__accuracy+f1_macro",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
-            "target__reg_amount__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg_amount__local__r2",
+            "target__forecast__local__r2",
         ]
         + sales_cols
     )

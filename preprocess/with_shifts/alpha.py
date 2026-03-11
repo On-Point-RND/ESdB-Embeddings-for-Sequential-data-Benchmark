@@ -286,19 +286,19 @@ def main():
         )
 
         test_df["target__prod__global__accuracy+f1_macro"] = test_df["product"]
-        test_df["target__reg_amount__local__mse+r2"] = test_df.apply(
+        test_df["target__reg_amount__local__r2"] = test_df.apply(
             reg_target_row, axis=1
         )
-        test_df["target__forecast__local__mse+r2"] = test_df.apply(
+        test_df["target__forecast__local__r2"] = test_df.apply(
             get_forecast_target, axis=1
         )
         test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df["flag"]
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
-        train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
+        train_df["target__reg_amount__local__r2"] = train_df.apply(
             reg_target_row, axis=1
         )
-        train_df["target__forecast__local__mse+r2"] = train_df.apply(
+        train_df["target__forecast__local__r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
         train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df[
@@ -324,10 +324,10 @@ def main():
         train_df["global_train"] = 1 if args.which_split == "train" else 0
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
-        train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
+        train_df["target__reg_amount__local__r2"] = train_df.apply(
             reg_target_row, axis=1
         )
-        train_df["target__forecast__local__mse+r2"] = train_df.apply(
+        train_df["target__forecast__local__r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
         train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
@@ -343,8 +343,8 @@ def main():
             "global_train",
             "target__prod__global__accuracy+f1_macro",
             "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "target__reg_amount__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg_amount__local__r2",
+            "target__forecast__local__r2",
         ]
     )
 
