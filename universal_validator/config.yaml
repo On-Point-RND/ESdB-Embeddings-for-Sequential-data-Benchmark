@@ -1,4 +1,4 @@
-config_factory: [datasets/ett]
+config_factory: [datasets/electric_devices]
 seed: 0
 verbose: True
 

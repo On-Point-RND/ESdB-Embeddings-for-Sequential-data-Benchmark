@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "ELECTRIC DEVICES"
+  train_path: embeddings/electric_devices/SimCLR128/seed_0/embeddings/train_postproc
+  test_path: embeddings/electric_devices/SimCLR128/seed_0/embeddings/test_postproc
