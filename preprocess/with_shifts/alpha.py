@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
+import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, FloatType
@@ -230,7 +231,11 @@ def main():
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by="transaction_number")
 
-    df = df.sort("client_id").toPandas()
+    df.repartition(50).write.parquet("/tmp/alpha_cached", mode="overwrite")
+
+    df = pd.read_parquet("/tmp/alpha_cached")
+
+    df = df.sort_values("client_id").reset_index(drop=True)
     df[TM] = df["hour_diff"].map(hours_since_first_tx)
     df = filter_short(df)
     df["shift_end"] = df[TM].map(compute_shift_end)
