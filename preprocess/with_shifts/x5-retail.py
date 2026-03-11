@@ -1,20 +1,21 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-import pyspark.sql.functions as F
-from pyspark.sql import SparkSession
-from pyspark.sql.types import LongType, FloatType
-from pyspark.ml.feature import Bucketizer
 import numpy as np
+import pandas as pd
+import pyspark.sql.functions as F
+from pyspark.ml.feature import Bucketizer
+from pyspark.sql import SparkSession
+from pyspark.sql.types import FloatType, LongType, TimestampType
 
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    global_time_split,
-    save_partitioned_parquet,
     filter_short,
-    split_num_shifts,
+    global_time_split,
     global_train_column,
+    save_partitioned_parquet,
+    split_num_shifts,
     trim_test,
 )
 
@@ -175,29 +176,54 @@ def main():
     df = None
 
     if args.which_split == "train":
-        df_clients = spark.read.csv(
-            (args.data_path / "clients.csv").as_posix(), header=True
-        )
-        df_clients = df_clients.select(
-            F.col("client_id"),
-            F.col("age").cast(LongType()),
-        )
-        df_clients = df_clients.filter((F.col("age") > 10) & (F.col("age") < 90))
 
-        df_tx = spark.read.csv(
-            (args.data_path / "purchases.csv").as_posix(), header=True
+        df_prods = (
+            spark.read.csv((args.data_path / "products.csv").as_posix(), header=True)
+            .withColumn("netto", F.col("netto").cast(FloatType()))
+            .withColumn("is_own_trademark", F.col("is_own_trademark").cast(LongType()))
+            .withColumn("is_alcohol", F.col("is_alcohol").cast(LongType()))
         )
-        df_tx = df_tx.select(
-            F.col("client_id"),
-            F.to_timestamp(F.col("transaction_datetime"))
-            .cast(LongType())
-            .alias("transaction_datetime"),
-            F.col("purchase_sum").cast(FloatType()),
-            F.col("product_id"),
-            F.col("trn_sum_from_red").cast(FloatType()),
-        )
-        df = df_tx.join(df_clients, on="client_id")
 
+        df_clients = (
+            spark.read.csv((args.data_path / "clients.csv").as_posix(), header=True)
+            .withColumn("first_issue_date", F.col("first_issue_date").cast(TimestampType()))
+            .withColumn(
+                "first_redeem_date", F.col("first_redeem_date").cast(TimestampType())
+            )
+            .withColumn("age", F.col("age").cast(FloatType()))
+            .filter("age >= 10.0 and age <= 90.0")  # as in CoLES
+        )
+
+        df_tx = (
+            spark.read.csv((args.data_path / "purchases.csv").as_posix(), header=True)
+            .withColumn(
+                "transaction_datetime", F.col("transaction_datetime").cast(TimestampType())
+            )
+            .withColumn(
+                "regular_points_received",
+                F.col("regular_points_received").cast(FloatType()),
+            )
+            .withColumn(
+                "express_points_received",
+                F.col("express_points_received").cast(FloatType()),
+            )
+            .withColumn(
+                "regular_points_spent", F.col("regular_points_spent").cast(FloatType())
+            )
+            .withColumn(
+                "express_points_spent", F.col("express_points_spent").cast(FloatType())
+            )
+            .withColumn("purchase_sum", F.col("purchase_sum").cast(FloatType()))
+            .withColumn("product_quantity", F.col("product_quantity").cast(FloatType()))
+            .withColumn("trn_sum_from_iss", F.col("trn_sum_from_iss").cast(FloatType()))
+            .withColumn("trn_sum_from_red", F.col("trn_sum_from_red").cast(FloatType()))
+        )
+
+        df = df_tx.join(df_prods, on="product_id").join(df_clients, on="client_id")
+
+        for col_name in NUM_FEATURES:
+            if col_name in df.columns:
+                df = df.withColumn(col_name, F.col(col_name).cast(FloatType()))
     else:
         raise NotImplementedError(
             "We doesn't know what to do with test.csv for Retail hero dataset without labels."
@@ -211,7 +237,6 @@ def main():
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
-    # split age on buckers as in CoLES
     df = (
         Bucketizer(
             splits=AGE_BOUNDS,
@@ -224,7 +249,11 @@ def main():
         .cache()
     )
 
-    df = df.sort("client_id").toPandas()
+    df.repartition(50).write.parquet("/tmp/retail_cached", mode="overwrite")
+
+    df = pd.read_parquet("/tmp/retail_cached")
+    breakpoint()
+    df = df.sort_values("client_id").reset_index(drop=True)
     df = filter_short(df)
 
     df["shift_end"] = df[TM].map(compute_shift_end)
