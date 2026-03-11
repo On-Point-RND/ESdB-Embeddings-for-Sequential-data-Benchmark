@@ -172,7 +172,6 @@ def main():
         (args.data_path / transactions_dir / "*.parquet").as_posix(),
         header=True,
     )
-    breakpoint()
     df = df.select(
         F.col("app_id").cast(LongType()),
         F.col("amnt").cast(FloatType()),
@@ -223,7 +222,6 @@ def main():
 
     df = df.join(df_target, on="app_id")
     df = df.withColumnRenamed("app_id", "client_id")
-    breakpoint()
     vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
         df = vc.encode(df)
@@ -285,7 +283,7 @@ def main():
         test_df["target__forecast__local__mse+r2"] = test_df.apply(
             get_forecast_target, axis=1
         )
-        test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df["flag"]
+        test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df["flag"]
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
         train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
@@ -294,7 +292,9 @@ def main():
         train_df["target__forecast__local__mse+r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
+        train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df[
+            "flag"
+        ]
     else:
         train_df = df.copy()
         train_df["shift_start"] = 2

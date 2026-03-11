@@ -168,7 +168,6 @@ def main():
         .groupBy("store_nbr", "class_id", "date")
         .agg(F.sum("unit_sales").alias("unit_sales"))
     )
-    breakpoint()
     vcs = cat_freq(df_cls, CAT_FEATURES)
     for vc in vcs:
         df_cls = vc.encode(df_cls)
