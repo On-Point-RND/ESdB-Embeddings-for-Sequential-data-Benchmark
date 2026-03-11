@@ -17,8 +17,21 @@ from .common_pandas import (
     trim_test,
 )
 
-CAT_FEATURES = ["mcc_category"]
-NUM_FEATURES = ["amnt"]
+CAT_FEATURES = [
+    "mcc_category",
+    "currency",
+    "operation_kind",
+    "operation_type",
+    "operation_type_group",
+    "ecommerce_flag",
+    "payment_system",
+    "income_flag",
+    "mcc",
+    "country",
+    "city",
+]
+
+NUM_FEATURES = ["amnt", "day_of_week", "hour", "weekofyear"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time_from_first_trn"]
 TM = ORDERING_COLUMNS[0]
@@ -135,8 +148,6 @@ def main():
     if args.ntp and args.which_split != "train":
         parser.error("NTP mode supports only --which-split train.")
 
-    
-
     spark = (
         SparkSession.builder.master("local[20]")  # type: ignore[attr-defined]
         .appName("AlphaPreprocessing")
@@ -161,10 +172,21 @@ def main():
         (args.data_path / transactions_dir / "*.parquet").as_posix(),
         header=True,
     )
+    breakpoint()
     df = df.select(
         F.col("app_id").cast(LongType()),
         F.col("amnt").cast(FloatType()),
         F.col("mcc_category").cast(LongType()),
+        F.col("currency").cast(LongType()),
+        F.col("operation_kind").cast(LongType()),
+        F.col("operation_type").cast(LongType()),
+        F.col("operation_type_group").cast(LongType()),
+        F.col("ecommerce_flag").cast(LongType()),
+        F.col("payment_system").cast(LongType()),
+        F.col("income_flag").cast(LongType()),
+        F.col("mcc").cast(LongType()),
+        F.col("country").cast(LongType()),
+        F.col("city").cast(LongType()),
         F.col("days_before").cast(LongType()),
         F.col("day_of_week").cast(LongType()),
         F.col("hour").cast(LongType()),
@@ -195,13 +217,13 @@ def main():
             F.col("app_id").cast(LongType()),
             F.col("flag").cast(FloatType()),
         )
-        df_target = df_target_base.join(df_target_sample, on="app_id", how="left").fillna(
-            {"flag": 0.0}
-        )
+        df_target = df_target_base.join(
+            df_target_sample, on="app_id", how="left"
+        ).fillna({"flag": 0.0})
 
     df = df.join(df_target, on="app_id")
     df = df.withColumnRenamed("app_id", "client_id")
-
+    breakpoint()
     vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
         df = vc.encode(df)
@@ -272,9 +294,7 @@ def main():
         train_df["target__forecast__local__mse+r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
-            "flag"
-        ]
+        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
     else:
         train_df = df.copy()
         train_df["shift_start"] = 2
@@ -301,9 +321,7 @@ def main():
         train_df["target__forecast__local__mse+r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
-            "flag"
-        ]
+        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
 
     keep_cols = (
         INDEX_COLUMNS

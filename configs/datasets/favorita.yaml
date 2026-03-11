@@ -355,7 +355,7 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 512
+      max_seq_len: 1000
       time_name: date
       index_name: store_nbr
       target_name: _seq_len

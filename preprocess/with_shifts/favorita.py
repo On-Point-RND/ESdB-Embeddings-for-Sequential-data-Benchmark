@@ -93,7 +93,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=10,
+        default=100,
     )
     parser.add_argument(
         "--shift-seed",
@@ -168,7 +168,7 @@ def main():
         .groupBy("store_nbr", "class_id", "date")
         .agg(F.sum("unit_sales").alias("unit_sales"))
     )
-
+    breakpoint()
     vcs = cat_freq(df_cls, CAT_FEATURES)
     for vc in vcs:
         df_cls = vc.encode(df_cls)
@@ -221,10 +221,11 @@ def main():
     full_df = full_df.repartition("store_nbr").cache()
     full_df.count()
 
-    full_df.repartition(50).write.parquet("/tmp/fav_cached", mode=mode)
+    full_df.repartition(50).write.parquet("/tmp/fav_cached", mode="overwrite")
 
     df = pd.read_parquet("/tmp/fav_cached")
     df["_seq_len"] = df[TM].apply(len)
+    print(df["_seq_len"])
     df = filter_short(df)
     stores_df = pd.read_csv(args.data_path / "stores.csv")
 
@@ -304,7 +305,7 @@ def main():
         + [
             "shifts",
             "global_train",
-            "_seq_len"
+            "_seq_len",
             "target__store_type__global__accuracy+f1_macro",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
             "target__reg_amount__local__mse+r2",
