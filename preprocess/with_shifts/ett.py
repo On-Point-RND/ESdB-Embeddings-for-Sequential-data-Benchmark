@@ -95,7 +95,7 @@ def main():
         "--num-shifts",
         help="How many shifts to sample per sequence",
         type=int,
-        default=10,
+        default=100,
     )
     parser.add_argument(
         "--shift-seed",

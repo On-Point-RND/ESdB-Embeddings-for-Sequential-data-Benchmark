@@ -6,7 +6,8 @@ main_loss:
   name: nn.CrossEntropyLoss
 
 cc: 
-  cluster_id: 128
+  cluster_id: 129
+  track_id: 1506951
 nn:
   - play_duration
 ee:
@@ -26,7 +27,7 @@ data:
       max_seq_len: 1000
       time_name: datetime
       index_name: user_id
-      target_name: mock_target
+      target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:

@@ -22,6 +22,7 @@ CAT_FEATURES = [
     "mcc_category",
     "currency",
     "operation_kind",
+    "card_type",
     "operation_type",
     "operation_type_group",
     "ecommerce_flag",
@@ -30,9 +31,11 @@ CAT_FEATURES = [
     "mcc",
     "country",
     "city",
+    "weekofyear",
+    "day_of_week",
 ]
 
-NUM_FEATURES = ["amnt", "day_of_week", "hour", "weekofyear"]
+NUM_FEATURES = ["amnt", "hour", "hour_diff"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time_from_first_trn"]
 TM = ORDERING_COLUMNS[0]
@@ -178,6 +181,7 @@ def main():
         F.col("amnt").cast(FloatType()),
         F.col("mcc_category").cast(LongType()),
         F.col("currency").cast(LongType()),
+        F.col("card_type").cast(LongType()),
         F.col("operation_kind").cast(LongType()),
         F.col("operation_type").cast(LongType()),
         F.col("operation_type_group").cast(LongType()),
