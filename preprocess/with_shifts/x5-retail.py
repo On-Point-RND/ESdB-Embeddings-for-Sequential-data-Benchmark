@@ -186,7 +186,9 @@ def main():
 
         df_clients = (
             spark.read.csv((args.data_path / "clients.csv").as_posix(), header=True)
-            .withColumn("first_issue_date", F.col("first_issue_date").cast(TimestampType()))
+            .withColumn(
+                "first_issue_date", F.col("first_issue_date").cast(TimestampType())
+            )
             .withColumn(
                 "first_redeem_date", F.col("first_redeem_date").cast(TimestampType())
             )
@@ -197,7 +199,8 @@ def main():
         df_tx = (
             spark.read.csv((args.data_path / "purchases.csv").as_posix(), header=True)
             .withColumn(
-                "transaction_datetime", F.col("transaction_datetime").cast(TimestampType())
+                "transaction_datetime",
+                F.col("transaction_datetime").cast(TimestampType()),
             )
             .withColumn(
                 "regular_points_received",
@@ -252,7 +255,6 @@ def main():
     df.repartition(50).write.parquet("/tmp/retail_cached", mode="overwrite")
 
     df = pd.read_parquet("/tmp/retail_cached")
-    breakpoint()
     df = df.sort_values("client_id").reset_index(drop=True)
     df = filter_short(df)
 
