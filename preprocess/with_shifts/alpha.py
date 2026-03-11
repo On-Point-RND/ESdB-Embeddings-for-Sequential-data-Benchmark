@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
+import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, FloatType
@@ -17,8 +18,21 @@ from .common_pandas import (
     trim_test,
 )
 
-CAT_FEATURES = ["mcc_category"]
-NUM_FEATURES = ["amnt"]
+CAT_FEATURES = [
+    "mcc_category",
+    "currency",
+    "operation_kind",
+    "operation_type",
+    "operation_type_group",
+    "ecommerce_flag",
+    "payment_system",
+    "income_flag",
+    "mcc",
+    "country",
+    "city",
+]
+
+NUM_FEATURES = ["amnt", "day_of_week", "hour", "weekofyear"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time_from_first_trn"]
 TM = ORDERING_COLUMNS[0]
@@ -135,8 +149,6 @@ def main():
     if args.ntp and args.which_split != "train":
         parser.error("NTP mode supports only --which-split train.")
 
-    
-
     spark = (
         SparkSession.builder.master("local[20]")  # type: ignore[attr-defined]
         .appName("AlphaPreprocessing")
@@ -165,6 +177,16 @@ def main():
         F.col("app_id").cast(LongType()),
         F.col("amnt").cast(FloatType()),
         F.col("mcc_category").cast(LongType()),
+        F.col("currency").cast(LongType()),
+        F.col("operation_kind").cast(LongType()),
+        F.col("operation_type").cast(LongType()),
+        F.col("operation_type_group").cast(LongType()),
+        F.col("ecommerce_flag").cast(LongType()),
+        F.col("payment_system").cast(LongType()),
+        F.col("income_flag").cast(LongType()),
+        F.col("mcc").cast(LongType()),
+        F.col("country").cast(LongType()),
+        F.col("city").cast(LongType()),
         F.col("days_before").cast(LongType()),
         F.col("day_of_week").cast(LongType()),
         F.col("hour").cast(LongType()),
@@ -195,13 +217,12 @@ def main():
             F.col("app_id").cast(LongType()),
             F.col("flag").cast(FloatType()),
         )
-        df_target = df_target_base.join(df_target_sample, on="app_id", how="left").fillna(
-            {"flag": 0.0}
-        )
+        df_target = df_target_base.join(
+            df_target_sample, on="app_id", how="left"
+        ).fillna({"flag": 0.0})
 
     df = df.join(df_target, on="app_id")
     df = df.withColumnRenamed("app_id", "client_id")
-
     vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
         df = vc.encode(df)
@@ -210,7 +231,11 @@ def main():
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by="transaction_number")
 
-    df = df.sort("client_id").toPandas()
+    df.repartition(50).write.parquet("/tmp/alpha_cached", mode="overwrite")
+
+    df = pd.read_parquet("/tmp/alpha_cached")
+
+    df = df.sort_values("client_id").reset_index(drop=True)
     df[TM] = df["hour_diff"].map(hours_since_first_tx)
     df = filter_short(df)
     df["shift_end"] = df[TM].map(compute_shift_end)
@@ -263,7 +288,7 @@ def main():
         test_df["target__forecast__local__mse+r2"] = test_df.apply(
             get_forecast_target, axis=1
         )
-        test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df["flag"]
+        test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df["flag"]
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
         train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
@@ -272,7 +297,7 @@ def main():
         train_df["target__forecast__local__mse+r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
+        train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df[
             "flag"
         ]
     else:
@@ -301,9 +326,7 @@ def main():
         train_df["target__forecast__local__mse+r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
-            "flag"
-        ]
+        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
 
     keep_cols = (
         INDEX_COLUMNS

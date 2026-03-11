@@ -18,8 +18,28 @@ from .common_pandas import (
     trim_test,
 )
 
-CAT_FEATURES = ["product_id"]
-NUM_FEATURES = ["purchase_sum", "trn_sum_from_red"]
+CAT_FEATURES = [
+    "product_id",
+    "is_own_trademark",
+    "is_alcohol",
+    "level_1",
+    "level_2",
+    "level_3",
+    "level_4",
+    "segment_id",
+]
+
+NUM_FEATURES = [
+    "purchase_sum",
+    "trn_sum_from_red",
+    "trn_sum_from_iss",
+    "netto",
+    "regular_points_received",
+    "express_points_received",
+    "product_quantity",
+    "regular_points_spent",
+    "express_points_spent",
+]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["transaction_datetime"]
 TM = ORDERING_COLUMNS[0]
@@ -29,7 +49,7 @@ AGE_BOUNDS = [10.0, 35.0, 45.0, 60.0, 90.0]
 
 def get_reg_target(row):
     a = np.asarray(row["purchase_sum"], dtype=float)
-    t = np.asarray(row["transaction_datetime"], dtype='datetime64[s]')
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
         delta = t - t[s - 1]
@@ -40,7 +60,9 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["transaction_datetime"], dtype='datetime64[s]').astype("datetime64[h]")
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]").astype(
+        "datetime64[h]"
+    )
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
