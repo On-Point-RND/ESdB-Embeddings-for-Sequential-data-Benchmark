@@ -98,10 +98,13 @@ def trim_users(arr):
 
 def get_ratio_raw(row):
     b = np.asarray(row["behavior_type"])
+    t = np.asarray(row["time"]).astype('datetime64[h]')
     shifts = row["shifts"]
     out = []
     for s in shifts:
-        future_b = b[s:]
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        future_b = b[mask]
         n_views = np.sum(future_b == 1)
         n_buys = np.sum(future_b == 4)
         if n_views == 0:
@@ -271,7 +274,7 @@ def main():
         all_ratio.size > 0
     ), "No ratio values in train after filtering; cannot compute quantiles."
 
-    q = np.quantile(all_ratio, [0.25, 0.5, 0.75])
+    q = np.quantile(all_ratio, [0.4, 0.7, 0.85])
 
     def discretize_ratio(ratios_list):
         return np.searchsorted(
