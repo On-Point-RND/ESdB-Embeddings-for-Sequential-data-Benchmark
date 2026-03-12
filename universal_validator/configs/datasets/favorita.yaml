@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "FAVORITA"
+  train_path: embeddings/favorita/SimCLR128_unoptuned/seed_0/embeddings/train_postproc
+  test_path: embeddings/favorita/SimCLR128_unoptuned/seed_0/embeddings/test_postproc

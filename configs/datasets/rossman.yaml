@@ -40,6 +40,9 @@ data:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -88,10 +91,15 @@ data:
       preprocessing: common_pipeline
       batch_size: 128
       num_workers: 4
-    hpo_val:
-      split_idx: 2
-      preprocessing: common_pipeline
-      batch_size: 128
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+    gen_train_val:
+      split_idx: 1
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
 
 test_data:
@@ -101,11 +109,19 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
   loaders:
     test:
       split_idx: 0
       preprocessing: common_pipeline
       batch_size: 128
+      num_workers: 4
+    gen_test:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
 
 metrics:

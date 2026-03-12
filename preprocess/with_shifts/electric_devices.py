@@ -147,11 +147,11 @@ def main():
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target_row, axis=1
     )
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["target"]
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target_row, axis=1
     )
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["target"]
@@ -166,7 +166,7 @@ def main():
         + [
             "_seq_len",
             "shifts",
-            "target__forecast__local__mse+r2",
+            "target__forecast__local__r2",
             "target__clf__global__accuracy+f1_macro",
             "global_train",
             "debug_f",

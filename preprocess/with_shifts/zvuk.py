@@ -270,22 +270,22 @@ def main():
     test_df["cv"] = test_df.apply(get_diversity, axis=1)
 
     threshold = np.quantile(np.concatenate(train_df["cv"].values), 0.95)
-    test_df["target__clf__local__accuracy+f1_macro"] = test_df.apply(
+    test_df["target__clf__local__f1_macro"] = test_df.apply(
         lambda r: get_clf_target(r, no_future_class), axis=1
     )
-    test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
     test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df["cv"].apply(
         lambda x: apply_threshold(x, threshold)
     )
 
-    train_df["target__clf__local__accuracy+f1_macro"] = train_df.apply(
+    train_df["target__clf__local__f1_macro"] = train_df.apply(
         lambda r: get_clf_target(r, no_future_class), axis=1
     )
-    train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
     train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
@@ -301,10 +301,10 @@ def main():
             "_seq_len",
             "shifts",
             "global_train",
-            "target__clf__local__accuracy+f1_macro",
+            "target__clf__local__f1_macro",
             "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "target__reg__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg__local__r2",
+            "target__forecast__local__r2",
         ]
     )
 

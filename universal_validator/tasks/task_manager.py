@@ -1,5 +1,5 @@
 import importlib
-from typing import Any
+from typing import Any, Optional
 
 import optuna.logging
 from sklearn.base import BaseEstimator
@@ -71,10 +71,10 @@ class TaskManager:
     def _print_task_info(self, split_data: dict[str, Any]) -> None:
         pass
 
-    def execute(self, split_data: DataSplit) -> dict[str, Any]:
+    def execute(self, split_data: DataSplit) -> Optional[dict[str, Any] | None]:
         metrics = split_data.metrics
         if not self._check_metric(metrics):
-            return
+            return None
         scorers = get_scorers(metrics)
         models = self._init_models(metrics, split_data.task_name)
         self._print_task_info(split_data)
@@ -85,6 +85,10 @@ class TaskManager:
         for name in models:
             print(f"\nTraining {name}...")
             base_model, search_space = models[name]
+            if base_model.__class__.__module__ == "universal_validator.models.torch_mlp":
+                base_model.set_params(
+                    early_stopping_scorer=scorers[0],
+                )
             if self.use_hpo:
                 model, cv_results = self.hpo_optimizer.optimize(
                     base_model=base_model,

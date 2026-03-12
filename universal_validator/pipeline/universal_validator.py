@@ -3,14 +3,15 @@
 from typing import Any
 
 import pandas as pd
-from omegaconf import DictConfig
+
+from universal_validator.pipeline.utils import ValidatorConfig
 
 from ..data.dataset import ValidatorDataset
 from ..tasks.task_manager import TaskManager
 
 
 class UniversalValidator:
-    def __init__(self, config: DictConfig):
+    def __init__(self, config: ValidatorConfig):
         self.config = config
         self.dataset = ValidatorDataset(config.data_conf)
         self.task = TaskManager(config)

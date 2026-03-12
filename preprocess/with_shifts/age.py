@@ -228,20 +228,20 @@ def main():
     train_df, test_df = global_train_column(
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
-    test_df["target__reg_amount__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__reg_amount__local__r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
         test_df
     )
 
-    train_df["target__reg_amount__local__mse+r2"] = train_df.apply(
+    train_df["target__reg_amount__local__r2"] = train_df.apply(
         get_reg_target, axis=1
     )
     train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
     train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
@@ -258,9 +258,9 @@ def main():
         "amount_rur",
         "_seq_len",
         "shifts",
-        "target__reg_amount__local__mse+r2",
+        "target__reg_amount__local__r2",
         "target__age__global__accuracy+f1_macro",
-        "target__forecast__local__mse+r2",
+        "target__forecast__local__r2",
         "target__anomaly__global__roc_auc+f1_macro+accuracy",
         "global_train",
         "debug_f",
