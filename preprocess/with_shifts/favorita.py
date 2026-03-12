@@ -1,39 +1,40 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import TimestampType
 
-import numpy as np
-import pandas as pd
 from ..common import cat_freq
 from .common_pandas import (
     add_shift_columns,
-    add_debug_f,
-    duplicate_target_by_shifts,
-    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    filter_short,
     shift_end_by_len,
     split_num_shifts,
+    global_train_column,
+    trim_test,
 )
 
-CAT_FEATURES = []
+
+CAT_FEATURES = ["class_id"]
 INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
-TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.1
-H = 30
 TM = ORDERING_COLUMNS[0]
 
-def get_reg_target_row(row: pd.Series, sales_cols: list[str], horizon: int = 30) -> list[float]:
-    d = np.asarray(row["date"])
+
+def reg_target_row(
+    row: pd.Series, sales_cols: list[str], horizon: int = 30
+) -> list[float]:
+    d = np.asarray(row[TM])
     out = []
     for s in row["shifts"]:
         s = int(s) - 1
         delta = (d - d[s]) / np.timedelta64(1, "D")
-        mask = (delta > 0) & (delta <= horizon)
+        mask = (delta > 0) & (delta < horizon)
         total = 0.0
         for c in sales_cols:
             arr = np.asarray(row[c])
@@ -62,7 +63,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument(
         "--data-path",
-        help="Path CSV train user",
+        help="Path to directory containing CSV files",
         required=True,
         type=Path,
     )
@@ -78,85 +79,73 @@ def main():
         type=Path,
     )
     parser.add_argument(
-        "--overwrite",
-        help='Toggle "overwrite" mode on all spark writes',
-        action="store_true",
-    )
-    parser.add_argument(
-        "--train-partitions",
-        help="Number of parquet partitions for train dataset",
-        type=int,
-        default=1,
-    )
-    parser.add_argument(
-        "--test-partitions",
-        help="Number of parquet partitions for test dataset",
-        type=int,
-        default=1,
-    )
-    parser.add_argument(
         "--split-seed",
         help="Random seed for train-test split",
         type=int,
         default=42,
     )
     parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
+    )
+    parser.add_argument(
         "--num-shifts",
-        help="How many shifts to sample per test store",
+        help="How many shifts to sample per sequence",
         type=int,
-        default=5,
+        default=100,
     )
     parser.add_argument(
         "--shift-seed",
         help="Random seed for shifts",
+        default=1,
         type=int,
-        default=0,
     )
     parser.add_argument(
-        "--global-split-ntp",
-        help="Global split with 0.5 or 0.1 test fraction using y/n ",
-        type=str,
-        default='n'
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
     )
-
     args = parser.parse_args()
-
     mode = "overwrite" if args.overwrite else "error"
 
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
+    else:
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
+
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
+
     spark = (
-        SparkSession.builder
-            .master("local[32]") # type: ignore[attr-defined]
-            .config("spark.driver.memory", "50g")
-            .config("spark.driver.maxResultSize", "0")
-            .config("spark.sql.shuffle.partitions", 1000)
-            .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-            .config("spark.memory.fraction", "0.8")
-            .config("spark.memory.storageFraction", "0.3")
-            .config(
+        SparkSession.builder.master("local[32]")  # type: ignore[attr-defined]
+        .config("spark.driver.memory", "50g")
+        .config("spark.driver.maxResultSize", "0")
+        .config("spark.sql.shuffle.partitions", 1000)
+        .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+        .config("spark.memory.fraction", "0.8")
+        .config("spark.memory.storageFraction", "0.3")
+        .config(
             "spark.driver.extraJavaOptions",
             "-XX:+UseG1GC "
             "-XX:InitiatingHeapOccupancyPercent=35 "
             "-XX:+ExplicitGCInvokesConcurrent"
-            "-Xss16m"
+            "-Xss16m",
         )
-            .config("spark.sql.adaptive.enabled", "true")
-            .getOrCreate()
+        .config("spark.sql.adaptive.enabled", "true")
+        .getOrCreate()
     )
-
-    if args.global_split_ntp == 'y':
-        TEST_FRACTION = 0.5
-    else:
-        TEST_FRACTION = 0.1
-
-    # ---------- READ ----------
     data_dir = args.data_path.as_posix()
 
     df = (
-        spark.read
-            .option("header", True)
-            .option("inferSchema", True)
-            .csv(f"{data_dir}/train.csv")  # <-- имя файла руками
-            .select(
+        spark.read.option("header", True)
+        .option("inferSchema", True)
+        .csv(f"{data_dir}/train.csv")
+        .select(
             F.col("store_nbr").cast("int"),
             F.col("item_nbr").cast("int"),
             F.col("date").cast(TimestampType()),
@@ -165,24 +154,20 @@ def main():
     )
 
     cls_df = (
-        spark.read
-            .option("header", True)
-            .option("inferSchema", True)
-            .csv(f"{data_dir}/items.csv")  # <-- второе имя файла руками
-            .select(
+        spark.read.option("header", True)
+        .option("inferSchema", True)
+        .csv(f"{data_dir}/items.csv")
+        .select(
             F.col("item_nbr").cast("int"),
             F.col("class").cast("int").alias("class_id"),
         )
     )
 
-    # ---------- MAP TO CLASS + AGGREGATE ----------
     df_cls = (
         df.join(cls_df, on="item_nbr", how="inner")
-            .groupBy("store_nbr", "class_id", "date")
-            .agg(F.sum("unit_sales").alias("unit_sales"))
+        .groupBy("store_nbr", "class_id", "date")
+        .agg(F.sum("unit_sales").alias("unit_sales"))
     )
-
-    CAT_FEATURES = ["class_id"]
     vcs = cat_freq(df_cls, CAT_FEATURES)
     for vc in vcs:
         df_cls = vc.encode(df_cls)
@@ -195,46 +180,26 @@ def main():
     dates = df_cls.select("date").distinct()
 
     # ---------- GRID ----------
-    full_grid = (
-        stores
-            .crossJoin(classes)
-            .crossJoin(dates)
-            .repartition("store_nbr")
-    )
+    full_grid = stores.crossJoin(classes).crossJoin(dates).repartition("store_nbr")
 
     # ---------- JOIN + ZERO FILL ----------
-    df_full = (
-        full_grid.join(
-            df_cls,
-            on=["store_nbr", "class_id", "date"],
-            how="left"
-        )
-            .withColumn("unit_sales", F.coalesce(F.col("unit_sales"), F.lit(0.0)))
-    )
+    df_full = full_grid.join(
+        df_cls, on=["store_nbr", "class_id", "date"], how="left"
+    ).withColumn("unit_sales", F.coalesce(F.col("unit_sales"), F.lit(0.0)))
 
     # ---------- TS COLLECT ----------
     sales_ts = (
-        df_full
-            .groupBy("store_nbr", "class_id")
-            .agg(
-            F.sort_array(
-                F.collect_list(F.struct("date", "unit_sales"))
-            ).alias("tmp")
-        )
-            .select(
+        df_full.groupBy("store_nbr", "class_id")
+        .agg(F.sort_array(F.collect_list(F.struct("date", "unit_sales"))).alias("tmp"))
+        .select(
             "store_nbr",
             "class_id",
-            F.expr("transform(tmp, x -> x.unit_sales)").alias("sales_ts")
+            F.expr("transform(tmp, x -> x.unit_sales)").alias("sales_ts"),
         )
     )
 
     # ---------- PIVOT ----------
-    pivot_df = (
-        sales_ts
-            .groupBy("store_nbr")
-            .pivot("class_id")
-            .agg(F.first("sales_ts"))
-    )
+    pivot_df = sales_ts.groupBy("store_nbr").pivot("class_id").agg(F.first("sales_ts"))
 
     for c in pivot_df.columns:
         if c != "store_nbr":
@@ -255,12 +220,11 @@ def main():
     full_df = full_df.repartition("store_nbr").cache()
     full_df.count()
 
-    full_df.repartition(50).write.parquet(
-        (args.save_path / "temp").as_posix(), mode=mode
-    )
+    full_df.repartition(50).write.parquet("/tmp/fav_cached", mode="overwrite")
 
-    df = pd.read_parquet(args.save_path / "temp")
-    df['_seq_len'] = df[TM].apply(len)
+    df = pd.read_parquet("/tmp/fav_cached")
+    df["_seq_len"] = df[TM].apply(len)
+    print(df["_seq_len"])
     df = filter_short(df)
     stores_df = pd.read_csv(args.data_path / "stores.csv")
 
@@ -270,91 +234,90 @@ def main():
         how="left",
     )
 
-    df["date"] = df["date"].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
+    df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
     sales_cols = [c for c in df.columns if c.endswith("_sales")]
-
-    # df['days_since_first_tx'] = df['date'].apply(lambda x: (x - x[0]) / np.timedelta64(1, "D"))
-    df["shift_end"] = shift_end_by_len(df["date"], -1 - H)
+    horizon = 30
+    df["shift_end"] = shift_end_by_len(df[TM], -1 - horizon)
 
     type_codes = pd.Categorical(df["type"]).codes
     df["type_code"] = type_codes
-    assert (df["type_code"] >= 0).all(), "Found missing type values; fill or drop before coding"
+    assert (
+        df["type_code"] >= 0
+    ).all(), "Found missing type values; fill or drop before coding"
 
     train_df, test_df = global_time_split(
         data=df,
-        test_frac=TEST_FRACTION,
+        test_frac=time_test_split,
         min_shift_start=2,
-        time_col="date",
+        time_col=TM,
         seqlen_col="_seq_len",
     )
 
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # 90% split per users
-    rng = np.random.default_rng(seed=42)
-    n_train_users = int(len(train_df.index) * 0.9)
-    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
-    valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
-
-    # recompute shift_end for train after trimming
-    train_df["shift_end"] = shift_end_by_len(train_df["date"], -1 - H)
+    train_df["shift_end"] = shift_end_by_len(train_df[TM], -1 - horizon)
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
-
-    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
-
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
-    test_df["post_target"] = duplicate_target_by_shifts(test_df, "type_code")
-    train_df["post_target"] = duplicate_target_by_shifts(train_df, "type_code")
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
-    anomaly_cities = stores_df.city.value_counts()[stores_df.city.value_counts() == 1].index.tolist()
-    test_df["post_anomaly_target"] = test_df.apply(
-        lambda r: [int(r["city"] in anomaly_cities)] * len(r["shifts"]), axis=1
-    )
-    train_df["post_anomaly_target"] = train_df.apply(
-        lambda r: [int(r["city"] in anomaly_cities)] * len(r["shifts"]), axis=1
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
 
-    test_df["post_amount"] = test_df.apply(
-        lambda r: get_reg_target_row(r, sales_cols, horizon=30), axis=1
+    anomaly_cities = stores_df.city.value_counts()[
+        stores_df.city.value_counts() == 1
+    ].index.tolist()
+
+    test_df["target__store_type__global__accuracy+f1_macro"] = test_df["type_code"]
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.city.apply(
+        lambda x: int(x in anomaly_cities)
     )
-    test_df["post_forecast_target"] = test_df.apply(
+    test_df["target__reg_amount__local__r2"] = test_df.apply(
+        lambda r: reg_target_row(r, sales_cols, horizon=horizon), axis=1
+    )
+    test_df["target__forecast__local__r2"] = test_df.apply(
+        lambda r: get_forecast_target(r, sales_cols), axis=1
+    )
+    train_df["target__store_type__global__accuracy+f1_macro"] = train_df["type_code"]
+    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+        train_df.city.apply(lambda x: int(x in anomaly_cities))
+    )
+    train_df["target__reg_amount__local__r2"] = train_df.apply(
+        lambda r: reg_target_row(r, sales_cols, horizon=horizon), axis=1
+    )
+    train_df["target__forecast__local__r2"] = train_df.apply(
         lambda r: get_forecast_target(r, sales_cols), axis=1
     )
 
-    train_df["post_amount"] = train_df.apply(
-        lambda r: get_reg_target_row(r, sales_cols, horizon=30), axis=1
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + [
+            "shifts",
+            "global_train",
+            "_seq_len",
+            "target__store_type__global__accuracy+f1_macro",
+            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__reg_amount__local__r2",
+            "target__forecast__local__r2",
+        ]
+        + sales_cols
     )
-    train_df["post_forecast_target"] = train_df.apply(
-        lambda r: get_forecast_target(r, sales_cols), axis=1
+
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
     )
-
-    # debug: map shifts to timestamps
-    test_df = add_debug_f(test_df, time_col="date")
-    train_df = add_debug_f(train_df, time_col="date")
-
-    keep_cols = [
-        "store_nbr",
-        "date",
-        "shifts",
-        "post_amount",
-        "post_target",
-        "post_forecast_target",
-        "post_anomaly_target",
-        "users_in_train",
-        "debug_f",
-    ] + sales_cols
-
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+
+
 if __name__ == "__main__":
     main()

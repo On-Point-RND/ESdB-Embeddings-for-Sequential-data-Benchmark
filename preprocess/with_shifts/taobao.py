@@ -98,10 +98,13 @@ def trim_users(arr):
 
 def get_ratio_raw(row):
     b = np.asarray(row["behavior_type"])
+    t = np.asarray(row["time"]).astype('datetime64[h]')
     shifts = row["shifts"]
     out = []
     for s in shifts:
-        future_b = b[s:]
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        future_b = b[mask]
         n_views = np.sum(future_b == 1)
         n_buys = np.sum(future_b == 4)
         if n_views == 0:
@@ -271,7 +274,7 @@ def main():
         all_ratio.size > 0
     ), "No ratio values in train after filtering; cannot compute quantiles."
 
-    q = np.quantile(all_ratio, [0.25, 0.5, 0.75])
+    q = np.quantile(all_ratio, [0.4, 0.7, 0.85])
 
     def discretize_ratio(ratios_list):
         return np.searchsorted(
@@ -282,8 +285,8 @@ def main():
     test_df["post_ratio_target"] = test_ratios.map(discretize_ratio)
 
     test_df["target__clf__local__accuracy+f1_macro"] = test_df["post_ratio_target"]
-    test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
     test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.apply(
@@ -291,8 +294,8 @@ def main():
     )
 
     train_df["target__clf__local__accuracy+f1_macro"] = train_df["post_ratio_target"]
-    train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
     train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
@@ -312,8 +315,8 @@ def main():
             "global_train",
             "target__clf__local__accuracy+f1_macro",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
-            "target__reg__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg__local__r2",
+            "target__forecast__local__r2",
             "debug_f",
         ]
     )
