@@ -28,7 +28,7 @@ INDEX = INDEX_COLUMNS[0]
 HORIZON = 60
 
 
-def get_reg_target(df: pd.DataFrame, horizon: int = 30) -> pd.Series:
+def get_reg_target(df: pd.DataFrame) -> pd.Series:
     sums_list = df.apply(lambda r: reg_sums_list(r), axis=1)
     flat_sums = np.concatenate([np.asarray(v) for v in sums_list if len(v)])
     mu = flat_sums.mean() if len(flat_sums) else 0.0
@@ -47,11 +47,12 @@ def reg_sums_list(row: pd.Series) -> list[float]:
 
 
 def get_forecast_target(row):
-    sales = np.asarray(row["Sales"])
+    seq = np.asarray(row["Sales"])
     out = []
     for s in row["shifts"]:
-        assert s > 0
-        out.append(float(np.log1p(np.median(sales[s:]))))
+        base = seq[s - 1]
+        diff = seq[s] - base
+        out.append(float(diff))
     return out
 
 
