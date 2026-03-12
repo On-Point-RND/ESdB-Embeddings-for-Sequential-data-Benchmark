@@ -73,10 +73,13 @@ def get_forecast_target(row):
 
 def get_anomaly_target(row):
     r = np.asarray(row["trn_sum_from_red"])
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
         assert s > 0, "shift should be more than zero"
-        out.append(1 if np.sum(r[s:]) > 10 else 0)
+        out.append(1 if np.sum(r[mask]) > 2 else 0)
     return out
 
 
@@ -186,7 +189,9 @@ def main():
 
         df_clients = (
             spark.read.csv((args.data_path / "clients.csv").as_posix(), header=True)
-            .withColumn("first_issue_date", F.col("first_issue_date").cast(TimestampType()))
+            .withColumn(
+                "first_issue_date", F.col("first_issue_date").cast(TimestampType())
+            )
             .withColumn(
                 "first_redeem_date", F.col("first_redeem_date").cast(TimestampType())
             )
@@ -197,7 +202,8 @@ def main():
         df_tx = (
             spark.read.csv((args.data_path / "purchases.csv").as_posix(), header=True)
             .withColumn(
-                "transaction_datetime", F.col("transaction_datetime").cast(TimestampType())
+                "transaction_datetime",
+                F.col("transaction_datetime").cast(TimestampType()),
             )
             .withColumn(
                 "regular_points_received",
