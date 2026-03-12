@@ -72,6 +72,11 @@ model:
       num_layers: 1
   aggregation:
     name: ValidHiddenMean
+  emb_head:
+    name: nn.Linear
+    params:
+      in_features: output_dim_from_prev
+      out_features: 128
 
 optimizer:
   name: Adam
@@ -82,7 +87,7 @@ optimizer:
 optuna:
   params:
     n_trials: 70
-    n_startup_trials: 5
+    n_startup_trials: 7
     request_list: 
       - 'optimizer.params.weight_decay': 1.e-08
         'optimizer.params.lr': 1.e-3
@@ -100,10 +105,11 @@ optuna:
     unsupervised_loss.params.temperature: [suggest_float, {low: 1.e-2, high: 1.e2, log: True}]
     training_model.head0.out_features: [suggest_int, {low: 64, high: 512, log: True}]
 
-    model.encoder.params.num_layers: [suggest_int, {low: 1, high: 3, log: False}]
-    model.encoder.params.dropout: [suggest_float, {low: 1.e-10, high: 0.3, log: True}]
+    model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
+    model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
+    model.emb_head.params.out_features: [suggest_categorical, {choices: [64, 256, 1024]}]
 
-    model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat", "none"]}]
+    model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat"]}]
     model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
     model.preprocess.params.cat_emb_dim: [suggest_int, {low: 1, high: 128, log: False}]
     model.preprocess.params.num_emb_dim: [suggest_int, {low: 1, high: 128, log: False}]

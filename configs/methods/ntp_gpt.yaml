@@ -43,6 +43,8 @@ model:
       time_process: "cat"
       num_norm: True
       # Encoder:
+      enc_hidden_size: 128
+      emb_size: 128
       enc_num_layers: 2
       use_transformer: True
       n_head: 4
@@ -59,7 +61,7 @@ optimizer:
 optuna:
   params:
     n_trials: 70
-    n_startup_trials: 5
+    n_startup_trials: 7
     request_list: []
     target_metric: ${tasks}
   suggestions:
@@ -70,6 +72,8 @@ optuna:
     model.preprocess.params.cat_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     model.preprocess.params.num_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     # Encoder:
-    model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 10, log: False}]
+    model.preprocess.params.enc_hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
+    model.preprocess.params.emb_size: : [suggest_categorical, {choices: [64, 256, 1024]}]
+    model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.preprocess.params.enc_aggregation: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
     model.preprocess.params.n_head: [suggest_categorical, {choices: [1, 2, 4, 8]}]
