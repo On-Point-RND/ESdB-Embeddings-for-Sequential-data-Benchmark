@@ -175,9 +175,10 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
     for report in reports:
         task_name, metric_names = report["task_name"].rsplit("__", 1)
+        task_name = task_name.replace("target__", "")
         best_model = report.get("best_model")
         m = metric_names.split("+")[0]
         if m == "mse":
             m = "neg_mean_squared_error"
-        metrics[f"{task_name}"] = float(report["all_results"][best_model][m])
+        metrics[report["task_name"]] = float(report["all_results"][best_model][m])
     return metrics

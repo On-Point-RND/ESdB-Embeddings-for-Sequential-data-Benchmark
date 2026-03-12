@@ -4,6 +4,10 @@ n_classes: 3
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
+tasks:
+- target__clf__global__accuracy+f1_macro
+- target__reg_mentions__global__r2
+- target__anomaly__global__roc_auc+f1_macro+accuracy
 
 ee:
 cc: 

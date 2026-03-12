@@ -4,6 +4,8 @@ n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
+tasks:
+- target__forecast__local__r2
 
 cc:
 ee:

@@ -4,6 +4,12 @@ n_classes: 6
 main_metric: MulticlassAccuracy
 main_loss:
   name: nn.CrossEntropyLoss
+tasks:
+- target__clf__global__accuracy+f1_macro
+- target__anomaly__local__roc_auc+f1_macro+accuracy
+- target__reg__local__r2
+- target__forecast__local__r2
+
 cc:
   is_own_trademark: 3
   is_alcohol: 3
