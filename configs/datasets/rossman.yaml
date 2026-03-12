@@ -6,11 +6,11 @@ main_loss:
   name: nn.CrossEntropyLoss
 
 cc: 
-  DayOfWeek: 7
-  Open: 2
-  Promo: 2
+  DayOfWeek: 8
+  Open: 3
+  Promo: 3
   StateHoliday: 2
-  SchoolHoliday: 2
+  SchoolHoliday: 3
 ee:
 nn:
   - Sales
@@ -22,9 +22,8 @@ data:
     split_seed: 42
 
     split_sizes: 
-      - 0.7   # train
+      - 0.85   # train
       - 0.15  # train_val
-      - 0.15  # hpo_val
 
   preprocessing:
     common_pipeline: &common_pipeline

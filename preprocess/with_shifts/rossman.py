@@ -10,50 +10,57 @@ from pyspark.sql.types import LongType, FloatType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    add_debug_f,
-    duplicate_target_by_shifts,
-    filter_short,
     global_time_split,
     save_partitioned_parquet,
+    filter_short,
     shift_end_by_len,
     split_num_shifts,
+    global_train_column,
+    trim_test,
 )
 
 CAT_FEATURES = ["DayOfWeek", "Open", "Promo", "StateHoliday", "SchoolHoliday"]
 NUM_FEATURES = ["Sales", "Customers"]
 INDEX_COLUMNS = ["Store"]
 ORDERING_COLUMNS = ["Date"]
-INDEX = INDEX_COLUMNS[0]
 TM = ORDERING_COLUMNS[0]
-TARGET_VALS = [0, 1]
-TEST_FRACTION = 0.1
+INDEX = INDEX_COLUMNS[0]
+HORIZON = 60
 
-def reg_sums_list(row: pd.Series, horizon: int = 30) -> list[float]:
+
+def get_reg_target(df: pd.DataFrame, horizon: int = 30) -> pd.Series:
+    sums_list = df.apply(lambda r: reg_sums_list(r), axis=1)
+    flat_sums = np.concatenate([np.asarray(v) for v in sums_list if len(v)])
+    mu = flat_sums.mean() if len(flat_sums) else 0.0
+    sigma = flat_sums.std() if len(flat_sums) else 1.0
+    return sums_list.apply(
+        lambda v: [(x - mu) / sigma if sigma != 0 else 0.0 for x in v]
+    )
+
+
+def reg_sums_list(row: pd.Series) -> list[float]:
     sales = np.asarray(row["Sales"])
     out = []
     for s in row["shifts"]:
-        s = int(s)
-        window = sales[s : s + horizon]
-        out.append(float(window.sum()) if len(window) else 0.0)
+        out.append(float(sales[s : s + HORIZON].sum()))
     return out
 
 
-def forecast_list(row: pd.Series) -> list[float]:
+def get_forecast_target(row):
     sales = np.asarray(row["Sales"])
     out = []
     for s in row["shifts"]:
-        s = int(s)
-        window = sales[s:]
-        out.append(float(np.log1p(np.median(window))) if len(window) else 0.0)
+        assert s > 0
+        out.append(float(np.log1p(np.median(sales[s:]))))
     return out
 
 
-def spike_ratio_list(row: pd.Series, horizon: int = 60, eps: float = 1e-6) -> list[float]:
+def spike_ratio_list(row: pd.Series, eps: float = 1e-6) -> list[float]:
     sales = np.asarray(row["Sales"])
     out = []
     for s in row["shifts"]:
         s = int(s)
-        window = sales[s : s + horizon]
+        window = sales[s : s + HORIZON]
         if len(window) == 0:
             out.append(np.nan)
             continue
@@ -61,19 +68,26 @@ def spike_ratio_list(row: pd.Series, horizon: int = 60, eps: float = 1e-6) -> li
     return out
 
 
-def get_reg_target(df: pd.DataFrame, horizon: int = 30) -> pd.Series:
-    sums_list = df.apply(lambda r: reg_sums_list(r, horizon=horizon), axis=1)
-    flat_sums = np.concatenate([np.asarray(v) for v in sums_list if len(v)])
-    mu = flat_sums.mean() if len(flat_sums) else 0.0
-    sigma = flat_sums.std() if len(flat_sums) else 1.0
-    return sums_list.apply(lambda v: [(x - mu) / sigma if sigma != 0 else 0.0 for x in v])
-
-
-def get_anomaly_target(df: pd.DataFrame, horizon: int = 60, q: float = 0.95) -> pd.Series:
-    spike_list = df.apply(lambda r: spike_ratio_list(r, horizon=horizon), axis=1)
+def get_anomaly_target(df: pd.DataFrame, q: float = 0.95) -> pd.Series:
+    spike_list = df.apply(lambda r: spike_ratio_list(r), axis=1)
     flat_spike = np.concatenate([np.asarray(v) for v in spike_list if len(v)])
     thr = np.nanquantile(flat_spike, q) if len(flat_spike) else np.nan
-    return spike_list.apply(lambda v: [int(x > thr) if not np.isnan(x) else 0 for x in v])
+    return spike_list.apply(
+        lambda v: [int(x > thr) if not np.isnan(x) else 0 for x in v]
+    )
+
+
+def compute_shift_end(arr):
+    arr = np.asarray(arr)
+    return (arr[-1] - arr > HORIZON).sum() - 1 if len(arr) else -1
+
+
+def trim_users(arr):
+    arr = np.asarray(arr)
+    if len(arr) < 2:
+        return True
+    total_duration = arr[-1] - arr[0]
+    return total_duration < HORIZON
 
 
 def main():
@@ -97,9 +111,9 @@ def main():
     )
     parser.add_argument(
         "--split-seed",
-        help="Random seed used to split the data on train and test",
-        default=1,
+        help="Random seed for train-test split",
         type=int,
+        default=42,
     )
     parser.add_argument(
         "--overwrite",
@@ -108,48 +122,66 @@ def main():
     )
     parser.add_argument(
         "--num-shifts",
-        help="How many shifts to sample per test store",
+        help="How many shifts to sample per sequence",
         type=int,
-        default=5,
+        default=100,
     )
     parser.add_argument(
         "--shift-seed",
         help="Random seed for shifts",
+        default=1,
         type=int,
-        default=0,
     )
     parser.add_argument(
-        "--global-split-ntp",
-        help="Global split with 0.5 or 0.1 test fraction using y/n ",
-        type=str,
-        default='n'
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
-    spark = SparkSession.builder.master("local[32]").getOrCreate()  # type: ignore[attr-defined]
-
-    if args.global_split_ntp == 'y':
-        TEST_FRACTION = 0.5
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
     else:
-        TEST_FRACTION = 0.1
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
 
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
+
+    spark = (
+        SparkSession.builder.master("local[20]")  # type: ignore[attr-defined]
+        .appName("AlphaPreprocessing")
+        .config("spark.driver.memory", "100g")
+        .config("spark.executor.memory", "50g")
+        .config("spark.driver.maxResultSize", "80g")
+        .config("spark.sql.shuffle.partitions", "200")
+        .config("spark.sql.execution.arrow.pyspark.enabled", "false")
+        .config("spark.sql.execution.arrow.maxRecordsPerBatch", "50000")
+        .config(
+            "spark.executor.extraJavaOptions",
+            "-XX:+UseG1GC -XX:+UseStringDeduplication",
+        )
+        .getOrCreate()
+    )
     df = (
-        spark.read.csv((args.data_path / 'data/train.csv').as_posix(), header=True)
+        spark.read.csv((args.data_path / "train.csv").as_posix(), header=True)
         .withColumn(
             # Переставляем dd.MM.yyyy → yyyy.MM.dd сразу в regexp
             "Date_str",
             F.regexp_replace(
-                TM,
-                r"(\d{2})\.(\d{2})\.(\d{4})",
-                r"$3.$2.$1"  # yyyy.MM.dd
-            )
+                TM, r"(\d{2})\.(\d{2})\.(\d{4})", r"$3.$2.$1"  # yyyy.MM.dd
+            ),
         )
         .withColumn(
             # Меняем точки на дефисы
             "Date_str",
-            F.when(F.col("Date_str").isNotNull(), F.regexp_replace("Date_str", r"\.", "-"))
-            .otherwise(None)
+            F.when(
+                F.col("Date_str").isNotNull(), F.regexp_replace("Date_str", r"\.", "-")
+            ).otherwise(None),
         )
         .withColumn(TM, F.to_timestamp("Date_str", "yyyy-MM-dd"))
         .select(
@@ -170,40 +202,34 @@ def main():
         if args.cat_codes_path is not None:
             vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
 
-    rows_df = collect_lists(
-        df,
-        group_by=INDEX_COLUMNS,
-        order_by=ORDERING_COLUMNS,
-    )
+    df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=TM)
 
-    for col_name in rows_df.columns:
+    for col_name in df.columns:
         if col_name.endswith("_list"):
-            rows_df = rows_df.withColumnRenamed(col_name, col_name.replace("_list", ""))
-    full_df = rows_df
+            df = df.withColumnRenamed(col_name, col_name.replace("_list", ""))
+    full_df = df
 
     full_df = full_df.toPandas()
-    full_df['_seq_len'] = full_df[TM].apply(len)
+    full_df["_seq_len"] = full_df[TM].apply(len)
     full_df = filter_short(full_df)
 
-    store_info_df = pd.read_csv(args.data_path / "data/store.csv")
+    store_info_df = pd.read_csv(args.data_path / "store.csv")
     store_type_map = dict(zip(store_info_df[INDEX], store_info_df["StoreType"]))
     full_df["store_type_letter"] = full_df[INDEX].map(store_type_map)
     type_codes = pd.Categorical(full_df["store_type_letter"]).codes
-    assert (type_codes >= 0).all(), "Found missing store_type values; fill or drop before coding"
+    assert (
+        type_codes >= 0
+    ).all(), "Found missing store_type values; fill or drop before coding"
     full_df["type_code"] = type_codes
 
     # ensure datetime64 for global time split
     full_df[TM] = full_df[TM].map(lambda x: np.asarray(x, dtype="datetime64[ns]"))
 
-    horizon_reg = 30
-    horizon_anom = 60
-
-    full_df["shift_end"] = shift_end_by_len(full_df[TM], -1 - horizon_anom)
+    full_df["shift_end"] = shift_end_by_len(full_df[TM], -1 - HORIZON)
 
     train_df, test_df = global_time_split(
         data=full_df,
-        test_frac=TEST_FRACTION,
-        min_shift_start=2,
+        test_frac=time_test_split,
         time_col=TM,
         seqlen_col="_seq_len",
     )
@@ -211,55 +237,73 @@ def main():
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    # 90% split per users
-    rng = np.random.default_rng(seed=42)
-    n_train_users = int(len(train_df.index) * 0.9)
-    train_indices = rng.choice(train_df.index, size=n_train_users, replace=False)
-    train_df["users_in_train"] = 0
-    train_df.loc[train_indices, "users_in_train"] = 1
-    valid_test_indices = test_df.index.intersection(train_indices)
-    test_df["users_in_train"] = 0
-    test_df.loc[valid_test_indices, "users_in_train"] = 1
+    train_df["is_bad_user"] = train_df[TM].apply(trim_users)
+    bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
+    train_df = train_df.drop(index=bad_indices)
+    del train_df["is_bad_user"]
 
-    # recompute shift_end for train after trimming
-    train_df["shift_end"] = shift_end_by_len(train_df[TM], -1 - horizon_anom)
+    train_df["shift_end"] = shift_end_by_len(train_df[TM], -1 - HORIZON)
+
+    valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
+    train_df = train_df.loc[valid_mask_train].copy()
+    valid_mask_test = test_df.index.intersection(valid_mask_train)
+    test_df = test_df.loc[valid_mask_test].copy()
 
     assert (train_df["shift_end"] >= train_df["shift_start"]).all()
     assert (test_df["shift_end"] >= test_df["shift_start"]).all()
 
-    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, TEST_FRACTION)
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
 
     test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
     train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
 
-    test_df["post_amount"] = get_reg_target(test_df, horizon=horizon_reg)
-    test_df["post_forecast_target"] = test_df.apply(forecast_list, axis=1)
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
 
-    test_df["post_anomaly_target"] = get_anomaly_target(test_df, horizon=horizon_anom, q=0.95)
-    test_df["post_target"] = duplicate_target_by_shifts(test_df, "type_code")
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+    )
 
-    train_df["post_amount"] = get_reg_target(train_df, horizon=horizon_reg)
-    train_df["post_forecast_target"] = train_df.apply(forecast_list, axis=1)
-    train_df["post_anomaly_target"] = get_anomaly_target(train_df, horizon=horizon_anom, q=0.95)
-    train_df["post_target"] = duplicate_target_by_shifts(train_df, "type_code")
+    test_df["target__reg__local__mse+r2"] = get_reg_target(test_df)
+    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+        get_forecast_target, axis=1
+    )
 
-    # debug: map shifts to timestamps
-    test_df = add_debug_f(test_df, time_col=TM)
-    train_df = add_debug_f(train_df, time_col=TM)
+    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+        test_df, q=0.95
+    )
+    test_df["target__clf__global__accuracy+f1_macro"] = test_df["type_code"]
+    train_df["target__reg__local__mse+r2"] = get_reg_target(train_df)
+    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+        get_forecast_target, axis=1
+    )
+    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+        train_df, q=0.95
+    )
+    train_df["target__clf__global__accuracy+f1_macro"] = train_df["type_code"]
 
-    keep_cols = INDEX_COLUMNS + [
-        TM,
-        "shifts",
-        "post_amount",
-        "post_target",
-        "post_forecast_target",
-        "post_anomaly_target",
-        "users_in_train",
-        "debug_f",
-    ] + CAT_FEATURES + NUM_FEATURES
+    keep_cols = (
+        INDEX_COLUMNS
+        + ORDERING_COLUMNS
+        + CAT_FEATURES
+        + NUM_FEATURES
+        + [
+            "_seq_len",
+            "shifts",
+            "global_train",
+            "target__clf__global__accuracy+f1_macro",
+            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "target__reg__local__mse+r2",
+            "target__forecast__local__mse+r2",
+        ]
+    )
 
-    save_partitioned_parquet(train_df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+
 
 if __name__ == "__main__":
     main()
