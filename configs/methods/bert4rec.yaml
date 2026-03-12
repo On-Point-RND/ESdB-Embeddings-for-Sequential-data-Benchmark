@@ -22,8 +22,6 @@ model:
     cat_emb_dim: 128
     num_emb_dim: 128
     num_norm: false
-    target_cat_feature: small_group
-    reconstruction_mode: true
     reconstruction_ce_weight: 1.0
     reconstruction_mse_weight: 1.0
     ignore_index: -100
@@ -36,11 +34,12 @@ model:
         random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
         keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
         num_mask_fill: zero
-        partial_cat_feature_prob: 0.0
-        partial_num_feature_prob: 0.0
+        partial_cat_feature_prob: 0.1
+        partial_num_feature_prob: 0.1
     query_aggregation: last
     max_len: ${data.preprocessing.bert4rec_pipeline.max_seq_len}
     hidden_size: 128
+    embedding_size: 128
     num_blocks: 2
     num_heads: 4
     num_passes_over_block: 1
@@ -48,7 +47,7 @@ model:
     enable_positional_embedding: true
   preprocess:
     params:
-      time_process: "diff"
+      time_process: "cat"
 
 data:
   loaders:
@@ -71,3 +70,30 @@ optimizer:
   params:
     lr: 1.e-3
     weight_decay: 1.e-6
+
+
+optuna:
+  params:
+    n_trials: 100
+    n_startup_trials: 10
+    target_metric: ${tasks}
+  suggestions:
+    optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
+    optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
+
+    model.params.hidden_size: [suggest_int, {low: 64, high: 1024, step: 32}]
+    model.params.num_heads: [suggest_categorical, {choices: [1, 2, 4, 8]}]
+    model.params.dropout: [suggest_float, {low: 0.0, high: 0.3, step: 0.05}]
+    model.params.num_blocks: [suggest_int, {low: 1, high: 5, log: False}]
+    model.params.num_passes_over_block: [suggest_int, {low: 1, high: 2, log: False}]
+    model.params.cat_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+    model.params.num_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+
+    model.params.masker.params.mask_prob: [suggest_float, {low: 0.1, high: 0.8, log: False}]
+    model.params.masker.params.span_len: [suggest_int, {low: 5, high: 100, log: False}]
+    model.params.masker.params.span_share: [suggest_float, {low: 0.1, high: 0.9, step: 0.05}]
+    model.params.masker.params.random_token_prob: [suggest_float, {low: 0., high: 0.2, step: 0.05}]
+    model.params.masker.params.keep_event_prob: [suggest_float, {low: 0., high: 0.15, step: 0.05}]
+    model.params.masker.params.partial_cat_feature_prob: [suggest_float, {low: 0., high: 0.5, step: 0.05}]
+    model.params.masker.params.partial_num_feature_prob: [suggest_float, {low: 0., high: 0.5, step: 0.05}]
+    # model.params.masker.params.num_mask_fill: [suggest_categorical, {choices: [zero, mean, noise]}]

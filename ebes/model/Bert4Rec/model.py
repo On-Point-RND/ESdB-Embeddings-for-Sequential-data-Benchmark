@@ -12,7 +12,7 @@ from ..basemodel import BaseModel
 from ..preprocess import Batch2Seq
 from ...types import Batch
 
-AggregationMode = Literal["last", "mean", "max"]
+AggregationMode = Literal["last", "mean", "max", "mean_last_k"]
 
 
 class PositionalEmbedding(nn.Module):
@@ -83,7 +83,7 @@ class BertEmbedding(nn.Module):
 
     def __init__(
         self,
-        cat_cardinalities: Mapping[str, int],
+        cat_cardinalities: Mapping[str, int] | None,
         num_features: list[str] | None,
         hidden_size: int,
         max_len: int,
@@ -98,6 +98,7 @@ class BertEmbedding(nn.Module):
         self.max_len = max_len
         self.enable_positional_embedding = enable_positional_embedding
 
+        cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
         adjusted_cards = {name: card + 1 for name, card in cat_cardinalities.items()}
 
         self.processor = Batch2Seq(
@@ -109,7 +110,12 @@ class BertEmbedding(nn.Module):
             num_norm=num_norm,
         )
 
-        self.project = nn.Linear(self.processor.output_dim, hidden_size)
+        self.sequential = nn.Sequential(
+            nn.Linear(self.processor.output_dim, hidden_size * 2),
+            nn.GELU(),
+            nn.Linear(hidden_size * 2, hidden_size),   
+        )
+
         self.dropout = nn.Dropout(p=dropout)
         if self.enable_positional_embedding:
             self.position = PositionalEmbedding(max_len=max_len, d_model=hidden_size)
@@ -118,7 +124,7 @@ class BertEmbedding(nn.Module):
         if batch.emb_features is not None or batch.emb_features_names is not None:
             raise ValueError("Bert4Rec does not support emb_features")
         seq = self.processor(batch, copy=False)
-        x = self.project(seq.tokens.permute(1, 0, 2))
+        x = self.sequential(seq.tokens.permute(1, 0, 2))
         if self.enable_positional_embedding:
             x = x + self.position(x)
         return self.dropout(x)
@@ -129,12 +135,12 @@ class Bert4Rec(BaseModel):
 
     def __init__(
         self,
-        cat_cardinalities: Mapping[str, int],
+        cat_cardinalities: Mapping[str, int] | None,
         num_features: list[str] | None,
         masker: Mapping,
-        target_cat_feature: str,
         max_len: int = 100,
         hidden_size: int = 256,
+        embedding_size: int = 128,
         num_blocks: int = 2,
         num_heads: int = 4,
         num_passes_over_block: int = 1,
@@ -144,8 +150,8 @@ class Bert4Rec(BaseModel):
         num_emb_dim: int | None = None,
         num_norm: bool = False,
         query_aggregation: AggregationMode = "last",
+        query_aggregation_k: int | None = None,
         enable_positional_embedding: bool = True,
-        reconstruction_mode: bool = True,
         reconstruction_ce_weight: float = 1.0,
         reconstruction_mse_weight: float = 1.0,
         acceleration_config: Mapping | None = None,
@@ -155,20 +161,19 @@ class Bert4Rec(BaseModel):
 
         self.max_len = max_len
         self.num_passes_over_block = num_passes_over_block
-        self.reconstruction_mode = reconstruction_mode
         self.reconstruction_ce_weight = reconstruction_ce_weight
         self.reconstruction_mse_weight = reconstruction_mse_weight
         self.ignore_index = ignore_index
 
         self.query_aggregation = query_aggregation
+        self.query_aggregation_k = query_aggregation_k
 
+        cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
         self.num_feature_names = [] if num_features is None else num_features
         self.cat_features_names = list(cat_cardinalities.keys())
-
-        if target_cat_feature is None or target_cat_feature not in cat_cardinalities:
-            raise ValueError('\'target_cat_fature\' should be from cat_features')
-        else:
-            self.target_item = target_cat_feature
+        self.num_feature_count = len(self.num_feature_names) + (
+            0 if time_process == "none" else 1
+        )
 
         self.item_embedder = BertEmbedding(
             cat_cardinalities=cat_cardinalities,
@@ -216,13 +221,14 @@ class Bert4Rec(BaseModel):
 
         self.cat_heads = nn.ModuleDict(
             {
-                name: nn.Linear(hidden_size, card)
+                name: nn.Linear(embedding_size, card)
                 for name, card in cat_cardinalities.items()
             }
         )
+
         self.num_head = (
-            nn.Linear(hidden_size, len(self.num_feature_names))
-            if len(self.num_feature_names) > 0
+            nn.Linear(embedding_size, self.num_feature_count)
+            if self.num_feature_count > 0
             else None
         )
 
@@ -234,37 +240,37 @@ class Bert4Rec(BaseModel):
             },
         )
 
+        self.reconstruction_stem = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 2),
+            nn.GELU(),
+            nn.Linear(hidden_size * 2, embedding_size),
+        )
+
         self._init()
 
     def forward(self, batch: Batch):
-        if self.reconstruction_mode:
-            masked_batch, targets = self._mask_inputs(batch)
-            x = self._encode(masked_batch)
-            return self._reconstruction_output(x, targets)
+        batch = batch.tail_clamp(self.max_len)
+        masked_batch, targets = self._mask_inputs(batch)
+        x = self._encode(masked_batch)
+        return self._reconstruction_output(x, targets)
 
-        x = self._encode(batch)
-        return self.cat_heads[self.target_item](x).permute(0, 2, 1)
-
-    def get_sequence_embeddings(self, batch: Batch) -> torch.Tensor:
-        return self._encode(batch)
 
     def get_query_embeddings(
         self,
         batch: Batch,
-        aggregation: AggregationMode | None = None,
     ) -> torch.Tensor:
+        batch = batch.tail_clamp(self.max_len)
         x = self._encode(batch)
-        mode_raw = self.query_aggregation if aggregation is None else aggregation
-        if mode_raw not in {"last", "mean", "max"}:
-            raise ValueError(f"Unknown aggregation mode: {mode_raw}")
-        mode = cast(AggregationMode, mode_raw)
-        return self._aggregate_embeddings(x, batch.lengths, mode)
+        x = self.reconstruction_stem(x)
+        mode = cast(AggregationMode, self.query_aggregation)
+        return self._aggregate_embeddings(x, batch.lengths, mode, self.query_aggregation_k)
 
     @staticmethod
     def _aggregate_embeddings(
         x: torch.Tensor,
         lengths: torch.Tensor,
         aggregation: AggregationMode,
+        k: int | None = None,
     ) -> torch.Tensor:
         
         if aggregation == "last":
@@ -272,12 +278,23 @@ class Bert4Rec(BaseModel):
             last_idx = lengths.clamp_min(1) - 1
             return x[batch_idx, last_idx]
 
-        valid = torch.arange(x.shape[1], device=x.device)[None, :] < lengths[:, None]
-        valid = valid.unsqueeze(-1)
+        idx = torch.arange(x.shape[1], device=x.device)[None, :]   # [1, T]
+        valid_2d = idx < lengths[:, None]                          # [B, T]
+        valid = valid_2d.unsqueeze(-1)
 
         if aggregation == "mean":
             summed = (x * valid).sum(dim=1)
             denom = lengths.clamp_min(1).unsqueeze(-1)
+            return summed / denom
+
+        if aggregation == "mean_last_k":
+            if k is None or k < 1:
+                raise ValueError("mean_last_k requires k >= 1")
+            start = (lengths - k).clamp_min(0)[:, None]            # [B, 1]
+            tail_2d = (idx >= start) & valid_2d                    # [B, T]
+            tail = tail_2d.unsqueeze(-1)                           # [B, T, 1]
+            summed = (x * tail).sum(dim=1)
+            denom = tail_2d.sum(dim=1).clamp_min(1).unsqueeze(-1)
             return summed / denom
 
         if aggregation == "max":
@@ -303,6 +320,7 @@ class Bert4Rec(BaseModel):
         x: torch.Tensor,
         targets: dict[str, torch.Tensor | None],
     ):
+        x = self.reconstruction_stem(x)
         total_ce = x.new_tensor(0.0)
         total_mse = x.new_tensor(0.0)
 
@@ -340,7 +358,6 @@ class Bert4Rec(BaseModel):
             "loss": loss,
             "total_ce_loss": total_ce,
             "total_mse_loss": total_mse,
-            "embeddings": x,
         }
 
     def _get_pad_mask(self, batch: Batch) -> torch.Tensor:
