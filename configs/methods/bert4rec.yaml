@@ -37,7 +37,7 @@ model:
         partial_cat_feature_prob: 0.1
         partial_num_feature_prob: 0.1
     query_aggregation: last
-    max_len: ${data.preprocessing.bert4rec_pipeline.max_seq_len}
+    max_len: ${data.preprocessing.common_pipeline.max_seq_len}
     hidden_size: 128
     embedding_size: 128
     num_blocks: 2
@@ -49,21 +49,6 @@ model:
     params:
       time_process: "cat"
 
-data:
-  loaders:
-    train:
-      preprocessing: bert4rec_pipeline
-    full_train:
-      preprocessing: bert4rec_pipeline
-    train_val:
-      preprocessing: bert4rec_pipeline
-    hpo_val:
-      preprocessing: bert4rec_pipeline
-
-test_data:
-  loaders:
-    test:
-      preprocessing: bert4rec_pipeline
 
 optimizer:
   name: Adam
