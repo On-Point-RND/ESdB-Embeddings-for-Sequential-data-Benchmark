@@ -11,7 +11,7 @@ from .model_utils import (
 from ...types import Batch, Seq
 from ...model import BaseModel
 from ..preprocess import Batch2Seq
-from ...model.seq2seq import GRU
+from ...model.seq2seq import GRU, Projection
 from copy import deepcopy
 from ...model import build_model, FrozenModel
 from .gpt import GPT
@@ -29,6 +29,7 @@ class NTPModel(BaseModel):
         num_norm=True,
         # Encoder:
         enc_hidden_size=128,
+        emb_size=128,
         enc_num_layers=1,
         use_transformer=False,
         n_head=4,
@@ -67,7 +68,10 @@ class NTPModel(BaseModel):
                 hidden_size=enc_hidden_size,
                 num_layers=enc_num_layers,
             )
-        
+        self.encoder = nn.Sequential(
+            [self.encoder, Projection(enc_hidden_size, emb_size)]
+        )
+
         ### ACTIVATION ###
         self.act = nn.GELU()
 
@@ -96,25 +100,25 @@ class NTPModel(BaseModel):
         losses_dict["reconstruction_loss"] = total_loss
 
         return losses_dict, output
-    
+
     def encode(self, batch: Batch):
         x = self.processor(batch)
         all_hid = self.encoder(x)
         return all_hid
-    
+
     def reconstruct(self, batch: Batch):
         global_hidden = self.encode(batch)
-        
+
         if isinstance(global_hidden, Seq):
             enc_out = global_hidden.tokens
         else:
             enc_out = global_hidden
-             
-        #[0, ..., L-2]
-        pred_input = enc_out[:-1, :, :] 
-        
+
+        # [0, ..., L-2]
+        pred_input = enc_out[:-1, :, :]
+
         pred = self.recon_predictor(pred_input)
-        
+
         res_dict = {
             "prediction": pred,
             "latent": global_hidden,
@@ -134,7 +138,7 @@ class NTPPretrainer(NTPModel):
         metrics = self.recon_predictor.metrics(output["prediction"], batch)
         assert batch == check_batch
         losses["loss"] = losses["reconstruction_loss"]
-        losses.update(metrics) 
+        losses.update(metrics)
         return losses
 
 

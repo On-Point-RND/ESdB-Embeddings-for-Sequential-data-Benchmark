@@ -1,25 +1,46 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-import pyspark.sql.functions as F
-from pyspark.sql import SparkSession
-from pyspark.sql.types import LongType, FloatType
-from pyspark.ml.feature import Bucketizer
 import numpy as np
+import pandas as pd
+import pyspark.sql.functions as F
+from pyspark.ml.feature import Bucketizer
+from pyspark.sql import SparkSession
+from pyspark.sql.types import FloatType, LongType, TimestampType
 
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    global_time_split,
-    save_partitioned_parquet,
     filter_short,
-    split_num_shifts,
+    global_time_split,
     global_train_column,
+    save_partitioned_parquet,
+    split_num_shifts,
     trim_test,
 )
 
-CAT_FEATURES = ["product_id"]
-NUM_FEATURES = ["purchase_sum", "trn_sum_from_red"]
+CAT_FEATURES = [
+    "product_id",
+    "is_own_trademark",
+    "is_alcohol",
+    "level_1",
+    "level_2",
+    "level_3",
+    "level_4",
+    "segment_id",
+]
+
+NUM_FEATURES = [
+    "purchase_sum",
+    "trn_sum_from_red",
+    "trn_sum_from_iss",
+    "netto",
+    "regular_points_received",
+    "express_points_received",
+    "product_quantity",
+    "regular_points_spent",
+    "express_points_spent",
+]
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["transaction_datetime"]
 TM = ORDERING_COLUMNS[0]
@@ -29,7 +50,7 @@ AGE_BOUNDS = [10.0, 35.0, 45.0, 60.0, 90.0]
 
 def get_reg_target(row):
     a = np.asarray(row["purchase_sum"], dtype=float)
-    t = np.asarray(row["transaction_datetime"], dtype='datetime64[s]')
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
         delta = t - t[s - 1]
@@ -40,7 +61,9 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["transaction_datetime"], dtype='datetime64[s]').astype("datetime64[h]")
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]").astype(
+        "datetime64[h]"
+    )
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
@@ -50,10 +73,13 @@ def get_forecast_target(row):
 
 def get_anomaly_target(row):
     r = np.asarray(row["trn_sum_from_red"])
+    t = np.asarray(row["transaction_datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
         assert s > 0, "shift should be more than zero"
-        out.append(1 if np.sum(r[s:]) > 10 else 0)
+        out.append(1 if np.sum(r[mask]) > 2 else 0)
     return out
 
 
@@ -153,29 +179,57 @@ def main():
     df = None
 
     if args.which_split == "train":
-        df_clients = spark.read.csv(
-            (args.data_path / "clients.csv").as_posix(), header=True
-        )
-        df_clients = df_clients.select(
-            F.col("client_id"),
-            F.col("age").cast(LongType()),
-        )
-        df_clients = df_clients.filter((F.col("age") > 10) & (F.col("age") < 90))
 
-        df_tx = spark.read.csv(
-            (args.data_path / "purchases.csv").as_posix(), header=True
+        df_prods = (
+            spark.read.csv((args.data_path / "products.csv").as_posix(), header=True)
+            .withColumn("netto", F.col("netto").cast(FloatType()))
+            .withColumn("is_own_trademark", F.col("is_own_trademark").cast(LongType()))
+            .withColumn("is_alcohol", F.col("is_alcohol").cast(LongType()))
         )
-        df_tx = df_tx.select(
-            F.col("client_id"),
-            F.to_timestamp(F.col("transaction_datetime"))
-            .cast(LongType())
-            .alias("transaction_datetime"),
-            F.col("purchase_sum").cast(FloatType()),
-            F.col("product_id"),
-            F.col("trn_sum_from_red").cast(FloatType()),
-        )
-        df = df_tx.join(df_clients, on="client_id")
 
+        df_clients = (
+            spark.read.csv((args.data_path / "clients.csv").as_posix(), header=True)
+            .withColumn(
+                "first_issue_date", F.col("first_issue_date").cast(TimestampType())
+            )
+            .withColumn(
+                "first_redeem_date", F.col("first_redeem_date").cast(TimestampType())
+            )
+            .withColumn("age", F.col("age").cast(FloatType()))
+            .filter("age >= 10.0 and age <= 90.0")  # as in CoLES
+        )
+
+        df_tx = (
+            spark.read.csv((args.data_path / "purchases.csv").as_posix(), header=True)
+            .withColumn(
+                "transaction_datetime",
+                F.col("transaction_datetime").cast(TimestampType()),
+            )
+            .withColumn(
+                "regular_points_received",
+                F.col("regular_points_received").cast(FloatType()),
+            )
+            .withColumn(
+                "express_points_received",
+                F.col("express_points_received").cast(FloatType()),
+            )
+            .withColumn(
+                "regular_points_spent", F.col("regular_points_spent").cast(FloatType())
+            )
+            .withColumn(
+                "express_points_spent", F.col("express_points_spent").cast(FloatType())
+            )
+            .withColumn("purchase_sum", F.col("purchase_sum").cast(FloatType()))
+            .withColumn("product_quantity", F.col("product_quantity").cast(FloatType()))
+            .withColumn("trn_sum_from_iss", F.col("trn_sum_from_iss").cast(FloatType()))
+            .withColumn("trn_sum_from_red", F.col("trn_sum_from_red").cast(FloatType()))
+        )
+
+        df = df_tx.join(df_prods, on="product_id").join(df_clients, on="client_id")
+
+        for col_name in NUM_FEATURES:
+            if col_name in df.columns:
+                df = df.withColumn(col_name, F.col(col_name).cast(FloatType()))
     else:
         raise NotImplementedError(
             "We doesn't know what to do with test.csv for Retail hero dataset without labels."
@@ -189,7 +243,6 @@ def main():
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
-    # split age on buckers as in CoLES
     df = (
         Bucketizer(
             splits=AGE_BOUNDS,
@@ -202,7 +255,10 @@ def main():
         .cache()
     )
 
-    df = df.sort("client_id").toPandas()
+    df.repartition(50).write.parquet("/tmp/retail_cached", mode="overwrite")
+
+    df = pd.read_parquet("/tmp/retail_cached")
+    df = df.sort_values("client_id").reset_index(drop=True)
     df = filter_short(df)
 
     df["shift_end"] = df[TM].map(compute_shift_end)
@@ -246,8 +302,8 @@ def main():
     )
 
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["age_clf"]
-    test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
     test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df.apply(
@@ -255,8 +311,8 @@ def main():
     )
 
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["age_clf"]
-    train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
     train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df.apply(
@@ -274,8 +330,8 @@ def main():
             "global_train",
             "target__clf__global__accuracy+f1_macro",
             "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "target__reg__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg__local__r2",
+            "target__forecast__local__r2",
         ]
     )
 

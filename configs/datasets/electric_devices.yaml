@@ -4,6 +4,9 @@ n_classes: 7
 main_metric: MulticlassAccuracy
 main_loss: 
   name: nn.CrossEntropyLoss
+tasks:
+- target__forecast__local__r2
+- target__clf__global__accuracy+f1_macro
 
 ee:
 cc: 

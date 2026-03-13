@@ -22,7 +22,7 @@ NUM_FEATURES = ["play_duration"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["datetime"]
 TM = ORDERING_COLUMNS[0]
-HORIZON = np.timedelta64(10, "D")
+HORIZON = np.timedelta64(40, "D")
 
 
 def get_reg_target(row):
@@ -48,12 +48,19 @@ def get_forecast_target(row):
     return out
 
 
-def get_clf_target(row):
+def get_clf_target(row, no_future_class: int):
     c = np.asarray(row["cluster_id"])
+    t = np.asarray(row["datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
-        post_c = c[s:]
-        assert len(post_c) > 0, "Sequence after shift is empty"
+        assert s > 0, "shift should be more than zero"
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        post_c = c[mask]
+
+        if len(post_c) == 0:
+            out.append(no_future_class)
+            continue
         vals, counts = np.unique(post_c, return_counts=True)
         out.append(int(vals[np.argmax(counts)]))
     return out
@@ -61,11 +68,15 @@ def get_clf_target(row):
 
 def get_diversity(row):
     d = np.asarray(row["play_duration"], dtype=float)
+    t = np.asarray(row["datetime"], dtype="datetime64[s]")
     out = []
     for s in row["shifts"]:
-        post = d[s:]
-        assert len(post) >= 2
-        out.append(np.std(post) / max(np.mean(post), np.finfo(float).eps))
+        delta = t - t[s - 1]
+        mask = (delta > np.timedelta64(0, "s")) & (delta < HORIZON)
+        post = d[mask]
+        out.append(
+            np.std(post) / max(np.mean(post), np.finfo(float).eps) if len(post) else 0
+        )
     return out
 
 
@@ -76,7 +87,7 @@ def apply_threshold(ratio, threshold):
 def compute_shift_end(arr):
     arr = np.asarray(arr, dtype="datetime64[s]")
     diff = arr[-1] - arr
-    return (diff > HORIZON).sum() - 1
+    return (diff > HORIZON).sum() - 1 if len(arr) else -1
 
 
 def trim_users(arr):
@@ -175,7 +186,7 @@ def main():
     if args.which_split == "train":
         df_interactions = spark.read.parquet(
             (args.data_path / "zvuk-interactions.parquet").as_posix(), header=True
-        )
+        ).limit(10000000)
         df_interactions = df_interactions.select(
             F.col("user_id").cast(LongType()),
             F.col("track_id").cast(LongType()),
@@ -196,7 +207,7 @@ def main():
         df_artist = df_artist.select(
             F.col("track_id").cast(LongType()), F.col("cluster_id").cast(LongType())
         ).dropDuplicates(["track_id"])
-        
+
         df = df_interactions.join(df_artist, on="track_id")
     else:
         raise NotImplementedError(
@@ -213,6 +224,8 @@ def main():
 
     df = df.sort("client_id").toPandas()
     df = filter_short(df)
+    all_clusters = np.concatenate(df["cluster_id"].values)
+    no_future_class = int(all_clusters.max()) + 1 if len(all_clusters) else 0
 
     df["shift_end"] = df[TM].map(compute_shift_end)
 
@@ -257,22 +270,22 @@ def main():
     test_df["cv"] = test_df.apply(get_diversity, axis=1)
 
     threshold = np.quantile(np.concatenate(train_df["cv"].values), 0.95)
-    test_df["target__clf__local__accuracy+f1_macro"] = test_df.apply(
-        get_clf_target, axis=1
+    test_df["target__clf__local__f1_macro"] = test_df.apply(
+        lambda r: get_clf_target(r, no_future_class), axis=1
     )
-    test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
     test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df["cv"].apply(
         lambda x: apply_threshold(x, threshold)
     )
 
-    train_df["target__clf__local__accuracy+f1_macro"] = train_df.apply(
-        get_clf_target, axis=1
+    train_df["target__clf__local__f1_macro"] = train_df.apply(
+        lambda r: get_clf_target(r, no_future_class), axis=1
     )
-    train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
     train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
@@ -288,10 +301,10 @@ def main():
             "_seq_len",
             "shifts",
             "global_train",
-            "target__clf__local__accuracy+f1_macro",
+            "target__clf__local__f1_macro",
             "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "target__reg__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg__local__r2",
+            "target__forecast__local__r2",
         ]
     )
 

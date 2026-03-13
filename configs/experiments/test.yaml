@@ -1,4 +1,4 @@
-run_name: "${method_name}/test"
+run_name: "${method_name}/tests/${oc.env:TASK_NAME,simple}"
 common_seed: 0
 device: "cuda:0"
 

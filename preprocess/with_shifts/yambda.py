@@ -252,14 +252,14 @@ def main():
 
 
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["mode_is_organic"]
-    test_df["target__reg__local__mse+r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__mse+r2"] = test_df.apply(
+    test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
 
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["mode_is_organic"]
-    train_df["target__reg__local__mse+r2"] = train_df.apply(get_reg_target, axis=1)
-    train_df["target__forecast__local__mse+r2"] = train_df.apply(
+    train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
 
@@ -274,8 +274,8 @@ def main():
             "global_train",
             "target__clf__global__accuracy+f1_macro",
             "target__anomaly__global__roc_auc+f1_macro+accuracy",
-            "target__reg__local__mse+r2",
-            "target__forecast__local__mse+r2",
+            "target__reg__local__r2",
+            "target__forecast__local__r2",
         ]
     )
 
