@@ -33,26 +33,32 @@ def get_collator(
     index_name: str | None = None,
     target_name: str | list[str] | None = None,
     max_seq_len: int = 0,
+    median_length: int | None = None,
     batch_transforms: list[Mapping[str, Any] | str] | None = None,
+    method_specific_batch_transforms: list[Mapping[str, Any] | str] | None = None,
     padding_type: str = "zeros",
 ) -> SequenceCollator:
     tfs = None
-    if batch_transforms is not None:
-        tfs = []
-        for bt in batch_transforms:
-            if isinstance(bt, str):
-                tfs.append(getattr(batch_tfs, bt)())
-                continue
+    def transforms_unpacking(transforms):
+        if transforms is not None:
+            tfs = []
+            for bt in transforms:
+                if isinstance(bt, str):
+                    tfs.append(getattr(batch_tfs, bt)())
+                    continue
 
-            for name, params in bt.items():  # has params
-                klass = getattr(batch_tfs, name)
-                if isinstance(params, Mapping):
-                    tfs.append(klass(**params))
-                elif isinstance(params, Sequence):
-                    tfs.append(klass(*params))
-                else:
-                    tfs.append(klass(params))
-                break
+                for name, params in bt.items():  # has params
+                    klass = getattr(batch_tfs, name)
+                    if isinstance(params, Mapping):
+                        tfs.append(klass(**params))
+                    elif isinstance(params, Sequence):
+                        tfs.append(klass(*params))
+                    else:
+                        tfs.append(klass(params))
+                    break
+            return(tfs)
+    tfs_data = transforms_unpacking(batch_transforms)
+    tfs_method = transforms_unpacking(method_specific_batch_transforms)
 
     return SequenceCollator(
         time_name=time_name,
@@ -62,7 +68,8 @@ def get_collator(
         index_name=index_name,
         target_name=target_name,
         max_seq_len=max_seq_len,
-        batch_transforms=tfs,
+        batch_transforms=tfs_data,
+        method_specific_batch_transforms=tfs_method,
         padding_type=padding_type,
     )
 

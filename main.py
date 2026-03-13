@@ -10,6 +10,7 @@ import pdb
 
 from omegaconf import OmegaConf
 
+import configs.resolvers
 from ebes.pipeline.base_runner import Runner
 
 

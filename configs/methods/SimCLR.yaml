@@ -2,7 +2,18 @@ method_name: SimCLR64
 runner_name: UnsupervisedEmbedRunner
 
 
+_method_patch_2:
+  method_specific_batch_transforms: 
+    - ContrastiveTarget
+    - RandomSlices:
+        split_count: 2
+        cnt_med: ${data.preprocessing.common_pipeline.median_length}
+        short_seq_crop_rate: 0.8
+        seed: 0
+
 data:
+  preprocessing:           
+    contrastive_pipeline: ${inherit:${data.preprocessing.common_pipeline},${_method_patch_2}}
   loaders:
     unsupervised_train:
       split_idx: 0
@@ -18,7 +29,6 @@ data:
       batch_size: ${data.loaders.unsupervised_train.batch_size}
       num_workers: 4
       labeled: False
-
 
 unsupervised_loss:
   name: InfoNCELoss

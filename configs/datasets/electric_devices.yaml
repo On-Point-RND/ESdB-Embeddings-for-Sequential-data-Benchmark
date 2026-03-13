@@ -31,6 +31,7 @@ data:
       target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
+      median_length: ${min:85, ${data.preprocessing.common_pipeline.max_seq_len}}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -39,19 +40,6 @@ data:
     gen_pipeline:
       <<: *common_pipeline
       max_seq_len: 1000000
-    contrastive_pipeline:
-      <<: *common_pipeline
-      batch_transforms:
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - ContrastiveTarget
-        - RandomSlices:
-            split_count: 5
-            cnt_min: 10
-            cnt_max: 50
-            short_seq_crop_rate: 0.8
-            seed: 0
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:

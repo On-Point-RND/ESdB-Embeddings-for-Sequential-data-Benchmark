@@ -320,10 +320,11 @@ class RandomSlices(BatchTransform):
 
     split_count: int
     """How many sample slices to draw for each input sequence."""
-    cnt_min: int
-    """Minimal sample sequence length."""
-    cnt_max: int
-    """Maximal sample sequence length."""
+    cnt_med: int
+    #cnt_min: int
+    #"""Minimal sample sequence length."""
+    #cnt_max: int
+    #"""Maximal sample sequence length."""
     short_seq_crop_rate: float = 1.0
     """
     Must be from (0, 1]. If ``short_seq_crop_rate`` < 1, and if a
@@ -336,6 +337,8 @@ class RandomSlices(BatchTransform):
 
     def __post_init__(self):
         self._gen = np.random.default_rng(self.seed)
+        self.cnt_min=int(0.1*self.cnt_med)
+        self.cnt_max=int(0.3*self.cnt_med)
 
     def __call__(self, batch: Batch):
 
@@ -818,7 +821,6 @@ class AugmentationMaskerBase(BatchTransform):
             "add_initial": conf.get("add_initial"),
         }
         params.update(conf.get("params", {}))
-        print(params)
         return subcls(**params)
 
     def clone_with(self, **overrides: Any) -> "AugmentationMaskerBase":
