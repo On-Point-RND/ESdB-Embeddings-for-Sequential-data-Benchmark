@@ -1,53 +1,74 @@
-config_factory: [datasets/age]
+config_factory: [datasets/ett]
 seed: 0
 verbose: True
 
 hpo:
   enabled: False
-  n_trials: 10
+  n_trials: 100
   cv: 3
   n_jobs: 4
   max_threads: 4
   show_progress_bar: True # show progess bar
 
 models:
-  mlp:
-    classifier: sklearn.neural_network.MLPClassifier
-    regressor: sklearn.neural_network.MLPRegressor
+  # mlp:
+  #   classifier: sklearn.neural_network.MLPClassifier
+  #   regressor: sklearn.neural_network.MLPRegressor
+  #   shared_params:
+  #     hidden_layer_sizes: [1024]
+  #     random_state: 42
+  #     max_iter: 1000
+  #     early_stopping: true
+  #     validation_fraction: 0.1
+  #     verbose: true
+  #   search_space:
+  #     hidden_layer_sizes: [[64], [128], [256], [64,32], [128,64]]
+  #     alpha: { low: 0.0001, high: 0.1, log: true }
+  #     learning_rate_init: { low: 0.001, high: 0.1, log: true }
+  #     batch_size: [32, 64, 128, 256]
+  #     activation: [relu, tanh]
+  #   task_specific:
+
+  mlp_torch:
+    classifier: universal_validator.models.torch_mlp.TorchMLPClassifier
+    regressor: universal_validator.models.torch_mlp.TorchMLPRegressor
     shared_params:
-      hidden_layer_sizes: [100, 50]
+      hidden_layer_sizes: []
       random_state: 42
-      max_iter: 1000
+      max_epoch: 200
       early_stopping: true
       validation_fraction: 0.1
-      verbose: false
+      verbose: true
+      device: cuda:0
+      batch_size: 128
+      num_workers: 4
+      learning_rate_init: 3e-4
+      weight_decay: 2.e-06
     search_space:
-      hidden_layer_sizes: [[64], [128], [256], [64,32], [128,64]]
-      alpha: { low: 0.0001, high: 0.1, log: true }
-      learning_rate_init: { low: 0.001, high: 0.1, log: true }
-      batch_size: [32, 64, 128, 256]
-      activation: [relu, tanh]
+      weight_decay: { low: 1e-6, high: 1e-2, log: true }
+      learning_rate_init: { low: 1e-4, high: 1e-2, log: true }
+      batch_size: [128, 256, 512, 1024]
     task_specific:
 
-  lgbm:
-    classifier: lightgbm.LGBMClassifier
-    regressor: lightgbm.LGBMRegressor
-    shared_params:
-      n_estimators: 100
-      random_state: 42
-      verbose: -1
-      n_jobs: 1
+  # lgbm:
+  #   classifier: lightgbm.LGBMClassifier
+  #   regressor: lightgbm.LGBMRegressor
+  #   shared_params:
+  #     n_estimators: 100
+  #     random_state: 42
+  #     verbose: 1
+  #     n_jobs: 1
 
-    search_space:
-      n_estimators: { low: 100, high: 1000 }
-      max_depth: { low: 3, high: 12 }
-      num_leaves: { low: 10, high: 200 }
-      learning_rate: { low: 0.001, high: 0.3, log: true }
-      subsample: { low: 0.6, high: 1.0 }
-      colsample_bytree: { low: 0.6, high: 1.0 }
-      reg_alpha: { low: 1e-8, high: 10.0, log: true }
-      reg_lambda: { low: 1e-8, high: 10.0, log: true }
-      min_child_samples: { low: 5, high: 100 }
-    task_specific:
-      anomaly_detection:
-        is_unbalance: true
+  #   search_space:
+  #     n_estimators: { low: 100, high: 1000 }
+  #     max_depth: { low: 3, high: 12 }
+  #     num_leaves: { low: 10, high: 200 }
+  #     learning_rate: { low: 0.001, high: 0.3, log: true }
+  #     subsample: { low: 0.6, high: 1.0 }
+  #     colsample_bytree: { low: 0.6, high: 1.0 }
+  #     reg_alpha: { low: 1e-8, high: 10.0, log: true }
+  #     reg_lambda: { low: 1e-8, high: 10.0, log: true }
+  #     min_child_samples: { low: 5, high: 100 }
+  #   task_specific:
+  #     anomaly_detection:
+  #       is_unbalance: true

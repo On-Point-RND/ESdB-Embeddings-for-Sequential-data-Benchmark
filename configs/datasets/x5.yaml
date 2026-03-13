@@ -1,17 +1,23 @@
 log_dir: log/x5
-patience: 3
+patience: 5
 n_classes: 6
 main_metric: MulticlassAccuracy
 main_loss:
   name: nn.CrossEntropyLoss
+tasks:
+- target__clf__global__accuracy+f1_macro
+- target__anomaly__local__roc_auc+f1_macro+accuracy
+- target__reg__local__r2
+- target__forecast__local__r2
+
 cc:
-  is_own_trademark: 2
-  is_alcohol: 2
-  level_1: 32
-  level_2: 32
-  level_3: 200
-  level_4: 800
-  segment_id: 120
+  is_own_trademark: 3
+  is_alcohol: 3
+  level_1: 4
+  level_2: 43
+  level_3: 202
+  level_4: 789
+  segment_id: 118
 nn:
   - trn_sum_from_iss
   - netto
@@ -29,9 +35,8 @@ data:
     random_split: true
     split_seed: 42
     split_sizes: 
-      - 0.7
-      - 0.15
-      - 0.15
+      - 0.85   # train
+      - 0.15  # train_val
 
   preprocessing:
     common_pipeline: &common_pipeline
@@ -50,19 +55,9 @@ data:
         - MaskValid
         - FillNans:
             fill_value: 0
-    primenet_pipeline:
+    gen_pipeline:
       <<: *common_pipeline
-      batch_transforms:
-        - DatetimeToFloat:
-            loc: "2018-11-01"
-            scale: [30, "D"]
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - FillNans:
-            fill_value: 0
-        - PrimeNetSampler:
-            segment_num: 3
+      max_seq_len: 1000000
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -82,12 +77,12 @@ data:
             seed: 0
 
   loaders:
-    train:  # dataset name
-      split_idx: 0  # split index from dataset
+    train:
+      split_idx: 0
       preprocessing: common_pipeline
       batch_size: 128
-      drop_incomplete: true  # default false
-      shuffle: true  # default false
+      drop_incomplete: true
+      shuffle: true
       loop: false
       num_workers: 4
       random_seed: 42
@@ -101,10 +96,15 @@ data:
       preprocessing: common_pipeline
       batch_size: 128
       num_workers: 4
-    hpo_val:
-      split_idx: 2
-      preprocessing: common_pipeline
-      batch_size: 128
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+    gen_train_val:
+      split_idx: 1
+      preprocessing: gen_pipeline
+      batch_size: 32
       num_workers: 4
 
 test_data:
@@ -114,13 +114,20 @@ test_data:
       - 1.0
   preprocessing:
     common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
   loaders:
     test:
       split_idx: 0
       preprocessing: common_pipeline
       batch_size: 128
       num_workers: 4
-
+    gen_test:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
 
 metrics:
   - name: ${main_metric}

@@ -28,7 +28,7 @@ INDEX = INDEX_COLUMNS[0]
 HORIZON = 60
 
 
-def get_reg_target(df: pd.DataFrame) -> pd.Series:
+def get_reg_target(df: pd.DataFrame, horizon: int = 30) -> pd.Series:
     sums_list = df.apply(lambda r: reg_sums_list(r), axis=1)
     flat_sums = np.concatenate([np.asarray(v) for v in sums_list if len(v)])
     mu = flat_sums.mean() if len(flat_sums) else 0.0

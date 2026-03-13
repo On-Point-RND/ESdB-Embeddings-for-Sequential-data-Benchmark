@@ -83,7 +83,8 @@ class Trainer:
 
         self._metrics = {}
         if metrics is not None:
-            self._metrics.update({m.__class__.__name__: m for m in metrics})
+            m = {getattr(m, "_name", m.__class__.__name__): m for m in metrics}
+            self._metrics.update(m)
 
         if loss is not None:
             self._metrics.update({"loss": Mean()})
@@ -103,7 +104,6 @@ class Trainer:
         self._model = None
         if model is not None:
             self._model = model.to(device)
-
 
         self._loss = None
         if loss is not None:
@@ -157,6 +157,7 @@ class Trainer:
                 kv = it.split("__")
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]
+                # v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
                 v = float(kv[1])
                 metrics[k] = v
             return metrics[key]
@@ -299,7 +300,7 @@ class Trainer:
 
             loss.backward()
 
-            self._metrics["loss"].update( -loss.detach().cpu())
+            self._metrics["loss"].update(-loss.detach().cpu())
             loss_np = loss.item()
             losses.append(loss_np)
             loss_ema = loss_np if i == 0 else 0.9 * loss_ema + 0.1 * loss_np
@@ -347,7 +348,7 @@ class Trainer:
 
             if self._loss is not None:
                 loss = self._loss(pred, gt).cpu()
-                self._metrics["loss"].update(- loss.cpu())
+                self._metrics["loss"].update(-loss.cpu())
 
             if gt is not None:
                 gt = gt.to("cpu")
@@ -360,7 +361,6 @@ class Trainer:
         logger.info("Epoch %04d: validation finished", self._last_epoch + 1)
 
         return self.compute_metrics("val")
-
 
     def compute_metrics(self, phase: Literal["train", "val"]) -> dict[str, Any]:
         """Compute and log metrics.
@@ -437,7 +437,9 @@ class Trainer:
                 self._total_iters - self._last_iter,
                 self._iters_per_epoch,
             )
-            logger.info("the rest iters number is %s", self._total_iters - self._last_iter)
+            logger.info(
+                "the rest iters number is %s", self._total_iters - self._last_iter
+            )
 
             self._metric_values = None
             self.train(train_iters)

@@ -138,7 +138,7 @@ class ContrastiveLoss(nn.Module):
         ).pow(2)
         loss = torch.cat([positive_loss, negative_loss], dim=0)
 
-        return loss.sum()
+        return loss.mean()
 
 
 class InfoNCELoss(nn.Module):
@@ -159,7 +159,7 @@ class InfoNCELoss(nn.Module):
         self.angular_margin = angular_margin
 
     def forward(self, embeddings, target):
-        embeddings = self.project(embeddings)
+        #embeddings = self.project(embeddings)
 
         positive_pairs, _ = self.pair_selector.get_pairs(embeddings, target)
         dev = positive_pairs.device
@@ -184,11 +184,15 @@ class InfoNCELoss(nn.Module):
                 sim[all_idx, positive_pairs[:, 1]] = target_sim
 
         sim /= self.temperature
+
+        n_negatives = embeddings.shape[0] - 2 # here should be 2 or 3, does not really matter
+        #print(embeddings.shape)
         lsm = -F.log_softmax(sim, dim=-1)
+        lsm = lsm - torch.tensor(n_negatives, dtype=torch.float, device=dev).log()
         loss = torch.take_along_dim(
             lsm,
             positive_pairs[:, [1]],
             dim=1,
-        ).sum()
+        ).mean()
 
         return loss

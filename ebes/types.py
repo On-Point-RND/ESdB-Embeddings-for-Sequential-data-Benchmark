@@ -165,6 +165,24 @@ class Seq:
     def __len__(self):
         return len(self.lengths)
 
+    def tail_clamp(self, len_max: int):
+        assert self.time is not None, "Why time feature is None?"
+        seq_len = self.time.shape[0]
+        if seq_len <= len_max:
+            return self
+        new_lengths = self.lengths.clamp_max(len_max)
+        start_index = (self.lengths - new_lengths).clip(0)  # [1, B]
+        target_ids = (
+            torch.arange(len_max, device=start_index.device)[:, None] + start_index
+        )  # [target_len, B]
+
+        return Seq(
+            lengths=new_lengths,
+            tokens=gather(self.tokens, target_ids),
+            time=gather(self.time, target_ids),
+            masks=gather(self.masks, target_ids),
+        )
+
 
 @dataclass(kw_only=True)
 class NHSeq(Seq):
