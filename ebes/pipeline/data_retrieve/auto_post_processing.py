@@ -5,8 +5,6 @@ from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-from .spark import create_postproc_spark_session
-
 logger = logging.getLogger(__name__)
 
 
@@ -14,13 +12,11 @@ def post_processing(
     config,
     emb_path,
     data_mode,
-    partitions=10,
     spark: SparkSession | None = None,
 ):
     logger.info(f'Embeddings and data postprocessing in "{data_mode}"_mode has started')
 
     owns_spark = spark is None
-    spark = spark or create_postproc_spark_session()
 
     write_mode = "overwrite"
     id_col = config["data"]["preprocessing"]["common_pipeline"]["index_name"]
