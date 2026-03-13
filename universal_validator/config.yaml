@@ -1,6 +1,6 @@
-config_factory: [datasets/ett]
+config_factory: [datasets/age]
 seed: 0
-verbose: True
+verbose: False
 
 hpo:
   enabled: False
@@ -38,9 +38,9 @@ models:
       max_epoch: 200
       early_stopping: true
       validation_fraction: 0.1
-      verbose: true
+      verbose: false
       device: cuda:0
-      batch_size: 128
+      batch_size: 512
       num_workers: 4
       learning_rate_init: 3e-4
       weight_decay: 2.e-06
