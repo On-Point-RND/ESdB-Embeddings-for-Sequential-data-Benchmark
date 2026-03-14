@@ -65,7 +65,7 @@ class UnsupervisedEmbedRunner(Runner):
         train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
 
         train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
-        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
+        #train_val_metrics = {k: v for k, v in train_val_metrics.items()}
         #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
         ###############
         embed_net = build_model(config["model"])
@@ -112,6 +112,7 @@ class UnsupervisedEmbedRunner(Runner):
 
         downstream_metrics = {}
         if downstream_config:
+            print("config present")
             reports = run_with_paths(
                 downstream_config=downstream_config,
                 train_path=str(embed_train_file),
@@ -119,7 +120,6 @@ class UnsupervisedEmbedRunner(Runner):
             )
             downstream_metrics = extract_downstream_metrics(reports)
             shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
-       
         return dict(**train_metrics, **train_val_metrics, **downstream_metrics)
 
     def param_grid(self, trial, config):

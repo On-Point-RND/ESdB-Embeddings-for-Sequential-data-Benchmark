@@ -3,6 +3,7 @@ import os
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from omegaconf import OmegaConf, KeyValidationError
 import optuna
 import pandas as pd
 import torch
@@ -43,7 +44,7 @@ def assign_by_name(config: dict | DictConfig, name: str, value: Any):
     for k in name.split(".")[:-1]:
         try:
             field = field[k]
-        except KeyError:
+        except (KeyError, KeyValidationError):
             field = field[int(k)]
     field[name.split(".")[-1]] = value
 
@@ -53,7 +54,7 @@ def access_by_name(config: Mapping, name: str):
     for k in name.split("."):
         try:
             field = field[k]
-        except KeyError:
+        except (KeyError, KeyValidationError):
             field = field[int(k)]
     return field
 

@@ -1,4 +1,4 @@
-method_name: coles
+method_name: coles_masks
 runner_name: UnsupervisedEmbedRunner
 
 _method_patch_1:
@@ -31,7 +31,7 @@ _method_patch_2:
 
 data:
   preprocessing:           
-    contrastive_pipeline: ${inherit:${data.preprocessing.common_pipeline},${_method_patch_2}}
+    contrastive_pipeline: ${inherit:${data.preprocessing.common_pipeline},${_method_patch_1}}
 
   loaders:
     unsupervised_train:
@@ -61,7 +61,7 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 100
+  total_iters: 100_000
 
 training_model:
   preprocess: ${model.preprocess}
@@ -113,6 +113,11 @@ optuna:
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
+
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.name: [suggest_categorical, {choices: ["MixedMasker", "SpanMasker", "PointMasker"]}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.number_of_instances: [suggest_int, {low: 2, high: 5, log: False}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.add_initial: [suggest_categorical, {choices: [True, False]}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.params.mask_prob: [suggest_float, {low: 0.05, high: 0.9, log: True}]
 
     data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [64, 128, 256, 512]}]
 

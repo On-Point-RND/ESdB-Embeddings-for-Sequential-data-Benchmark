@@ -233,7 +233,7 @@ def main():
     test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
+    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
         test_df
     )
 
