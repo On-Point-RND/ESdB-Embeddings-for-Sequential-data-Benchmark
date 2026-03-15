@@ -80,7 +80,7 @@ class TaskManager:
         self._print_task_info(split_data)
         if self.use_hpo:
             print("Using HPO optimization")
-        print(f"Models: {models}")
+        #print(f"Models: {models}")
         results = {}
         for name in models:
             print(f"\nTraining {name}...")
@@ -112,7 +112,8 @@ class TaskManager:
                 "cv_results": cv_results,
             }
             self._print_model_results(name, result_metrics, cv_results)
-
+            print()
+        print()
         return results
 
     def _print_model_results(
@@ -124,4 +125,4 @@ class TaskManager:
             print(f"  {model_name}:", end="")
         for metric_name, value in metrics.items():
             print(f", {metric_name} = {value:.4f}", end="")
-        print()
+        

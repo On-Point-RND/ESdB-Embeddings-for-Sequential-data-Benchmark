@@ -42,10 +42,11 @@ class ValidatorDataset:
             print(
                 f"Task Name: {name},\t{target_type} type,\tMetrics: {metrics}\t| {col}"
             )
+        print()
         return target_cols
 
     def load_for_task(self, target_name) -> DataSplit:
-        print(f"Loading {self.data_conf.dataset_name} dataset...")
+        #print(f"Loading {self.data_conf.dataset_name} dataset...")
         _, target_type, metrics = self._parse_target_name(target_name)
         if target_type in ["local"]:
             columns = ["shift_emb", target_name]
@@ -79,7 +80,7 @@ class ValidatorDataset:
         else:
             raise ValueError(METRIC_INFO[metrics[0]]["task"])
 
-        print(f"Done!")
+        #print(f"Done!")
         return DataSplit(
             X_train=X_train,
             y_train=y_train,
