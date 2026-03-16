@@ -21,6 +21,7 @@ from .common_pandas import (
     filter_short,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -29,6 +30,8 @@ NUM_FEATURES = ["play_duration"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["timestamp"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
 HORIZON = np.timedelta64(3, "D")
 
 
@@ -290,6 +293,13 @@ def main():
     train_df["target__reg__local__r2"] = train_df.apply(get_reg_target, axis=1)
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
     )
 
     keep_cols = (

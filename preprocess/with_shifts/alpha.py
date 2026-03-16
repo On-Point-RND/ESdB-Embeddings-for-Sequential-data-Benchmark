@@ -15,6 +15,7 @@ from .common_pandas import (
     filter_short,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -39,6 +40,8 @@ NUM_FEATURES = ["amnt", "hour", "hour_diff"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time_from_first_trn"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES = ["amnt"]
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
 HORIZON = 30 * 24
 
 
@@ -304,6 +307,13 @@ def main():
         train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df[
             "flag"
         ]
+
+        train_df, test_df = transform_train_test_features(
+            train_df=train_df,
+            test_df=test_df,
+            rescale_features=RESCALE_FEATURES,
+            log_features=LOG_FEATURES,
+        )
     else:
         train_df = df.copy()
         train_df["shift_start"] = 2
@@ -331,6 +341,13 @@ def main():
             get_forecast_target, axis=1
         )
         train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
+
+        train_df, _ = transform_train_test_features(
+            train_df=train_df,
+            test_df=train_df.copy(),
+            rescale_features=RESCALE_FEATURES,
+            log_features=LOG_FEATURES,
+        )
 
     keep_cols = (
         INDEX_COLUMNS
