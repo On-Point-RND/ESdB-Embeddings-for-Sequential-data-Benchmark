@@ -124,7 +124,9 @@ def rescale_preproc(
 ) -> pd.DataFrame:
     for feature, max_value in rescale_values.items():
         df[feature] = df[feature].apply(
-            lambda x: (np.asarray(x, dtype=float) / max_value).tolist()
+            lambda x: (np.asarray(x, dtype=np.float32) / max_value)
+            .astype(np.float32)
+            .tolist()
         )
     return df
 
@@ -135,7 +137,9 @@ def log_preproc(
 ) -> pd.DataFrame:
     for feature in log_features:
         df[feature] = df[feature].apply(
-            lambda x: (np.log1p(np.abs(np.asarray(x))) * np.sign(np.asarray(x))).tolist()
+            lambda x: (
+                np.log1p(np.abs(np.asarray(x))) * np.sign(np.asarray(x))
+            ).tolist()
         )
     return df
 
@@ -153,11 +157,7 @@ def transform_train_test_features(
     train_df = train_df.copy()
     test_df = test_df.copy()
 
-    if (
-        time_col is not None
-        and datetime_loc is not None
-        and datetime_scale is not None
-    ):
+    if time_col is not None and datetime_loc is not None and datetime_scale is not None:
         train_df = datetime_preproc(train_df, time_col, datetime_loc, datetime_scale)
         test_df = datetime_preproc(test_df, time_col, datetime_loc, datetime_scale)
 
@@ -170,12 +170,12 @@ def transform_train_test_features(
             test_vals = test_df[feature].explode()
             q_values = np.asarray(
                 [train_vals.quantile(rescale_q), test_vals.quantile(rescale_q)],
-                dtype=float,
+                dtype=np.float32,
             )
             if np.isnan(q_values).all():
                 raise ValueError(f"NaN rescale quantile for feature: {feature}")
 
-            max_value = float(np.nanmax(q_values))
+            max_value = np.float32(np.nanmax(q_values))
             if max_value == 0:
                 continue
             rescale_values[feature] = max_value
