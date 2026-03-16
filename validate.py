@@ -1,5 +1,6 @@
 """Main execution script with OmegaConf support"""
 
+import logging
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
@@ -11,7 +12,15 @@ from universal_validator.pipeline.utils import ValidatorConfig
 from universal_validator.utils import run_with_config
 
 
+def _suppress_noisy_py4j_logs() -> None:
+    # Keep py4j shutdown messages from flooding stdout during training.
+    logging.getLogger("py4j.clientserver").setLevel(logging.ERROR)
+    logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
+    logging.getLogger("py4j").setLevel(logging.ERROR)
+
+
 def main(cfg: ValidatorConfig):
+    _suppress_noisy_py4j_logs()
     validator = UniversalValidator(cfg)
 
     all_tasks = validator.get_available_tasks(verbose=True)

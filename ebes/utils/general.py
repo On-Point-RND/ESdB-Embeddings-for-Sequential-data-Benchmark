@@ -5,6 +5,16 @@ import sys
 from time import time
 
 
+class _Py4JRetryNoiseFilter(logging.Filter):
+    """Drop py4j retry noise logged via root logger at INFO level."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (
+            record.pathname.endswith("/py4j/java_gateway.py")
+            and record.msg == "Exception while sending command."
+        )
+
+
 class LoadTime:
     def __init__(self, loader, disable=False):
         self.loader = loader
@@ -66,6 +76,9 @@ def log_to_file(filename: Path, file_lvl="info", cons_lvl="warning"):
     fh.setFormatter(ffmt)
     logger = logging.getLogger()
     logger.setLevel(min(file_lvl, cons_lvl))
+
+    py4j_noise_filter = _Py4JRetryNoiseFilter()
+    logger.addFilter(py4j_noise_filter)
     logger.addHandler(fh)
     logger.addHandler(ch)
 
@@ -75,3 +88,4 @@ def log_to_file(filename: Path, file_lvl="info", cons_lvl="warning"):
         fh.close()
         logger.removeHandler(fh)
         logger.removeHandler(ch)
+        logger.removeFilter(py4j_noise_filter)
