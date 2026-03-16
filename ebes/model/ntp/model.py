@@ -69,7 +69,7 @@ class NTPModel(BaseModel):
                 num_layers=enc_num_layers,
             )
         self.encoder = nn.Sequential(
-            [self.encoder, Projection(enc_hidden_size, emb_size)]
+            *[self.encoder, Projection(enc_hidden_size, emb_size)]
         )
 
         ### ACTIVATION ###
