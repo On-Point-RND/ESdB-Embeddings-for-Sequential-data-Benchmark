@@ -74,5 +74,5 @@ optuna:
     model.preprocess.params.enc_hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
     model.preprocess.params.emb_size: [suggest_categorical, {choices: [64, 256, 1024]}]
     model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 5, log: False}]
-    model.preprocess.params.enc_aggregation: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
+    model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
    
