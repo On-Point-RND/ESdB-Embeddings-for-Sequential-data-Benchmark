@@ -3,8 +3,10 @@
 import logging
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import datetime
 from typing import Any, cast
 
+import pandas as pd
 from omegaconf import OmegaConf
 
 from universal_validator.pipeline.universal_validator import UniversalValidator
@@ -37,7 +39,7 @@ def main(cfg: ValidatorConfig):
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
         report["task_name"] = task
-        print(report)
+        #print(report)
         reports += [report]
     return reports
 
@@ -75,7 +77,9 @@ def run_with_paths(
 if __name__ == "__main__":
     try:
         result = run_with_config(main, "universal_validator")
-        print(result)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        pd.DataFrame(result).to_json(f"validator_output__{timestamp}.json",
+                                     orient='records', indent=4, date_format='iso')
     except Exception as e:
         print(f"Error: {e}")
         import traceback
