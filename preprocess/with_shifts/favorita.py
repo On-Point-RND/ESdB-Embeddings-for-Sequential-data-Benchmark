@@ -17,6 +17,7 @@ from .common_pandas import (
     split_num_shifts,
     global_train_column,
     trim_test,
+    transform_train_test_features,
 )
 
 
@@ -24,6 +25,8 @@ CAT_FEATURES = ["class_id"]
 INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
 TM = ORDERING_COLUMNS[0]
+DATETIME_LOC = "2013-01-01"
+DATETIME_SCALE = (30, "D")
 
 
 def reg_target_row(
@@ -296,6 +299,14 @@ def main():
     )
     train_df["target__forecast__local__r2"] = train_df.apply(
         lambda r: get_forecast_target(r, sales_cols), axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
     )
 
     keep_cols = (
