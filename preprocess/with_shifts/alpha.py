@@ -295,7 +295,7 @@ def main():
         test_df["target__forecast__local__r2"] = test_df.apply(
             get_forecast_target, axis=1
         )
-        test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df["flag"]
+        test_df["target__anomaly__global__roc_auc"] = test_df["flag"]
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
         train_df["target__reg_amount__local__r2"] = train_df.apply(
@@ -304,7 +304,7 @@ def main():
         train_df["target__forecast__local__r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df[
+        train_df["target__anomaly__global__roc_auc"] = train_df[
             "flag"
         ]
 
@@ -340,7 +340,7 @@ def main():
         train_df["target__forecast__local__r2"] = train_df.apply(
             get_forecast_target, axis=1
         )
-        train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df["flag"]
+        train_df["target__anomaly__global__roc_auc"] = train_df["flag"]
 
         train_df, _ = transform_train_test_features(
             train_df=train_df,
@@ -359,7 +359,7 @@ def main():
             "shifts",
             "global_train",
             "target__prod__global__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
             "target__reg_amount__local__r2",
             "target__forecast__local__r2",
         ]

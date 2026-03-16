@@ -272,13 +272,13 @@ def main():
     test_df["target__clf__global__accuracy+f1_macro"] = np.clip(
         np.digitize(test_df["diversity"], bins) - 1, 0, 3
     )
-    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
+    train_df["target__anomaly__global__roc_auc"] = train_df.apply(
         lambda x: apply_threshold(
             x["diversity"], x["mean"], threshold_diversity, threshold_mean
         ),
         axis=1,
     )
-    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.apply(
+    test_df["target__anomaly__global__roc_auc"] = test_df.apply(
         lambda x: apply_threshold(
             x["diversity"], x["mean"], threshold_diversity, threshold_mean
         ),
@@ -312,7 +312,7 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
             "target__reg__local__r2",
             "target__forecast__local__r2",
         ]

@@ -6,7 +6,7 @@ main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__local__accuracy+f1_macro
-- target__anomaly__global__roc_auc+f1_macro+accuracy
+- target__anomaly__global__roc_auc
 - target__reg__local__r2
 - target__forecast__local__r2
 

@@ -246,10 +246,10 @@ def main():
 
     threshold = train_df["ratio"].quantile(0.95)
 
-    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+    test_df["target__anomaly__global__roc_auc"] = (
         test_df["ratio"] > threshold
     ).astype(int)
-    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+    train_df["target__anomaly__global__roc_auc"] = (
         train_df["ratio"] > threshold
     ).astype(int)
 
@@ -283,7 +283,7 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
             "target__reg__local__r2",
             "target__forecast__local__r2",
         ]

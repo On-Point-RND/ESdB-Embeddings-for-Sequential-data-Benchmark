@@ -11,7 +11,7 @@ trainer:
   ckpt_track_metric: loss
   metrics_on_train: false
   patience: ${patience}
-  total_iters: 100_000
+  total_iters: 0
   # ckpt_resume: ''
 model:
   name: Bert4Rec
