@@ -14,6 +14,7 @@ from .common_pandas import (
     filter_short,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -22,6 +23,10 @@ NUM_FEATURES = ["play_duration"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["datetime"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
+DATETIME_LOC = "2023-01-01 00:00:00.000"
+DATETIME_SCALE = (30, "D")
 HORIZON = np.timedelta64(40, "D")
 
 
@@ -223,6 +228,7 @@ def main():
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
+    df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
     df = filter_short(df)
     all_clusters = np.concatenate(df["cluster_id"].values)
     no_future_class = int(all_clusters.max()) + 1 if len(all_clusters) else 0
@@ -291,6 +297,16 @@ def main():
     train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df[
         "cv"
     ].apply(lambda x: apply_threshold(x, threshold))
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
+    )
 
     keep_cols = (
         INDEX_COLUMNS

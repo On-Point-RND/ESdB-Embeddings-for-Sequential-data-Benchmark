@@ -15,13 +15,19 @@ from .common_pandas import (
     filter_short,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
 CAT_FEATURES = ["behavior_type", "item_category"]
+NUM_FEATURES: list[str] = []
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
+DATETIME_LOC = "2014-11-18"
+DATETIME_SCALE = (30, "D")
 HORIZON =  np.timedelta64(48, "h")
 
 
@@ -300,6 +306,16 @@ def main():
     )
     train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
         get_anomaly_target, axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
     )
 
     test_df = add_debug_f(test_df, time_col=TM)
