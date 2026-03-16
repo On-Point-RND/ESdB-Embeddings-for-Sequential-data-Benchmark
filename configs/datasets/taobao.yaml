@@ -6,7 +6,7 @@ main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__local__accuracy+f1_macro
-- target__anomaly__global__roc_auc+f1_macro+accuracy
+- target__anomaly__global__roc_auc
 - target__reg__local__r2
 - target__forecast__local__r2
 
@@ -34,9 +34,6 @@ data:
       target_name: shard
       cat_cardinalities: ${cc}
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2014-11-18"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -46,9 +43,6 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2014-11-18"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -62,9 +56,6 @@ data:
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2014-11-18"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid

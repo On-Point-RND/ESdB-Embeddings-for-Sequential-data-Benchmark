@@ -16,6 +16,7 @@ from .common_pandas import (
     shift_end_by_len,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -24,6 +25,10 @@ NUM_FEATURES = ["Sales", "Customers"]
 INDEX_COLUMNS = ["Store"]
 ORDERING_COLUMNS = ["Date"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
+DATETIME_LOC = "2013-01-01"
+DATETIME_SCALE = (30, "D")
 INDEX = INDEX_COLUMNS[0]
 HORIZON = 60
 
@@ -265,21 +270,31 @@ def main():
         train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
 
-    test_df["target__reg__local__r2"] = get_reg_target(test_df)
+    test_df["target__reg_amount__local__r2"] = get_reg_target(test_df)
     test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
 
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    test_df["target__anomaly__local__roc_auc"] = get_anomaly_target(
         test_df, q=0.95
     )
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["type_code"]
-    train_df["target__reg__local__r2"] = get_reg_target(train_df)
+    train_df["target__reg_amount__local__r2"] = get_reg_target(train_df)
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = get_anomaly_target(
+    train_df["target__anomaly__local__roc_auc"] = get_anomaly_target(
         train_df, q=0.95
     )
     train_df["target__clf__global__accuracy+f1_macro"] = train_df["type_code"]
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
+    )
 
     keep_cols = (
         INDEX_COLUMNS
@@ -291,8 +306,8 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
-            "target__reg__local__r2",
+            "target__anomaly__local__roc_auc",
+            "target__reg_amount__local__r2",
             "target__forecast__local__r2",
         ]
     )

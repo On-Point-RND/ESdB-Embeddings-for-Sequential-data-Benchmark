@@ -17,6 +17,7 @@ from .common_pandas import (
     split_num_shifts,
     global_train_column,
     trim_test,
+    transform_train_test_features,
 )
 
 
@@ -24,6 +25,8 @@ CAT_FEATURES = ["class_id"]
 INDEX_COLUMNS = ["store_nbr"]
 ORDERING_COLUMNS = ["date"]
 TM = ORDERING_COLUMNS[0]
+DATETIME_LOC = "2013-01-01"
+DATETIME_SCALE = (30, "D")
 
 
 def reg_target_row(
@@ -278,7 +281,7 @@ def main():
     ].index.tolist()
 
     test_df["target__store_type__global__accuracy+f1_macro"] = test_df["type_code"]
-    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.city.apply(
+    test_df["target__anomaly__global__roc_auc"] = test_df.city.apply(
         lambda x: int(x in anomaly_cities)
     )
     test_df["target__reg_amount__local__r2"] = test_df.apply(
@@ -288,7 +291,7 @@ def main():
         lambda r: get_forecast_target(r, sales_cols), axis=1
     )
     train_df["target__store_type__global__accuracy+f1_macro"] = train_df["type_code"]
-    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = (
+    train_df["target__anomaly__global__roc_auc"] = (
         train_df.city.apply(lambda x: int(x in anomaly_cities))
     )
     train_df["target__reg_amount__local__r2"] = train_df.apply(
@@ -296,6 +299,14 @@ def main():
     )
     train_df["target__forecast__local__r2"] = train_df.apply(
         lambda r: get_forecast_target(r, sales_cols), axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
     )
 
     keep_cols = (
@@ -306,7 +317,7 @@ def main():
             "global_train",
             "_seq_len",
             "target__store_type__global__accuracy+f1_macro",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
             "target__reg_amount__local__r2",
             "target__forecast__local__r2",
         ]

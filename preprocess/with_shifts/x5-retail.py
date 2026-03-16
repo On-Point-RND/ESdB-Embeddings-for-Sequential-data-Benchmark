@@ -16,6 +16,7 @@ from .common_pandas import (
     global_train_column,
     save_partitioned_parquet,
     split_num_shifts,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -44,6 +45,10 @@ NUM_FEATURES = [
 INDEX_COLUMNS = ["client_id", "age"]
 ORDERING_COLUMNS = ["transaction_datetime"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = ["purchase_sum"]
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
+DATETIME_LOC = "2018-11-01"
+DATETIME_SCALE = (30, "D")
 HORIZON = np.timedelta64(10, "D")
 AGE_BOUNDS = [10.0, 35.0, 45.0, 60.0, 90.0]
 
@@ -306,7 +311,7 @@ def main():
     test_df["target__forecast__local__r2"] = test_df.apply(
         get_forecast_target, axis=1
     )
-    test_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = test_df.apply(
+    test_df["target__anomaly__local__roc_auc"] = test_df.apply(
         get_anomaly_target, axis=1
     )
 
@@ -315,8 +320,18 @@ def main():
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc+f1_macro+accuracy"] = train_df.apply(
+    train_df["target__anomaly__local__roc_auc"] = train_df.apply(
         get_anomaly_target, axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+        time_col=TM,
+        datetime_loc=DATETIME_LOC,
+        datetime_scale=DATETIME_SCALE,
     )
 
     keep_cols = (
@@ -329,7 +344,7 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc+f1_macro+accuracy",
+            "target__anomaly__local__roc_auc",
             "target__reg__local__r2",
             "target__forecast__local__r2",
         ]

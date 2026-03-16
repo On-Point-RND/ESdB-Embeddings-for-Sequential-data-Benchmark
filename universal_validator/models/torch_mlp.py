@@ -9,7 +9,6 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision.ops import MLP
-from tqdm import tqdm
 
 
 class BaseMLP:
@@ -172,7 +171,7 @@ class BaseMLP:
             total_loss = 0.0
             total_items = 0
 
-            for x_batch, y_batch in tqdm(loader):
+            for x_batch, y_batch in loader:
                 x_batch = x_batch.to(
                     self.device,
                 )

@@ -8,7 +8,7 @@ tasks:
 - target__reg_amount__local__r2
 - target__age__global__accuracy+f1_macro
 - target__forecast__local__r2
-- target__anomaly__global__roc_auc+f1_macro+accuracy
+- target__anomaly__global__roc_auc
 
 cc: 
   small_group: 202
@@ -40,8 +40,6 @@ data:
             process_type: ${model.preprocess.params.time_process}
         - TargetToLong
         - MaskValid
-        - Logarithm:
-            names: ["amount_rur"]
     gen_pipeline:
       <<: *common_pipeline
       max_seq_len: 1000000
@@ -51,8 +49,6 @@ data:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
-        - Logarithm:
-            names: ["amount_rur"]
         - ContrastiveTarget
         - RandomSlices:
             split_count: ${oc.select:additional_params.split_count, 5}
@@ -67,8 +63,6 @@ data:
             process_type: ${model.preprocess.params.time_process}
         - TargetToLong
         - MaskValid
-        - Logarithm:
-            names: ["amount_rur"]
         - PrimeNetSampler:
             segment_num: 3
 

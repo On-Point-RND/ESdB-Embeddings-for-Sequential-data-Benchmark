@@ -6,7 +6,7 @@ main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__local__accuracy+f1_macro
-- target__anomaly__local__roc_auc+f1_macro+accuracy
+- target__anomaly__local__roc_auc
 - target__reg__local__r2
 - target__forecast__local__r2
 
@@ -36,9 +36,6 @@ data:
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2023-01-01 00:00:00.000"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -48,9 +45,6 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2023-01-01 00:00:00.000"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -64,9 +58,6 @@ data:
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2023-01-01 00:00:00.000"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
