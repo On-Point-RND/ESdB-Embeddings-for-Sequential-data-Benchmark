@@ -77,7 +77,7 @@ class NTPModel(BaseModel):
 
         ### LOSS ###
         self.recon_predictor = ReconPredictor(
-            enc_hidden_size,
+            emb_size,
             cat_cardinalities,
             num_features,
         )
