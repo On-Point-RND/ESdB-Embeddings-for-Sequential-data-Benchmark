@@ -34,9 +34,6 @@ data:
       num_names: ${nn}
       cat_cardinalities: ${cc}
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2013-01-01"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -46,9 +43,6 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2013-01-01"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
@@ -62,9 +56,6 @@ data:
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - DatetimeToFloat:
-            loc: "2013-01-01"
-            scale: [30, "D"]
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
