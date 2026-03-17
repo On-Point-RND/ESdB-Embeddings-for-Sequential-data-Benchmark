@@ -15,6 +15,7 @@ from .common_pandas import (
     shift_end_by_len,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -22,6 +23,8 @@ NUM_FEATURES = ["LUFL", "MUFL", "MULL", "LULL", "HULL", "HUFL", "OT"]
 INDEX_COLUMNS = ["week_id"]
 ORDERING_COLUMNS = ["time"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
 
 
 def load_and_aggregate(spark, path, transformer_id):
@@ -171,6 +174,13 @@ def main():
     )
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target_row, axis=1
+    )
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
     )
 
     keep_cols = (

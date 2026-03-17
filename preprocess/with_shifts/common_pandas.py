@@ -101,6 +101,96 @@ def add_debug_f(
     return df
 
 
+def datetime_preproc(
+    df: pd.DataFrame,
+    time_col: str,
+    loc: str | np.datetime64,
+    scale: tuple[int, str] | np.timedelta64,
+) -> pd.DataFrame:
+    if isinstance(loc, str):
+        loc = np.datetime64(loc)
+    if isinstance(scale, (tuple, list)):
+        scale = np.timedelta64(*scale)
+
+    df[time_col] = df[time_col].apply(
+        lambda x: ((np.asarray(x, dtype="datetime64[ns]") - loc) / scale).tolist()
+    )
+    return df
+
+
+def rescale_preproc(
+    df: pd.DataFrame,
+    rescale_values: dict[str, float],
+) -> pd.DataFrame:
+    for feature, max_value in rescale_values.items():
+        df[feature] = df[feature].apply(
+            lambda x: (np.asarray(x, dtype=np.float32) / max_value)
+            .astype(np.float32)
+            .tolist()
+        )
+    return df
+
+
+def log_preproc(
+    df: pd.DataFrame,
+    log_features: list[str],
+) -> pd.DataFrame:
+    for feature in log_features:
+        df[feature] = df[feature].apply(
+            lambda x: (
+                np.log1p(np.abs(np.asarray(x))) * np.sign(np.asarray(x))
+            ).tolist()
+        )
+    return df
+
+
+def transform_train_test_features(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    rescale_features: list[str] | None = None,
+    log_features: list[str] | None = None,
+    time_col: str | None = None,
+    datetime_loc: str | np.datetime64 | None = None,
+    datetime_scale: tuple[int, str] | np.timedelta64 | None = None,
+    rescale_q: float = 0.99,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    if time_col is not None and datetime_loc is not None and datetime_scale is not None:
+        train_df = datetime_preproc(train_df, time_col, datetime_loc, datetime_scale)
+        test_df = datetime_preproc(test_df, time_col, datetime_loc, datetime_scale)
+
+    rescale_features = rescale_features or []
+    if rescale_features:
+
+        rescale_values = {}
+        for feature in rescale_features:
+            train_vals = train_df[feature].explode()
+            test_vals = test_df[feature].explode()
+            q_values = np.asarray(
+                [train_vals.quantile(rescale_q), test_vals.quantile(rescale_q)],
+                dtype=np.float32,
+            )
+            if np.isnan(q_values).all():
+                raise ValueError(f"NaN rescale quantile for feature: {feature}")
+
+            max_value = np.float32(np.nanmax(q_values))
+            if max_value == 0:
+                continue
+            rescale_values[feature] = max_value
+
+        train_df = rescale_preproc(train_df, rescale_values)
+        test_df = rescale_preproc(test_df, rescale_values)
+
+    log_features = log_features or []
+    if log_features:
+        train_df = log_preproc(train_df, log_features)
+        test_df = log_preproc(test_df, log_features)
+
+    return train_df, test_df
+
+
 def pandas_train_test_split(
     df: pd.DataFrame,
     test_frac: float,

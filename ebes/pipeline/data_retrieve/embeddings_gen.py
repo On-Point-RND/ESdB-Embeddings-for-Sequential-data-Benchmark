@@ -1,15 +1,9 @@
+import logging
 from collections import defaultdict
-from collections.abc import Mapping
 from pathlib import Path
 
-# from torch import nn
-import os
-import pandas as pd
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
-
-import logging
+import pandas as pd
 import torch
 from tqdm.autonotebook import tqdm
 
@@ -28,6 +22,9 @@ class ResultsGetter:
             data_path = Path(config["data"]["dataset"]["parquet_path"])
         elif mode == "test":
             data_path = Path(config["data"]["dataset"]["parquet_path"]).parent / "test"
+        else:
+            raise ValueError("Behaviour is not supported.")
+        
         self.index_name = config["data"]["preprocessing"]["common_pipeline"][
             "index_name"
         ]
@@ -132,7 +129,7 @@ class ResultsGetter:
             old_index = batch.index[b]
             orig_len = int(self.orig_len_by_index[old_index])
             shifts = self.get_shifts(old_index, batch.lengths[b])
-            assert (shifts >= (orig_len - old_len)).all(), 'Shifts out of seq_len'
+            assert (shifts >= (orig_len - old_len)).all(), "Shifts out of seq_len"
 
             for i, s in enumerate(shifts):
                 s = int(s)

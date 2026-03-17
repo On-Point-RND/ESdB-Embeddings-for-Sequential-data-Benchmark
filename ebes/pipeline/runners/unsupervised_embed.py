@@ -1,24 +1,16 @@
 import gc
 import logging
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
-# from torch import nn
-import pandas as pd
 import torch
-from tqdm.autonotebook import tqdm
-
-from validate import run_with_paths
 
 from ...data.utils import build_loaders
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
-from ..data_retrieve.auto_post_processing import post_processing
-from ..data_retrieve.embeddings_gen import ResultsGetter
+from ..data_retrieve.downstreams import compute_downstreams
 from ..utils import (
-    extract_downstream_metrics,
     get_loss,
     get_metrics,
     get_optimizer,
@@ -59,14 +51,14 @@ class UnsupervisedEmbedRunner(Runner):
         gc.collect()
         net.eval()
         trainer.load_best_model()
-        #metrics collection on training model
+        # metrics collection on training model
         ###############
         train_metrics = trainer.validate(loaders["unsupervised_train"])
         train_val_metrics = trainer.validate(loaders["unsupervised_train_val"])
 
         train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
-        #train_val_metrics = {k: v for k, v in train_val_metrics.items()}
-        #test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
+        # train_val_metrics = {k: v for k, v in train_val_metrics.items()}
+        # test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
         ###############
         embed_net = build_model(config["model"])
         embed_net.load_state_dict(
@@ -77,30 +69,15 @@ class UnsupervisedEmbedRunner(Runner):
 
         run_type = config["runner"]["run_type"]
         downstream_config = config.get("universal_validator", None)
-        embed_train_file = None
-        embed_test_file = None
+        downstream_metrics = {}
         if downstream_config or run_type == "simple":
-            train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"gen_train", "gen_train_val"}
-            subloaders = {k: loaders[k] for k in keys if k in loaders}
-            df_train = train_embeddings_getter.df_get(subloaders, trainer)
-            embed_train_file = (
-                Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
+            downstream_metrics = compute_downstreams(
+                trainer=trainer,
+                train_loaders=loaders,
+                test_loaders=test_loaders,
+                config=config,
+                downstream_config=downstream_config,
             )
-            embed_train_file.parent.mkdir(parents=True, exist_ok=True)
-            df_train.to_parquet(embed_train_file, index=False)
-            post_processing(config, embed_train_file, "train", partitions=4)
-
-            test_embeddings_getter = ResultsGetter(config, "test")
-            keys = {"gen_test"}
-            subloaders = {k: test_loaders[k] for k in keys if k in test_loaders}
-            df_test = test_embeddings_getter.df_get(subloaders, trainer)
-            embed_test_file = (
-                Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
-            )
-            embed_test_file.parent.mkdir(parents=True, exist_ok=True)
-            df_test.to_parquet(embed_test_file, index=False)
-            post_processing(config, embed_test_file, "test", partitions=4)
 
         del loaders["train"]  # type: ignore
         del loaders["gen_train"]  # type: ignore
@@ -110,16 +87,6 @@ class UnsupervisedEmbedRunner(Runner):
             del loaders["hpo_val"]  # type: ignore
         del test_loaders  # type: ignore
 
-        downstream_metrics = {}
-        if downstream_config:
-            print("config present")
-            reports = run_with_paths(
-                downstream_config=downstream_config,
-                train_path=str(embed_train_file),
-                test_path=str(embed_test_file),
-            )
-            downstream_metrics = extract_downstream_metrics(reports)
-            shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
         return dict(**train_metrics, **train_val_metrics, **downstream_metrics)
 
     def param_grid(self, trial, config):

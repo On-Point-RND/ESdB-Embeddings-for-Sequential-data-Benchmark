@@ -5,9 +5,14 @@ from ...data.utils import build_loaders
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
-from ..data_retrieve.auto_post_processing import post_processing
-from ..data_retrieve.embeddings_gen import ResultsGetter
-from ..utils import get_loss, get_metrics, get_optimizer, suggest_conf, get_scheduler
+from ..data_retrieve.downstreams import compute_downstreams
+from ..utils import (
+    get_loss,
+    get_metrics,
+    get_optimizer,
+    get_scheduler,
+    suggest_conf,
+)
 
 
 class BertRunner(Runner):
@@ -43,33 +48,15 @@ class BertRunner(Runner):
             trainer.load_best_model()
 
         run_type = config["runner"]["run_type"]
-        if run_type == "simple":
-            train_embeddings_getter = ResultsGetter(config, "train")
-            keys = {"full_train", "train_val"}
-            subloaders = {k: loaders[k] for k in keys if k in loaders}
-            df_train = train_embeddings_getter.df_get(subloaders, trainer)
-            embed_train_file = (
-                Path(config["log_dir"]) / config["run_name"] / "embeddings" / "train"
-            )
-            embed_train_file.parent.mkdir(parents=True, exist_ok=True)
-            df_train.to_parquet(embed_train_file, index=False)
-            post_processing(
-                config,
-                embed_train_file,
-                "train",
-            )
-
-            test_embeddings_getter = ResultsGetter(config, "test")
-            df_test = test_embeddings_getter.df_get(test_loaders, trainer)
-            embed_test_file = (
-                Path(config["log_dir"]) / config["run_name"] / "embeddings" / "test"
-            )
-            embed_test_file.parent.mkdir(parents=True, exist_ok=True)
-            df_test.to_parquet(embed_test_file, index=False)
-            post_processing(
-                config,
-                embed_test_file,
-                "test",
+        downstream_config = config.get("universal_validator", None)
+        downstream_metrics = {}
+        if downstream_config or run_type == "simple":
+            downstream_metrics = compute_downstreams(
+                trainer=trainer,
+                train_loaders=loaders,
+                test_loaders=test_loaders,
+                config=config,
+                downstream_config=downstream_config,
             )
 
         train_metrics = trainer.validate(loaders["full_train"])
@@ -80,7 +67,9 @@ class BertRunner(Runner):
         train_val_metrics = {"train_val_" + k: v for k, v in train_val_metrics.items()}
         test_metrics = {"test_" + k: v for k, v in test_metrics.items()}
 
-        return dict(**train_metrics, **train_val_metrics, **test_metrics)
+        return dict(
+            **train_metrics, **train_val_metrics, **test_metrics, **downstream_metrics
+        )
 
     def param_grid(self, trial, config):
         suggest_conf(config["optuna"]["suggestions"], config, trial)

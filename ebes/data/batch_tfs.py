@@ -151,11 +151,13 @@ class TimeToFeatures(BatchTransform):
         if batch.num_features_names is None:
             batch.num_features_names = [self.time_name]
             assert batch.num_features is None
-            batch.num_features = t
+            batch.num_features = t.to(torch.float32)
             return
 
         assert batch.num_features is not None
         batch.num_features_names.append(self.time_name)
+        if t.dtype != batch.num_features.dtype:
+            t = t.to(batch.num_features.dtype)
         batch.num_features = torch.cat((batch.num_features, t), dim=2)
 
 

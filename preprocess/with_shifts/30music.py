@@ -21,6 +21,7 @@ from .common_pandas import (
     filter_short,
     split_num_shifts,
     global_train_column,
+    transform_train_test_features,
     trim_test,
 )
 
@@ -29,6 +30,8 @@ NUM_FEATURES = ["play_duration"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["timestamp"]
 TM = ORDERING_COLUMNS[0]
+LOG_FEATURES: list[str] = []
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
 HORIZON = np.timedelta64(3, "D")
 
 
@@ -269,13 +272,13 @@ def main():
     test_df["target__clf__global__accuracy+f1_macro"] = np.clip(
         np.digitize(test_df["diversity"], bins) - 1, 0, 3
     )
-    train_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = train_df.apply(
+    train_df["target__anomaly__global__roc_auc"] = train_df.apply(
         lambda x: apply_threshold(
             x["diversity"], x["mean"], threshold_diversity, threshold_mean
         ),
         axis=1,
     )
-    test_df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = test_df.apply(
+    test_df["target__anomaly__global__roc_auc"] = test_df.apply(
         lambda x: apply_threshold(
             x["diversity"], x["mean"], threshold_diversity, threshold_mean
         ),
@@ -292,6 +295,13 @@ def main():
         get_forecast_target, axis=1
     )
 
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+    )
+
     keep_cols = (
         INDEX_COLUMNS
         + ORDERING_COLUMNS
@@ -302,7 +312,7 @@ def main():
             "shifts",
             "global_train",
             "target__clf__global__accuracy+f1_macro",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
             "target__reg__local__r2",
             "target__forecast__local__r2",
         ]

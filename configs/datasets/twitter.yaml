@@ -7,7 +7,7 @@ main_loss:
 tasks:
 - target__clf__global__accuracy+f1_macro
 - target__reg_mentions__global__r2
-- target__anomaly__global__roc_auc+f1_macro+accuracy
+- target__anomaly__global__roc_auc
 
 ee:
 cc: 

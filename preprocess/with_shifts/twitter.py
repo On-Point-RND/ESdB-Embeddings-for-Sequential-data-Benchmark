@@ -155,7 +155,7 @@ def main():
 
     df["target__clf__global__accuracy+f1_macro"] = df["sentiment"]
     df["target__reg_mentions__global__r2"] = df["mentions"]
-    df["target__anomaly__global__roc_auc+f1_macro+accuracy"] = get_anomaly_target(df)
+    df["target__anomaly__global__roc_auc"] = get_anomaly_target(df)
 
     keep_cols = (
         INDEX_COLUMNS
@@ -167,7 +167,7 @@ def main():
             "global_train",
             "target__clf__global__accuracy+f1_macro",
             "target__reg_mentions__global__r2",
-            "target__anomaly__global__roc_auc+f1_macro+accuracy",
+            "target__anomaly__global__roc_auc",
         ]
     )
 

@@ -51,7 +51,7 @@ def collect_config(
             config["universal_validator"] = OmegaConf.to_container(
                 validator_config, resolve=True
             )
-            config["universal_validator"]["dataset_name"] = dataset
+            config["universal_validator"]["data_conf"] = {"dataset_name": dataset}
         else:
             raise ValueError("Config for downstream validator is not found.")
     else:
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--method", type=str, default="gru")
     parser.add_argument("-e", "--experiment", type=str, default="test")
     parser.add_argument("-s", "--specify", type=str, default=None)
-    parser.add_argument("-dv", "--downstream_validator", action="store_true")
+    parser.add_argument("-dv", "--downstream_validator", type=str, default=None)
     parser.add_argument("-g", "--gpu", type=str, default=None)
     parser.add_argument(
         "-a",
