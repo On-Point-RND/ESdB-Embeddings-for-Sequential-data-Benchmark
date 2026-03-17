@@ -10,7 +10,6 @@ import pdb
 
 from omegaconf import OmegaConf
 
-import configs.resolvers
 from ebes.pipeline.base_runner import Runner
 
 
@@ -24,12 +23,8 @@ def collect_config(
     experiment,
     specify=None,
     gpu=None,
-    downstream_validator=False,
+    downstream_validator="universal_validator/config.yaml",
 ) -> dict[str, Any]:
-
-    if downstream_validator is True:
-        downstream_validator = "universal_validator/config.yaml"
-
     data_config = OmegaConf.load(Path(f"configs/datasets/{dataset}.yaml"))
     method_config = OmegaConf.load(Path(f"configs/methods/{method}.yaml"))
     exp_config = OmegaConf.load(Path(f"configs/experiments/{experiment}.yaml"))

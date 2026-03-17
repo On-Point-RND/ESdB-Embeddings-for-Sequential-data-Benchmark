@@ -8,7 +8,7 @@ tasks:
 - target__reg_amount__local__r2
 - target__age__global__accuracy+f1_macro
 - target__forecast__local__r2
-- target__anomaly__global__roc_auc
+- target__anomaly__global__roc_auc+f1_macro+accuracy
 
 cc: 
   small_group: 202
@@ -35,7 +35,6 @@ data:
       target_name: age
       cat_cardinalities: ${cc}
       num_names: ${nn}
-      median_length: ${min:730, ${data.preprocessing.common_pipeline.max_seq_len}}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}

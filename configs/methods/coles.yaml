@@ -1,38 +1,7 @@
 method_name: coles
-runner_name: UnsupervisedEmbedRunner
-
-_method_patch_1:
-  method_specific_batch_transforms: 
-    - ContrastiveTarget
-    - AugmentationMasker:
-        name: MixedMasker
-        number_of_instances: 3
-        add_initial: True
-        params:
-          cat_cardinalities: ${cc}
-          mask_prob: 0.2
-          span_len: 10
-          span_share: 0.5
-          random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
-          keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
-          num_mask_fill: zero
-          partial_cat_feature_prob: 0.0
-          partial_num_feature_prob: 0.0
-
-_method_patch_2:
-  method_specific_batch_transforms: 
-    - ContrastiveTarget
-    - RandomSlices:
-        split_count: 5
-        cnt_med: ${data.preprocessing.common_pipeline.median_length}
-        short_seq_crop_rate: 0.8
-        seed: 0
-    
+runner_name: UnsupervisedEmbedRunner    
 
 data:
-  preprocessing:           
-    contrastive_pipeline: ${inherit:${data.preprocessing.common_pipeline},${_method_patch_2}}
-
   loaders:
     unsupervised_train:
       split_idx: 0
@@ -61,7 +30,7 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 100
+  total_iters: 100_000
 
 training_model:
   preprocess: ${model.preprocess}

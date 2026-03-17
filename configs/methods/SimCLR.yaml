@@ -1,19 +1,7 @@
-method_name: SimCLR64
+method_name: SimCLR
 runner_name: UnsupervisedEmbedRunner
 
-
-_method_patch_2:
-  method_specific_batch_transforms: 
-    - ContrastiveTarget
-    - RandomSlices:
-        split_count: 2
-        cnt_med: ${data.preprocessing.common_pipeline.median_length}
-        short_seq_crop_rate: 0.8
-        seed: 0
-
 data:
-  preprocessing:           
-    contrastive_pipeline: ${inherit:${data.preprocessing.common_pipeline},${_method_patch_2}}
   loaders:
     unsupervised_train:
       split_idx: 0

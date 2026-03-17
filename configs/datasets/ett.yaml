@@ -36,7 +36,6 @@ data:
       target_name: _seq_len
       num_names: ${nn}
       cat_cardinalities: ${cc}
-      median_length: ${min:603, ${data.preprocessing.common_pipeline.max_seq_len}}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}

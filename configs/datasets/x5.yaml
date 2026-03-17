@@ -46,7 +46,6 @@ data:
       target_name: age_clf
       cat_cardinalities: ${cc}
       num_names: ${nn}
-      median_length: ${min:74, ${data.preprocessing.common_pipeline.max_seq_len}}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}

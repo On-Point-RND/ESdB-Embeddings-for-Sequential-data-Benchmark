@@ -19,7 +19,6 @@ class SequenceCollator:
     target_name: str | list[str] | None = None
     max_seq_len: int = 0
     batch_transforms: list[Callable[[Batch], None]] | None = None
-    method_specific_batch_transforms: list[Callable[[Batch], None]] | None = None
     padding_type: str = "zeros"
 
     def __call__(self, seqs: Sequence[pd.Series]) -> Batch:
@@ -162,8 +161,5 @@ class SequenceCollator:
         )
         if self.batch_transforms is not None:
             for tf in self.batch_transforms:
-                tf(batch)
-        if self.method_specific_batch_transforms is not None:
-            for tf in self.method_specific_batch_transforms:
                 tf(batch)
         return batch

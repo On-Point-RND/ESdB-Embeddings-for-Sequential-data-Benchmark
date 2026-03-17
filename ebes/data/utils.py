@@ -33,7 +33,6 @@ def get_collator(
     index_name: str | None = None,
     target_name: str | list[str] | None = None,
     max_seq_len: int = 0,
-    median_length: int | None = None,
     batch_transforms: list[Mapping[str, Any] | str] | None = None,
     method_specific_batch_transforms: list[Mapping[str, Any] | str] | None = None,
     padding_type: str = "zeros",
@@ -58,7 +57,6 @@ def get_collator(
                     break
             return(tfs)
     tfs_data = transforms_unpacking(batch_transforms)
-    tfs_method = transforms_unpacking(method_specific_batch_transforms)
 
     return SequenceCollator(
         time_name=time_name,
@@ -69,7 +67,6 @@ def get_collator(
         target_name=target_name,
         max_seq_len=max_seq_len,
         batch_transforms=tfs_data,
-        method_specific_batch_transforms=tfs_method,
         padding_type=padding_type,
     )
 
