@@ -236,10 +236,10 @@ def main():
     )
 
     test_df["mode_is_organic"] = test_df["is_organic"].apply(
-        lambda x: 1 if np.mean(x) > 0.5 else 0
+        lambda x: 1 if np.mean(x) > 1.5 else 0
     )
     train_df["mode_is_organic"] = train_df["is_organic"].apply(
-        lambda x: 1 if np.mean(x) > 0.5 else 0
+        lambda x: 1 if np.mean(x) > 1.5 else 0
     )
     test_df["ratio"] = test_df.apply(get_ratio, axis=1)
     train_df["ratio"] = train_df.apply(get_ratio, axis=1)
