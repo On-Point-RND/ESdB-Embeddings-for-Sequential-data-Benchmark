@@ -31,7 +31,7 @@ data:
       max_seq_len: 1000
       time_name: time
       index_name: client_id
-      target_name: shard
+      target_name: _seq_len
       cat_cardinalities: ${cc}
       batch_transforms:
         - TimeToFeatures:
