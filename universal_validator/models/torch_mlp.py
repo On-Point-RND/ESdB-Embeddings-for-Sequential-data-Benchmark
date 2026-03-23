@@ -109,6 +109,10 @@ class BaseMLP:
             assert (
                 self.validation_fraction > 0
             ), "Provide validation set for early stopping."
+            if stratify is not None:
+                _, class_counts = np.unique(stratify, return_counts=True)
+                if class_counts.min() < 2:
+                    stratify = None
             return train_test_split(
                 x_data,
                 y_data,

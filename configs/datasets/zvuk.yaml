@@ -12,7 +12,7 @@ tasks:
 
 cc: 
   cluster_id: 129
-  track_id: 1506951
+  track_id: 20000
 nn:
   - play_duration
 ee:
@@ -31,7 +31,7 @@ data:
     common_pipeline: &common_pipeline
       max_seq_len: 512
       time_name: datetime
-      index_name: user_id
+      index_name: client_id
       target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
