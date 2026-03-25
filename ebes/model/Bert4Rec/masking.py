@@ -324,3 +324,36 @@ class HalfMasker(Bert4RecMaskerBase):
         starts = (lengths // 2)[None, :]
         valid = positions < lengths[None, :]
         return (positions >= starts) & valid
+
+
+@register_masker("TailMasker")
+@dataclass
+class TailMasker(Bert4RecMaskerBase):
+    """Mask the last ``mask_prob`` fraction of each valid sequence."""
+
+    def __post_init__(self) -> None:
+        if self.random_token_prob != 0.0:
+            raise ValueError("TailMasker requires random_token_prob=0.0")
+        if self.keep_event_prob != 0.0:
+            raise ValueError("TailMasker requires keep_event_prob=0.0")
+        if self.partial_cat_feature_prob != 0.0:
+            raise ValueError("TailMasker requires partial_cat_feature_prob=0.0")
+        if self.partial_num_feature_prob != 0.0:
+            raise ValueError("TailMasker requires partial_num_feature_prob=0.0")
+
+    def _sample_event_mask(
+        self,
+        lengths: torch.Tensor,
+        seq_len: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        positions = torch.arange(seq_len, device=device)[:, None]
+        target_counts = (
+            torch.round(lengths.float() * self.mask_prob).long().clamp_min(1)
+        )
+        target_counts = torch.where(
+            lengths > 0, target_counts, torch.zeros_like(target_counts)
+        )
+        starts = (lengths - target_counts).clamp_min(0)[None, :]
+        valid = positions < lengths[None, :]
+        return (positions >= starts) & valid
