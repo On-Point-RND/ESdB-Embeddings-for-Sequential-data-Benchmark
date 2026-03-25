@@ -33,30 +33,43 @@ def get_collator(
     index_name: str | None = None,
     target_name: str | list[str] | None = None,
     max_seq_len: int = 0,
-    batch_transforms: list[Mapping[str, Any] | str] | None = None,
-    method_specific_batch_transforms: list[Mapping[str, Any] | str] | None = None,
+    batch_transforms: Mapping[str, Any] | None = None,
     padding_type: str = "zeros",
 ) -> SequenceCollator:
     tfs = None
-    def transforms_unpacking(transforms):
-        if transforms is not None:
-            tfs = []
-            for bt in transforms:
-                if isinstance(bt, str):
-                    tfs.append(getattr(batch_tfs, bt)())
+    def create_instances_from_module(
+        module,
+        configs: (
+            list[Mapping[str, Any] | str] | Mapping[str, Mapping[str, Any] | str] | None
+        ) = None,
+        common_kwargs: dict = None,
+    ) -> list[Any] | None:
+        common_kwargs = common_kwargs or dict()
+        instances = None
+        if configs is not None:
+            if isinstance(configs, Mapping):
+                configs = configs.values()
+            instances = []
+            for config in configs:
+                if config is None:
+                    continue
+                if isinstance(config, str):
+                    instances.append(getattr(module, config)(**common_kwargs))
                     continue
 
-                for name, params in bt.items():  # has params
-                    klass = getattr(batch_tfs, name)
+                for class_name, params in config.items():
+                    klass = getattr(module, class_name)
                     if isinstance(params, Mapping):
-                        tfs.append(klass(**params))
-                    elif isinstance(params, Sequence):
-                        tfs.append(klass(*params))
+                        instances.append(klass(**(params | common_kwargs)))
                     else:
-                        tfs.append(klass(params))
-                    break
-            return(tfs)
-    tfs_data = transforms_unpacking(batch_transforms)
+                        raise TypeError("Class config has to be mapping")
+                    break  # Only process first key-value pair in dict
+        return instances
+
+    tfs = create_instances_from_module(
+        module=batch_tfs,
+        configs=batch_transforms
+    )
 
     return SequenceCollator(
         time_name=time_name,
@@ -66,7 +79,7 @@ def get_collator(
         index_name=index_name,
         target_name=target_name,
         max_seq_len=max_seq_len,
-        batch_transforms=tfs_data,
+        batch_transforms=tfs,
         padding_type=padding_type,
     )
 
