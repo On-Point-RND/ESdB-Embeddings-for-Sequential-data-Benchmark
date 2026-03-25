@@ -2,7 +2,7 @@ log_dir: log/twitter
 patience: 10
 n_classes: 3
 main_metric: MulticlassAUROC
-main_loss: 
+main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__global__accuracy+f1_macro
@@ -19,7 +19,6 @@ data:
     parquet_path: "data/twitter/preprocessed/train"
     random_split: true
     split_seed: 42
-
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
@@ -39,7 +38,7 @@ data:
     gen_pipeline:
       <<: *common_pipeline
       max_seq_len: 1000000
-        contrastive_pipeline:
+    contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
         - TimeToFeatures:
@@ -57,7 +56,7 @@ data:
     train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 128
+      batch_size: 256
       drop_incomplete: true
       shuffle: true
       loop: false
