@@ -189,6 +189,7 @@ class Bert4RecMaskerBase(MaskingStrategy):
             "cat_target": cat_target,
             "num_target": num_target,
             "num_loss_mask": num_loss_mask,
+            "event_mask": event_mask,
         }
         return masked_batch, targets
 
