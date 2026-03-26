@@ -39,6 +39,8 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
+  emb_head: ${model.emb_head}
+
 model:
   preprocess:
     name: Batch2Seq

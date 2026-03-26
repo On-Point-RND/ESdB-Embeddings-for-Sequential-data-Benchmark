@@ -40,6 +40,7 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
+  emb_head: ${model.emb_head}
   head0:
     name: nn.Linear
     params:
