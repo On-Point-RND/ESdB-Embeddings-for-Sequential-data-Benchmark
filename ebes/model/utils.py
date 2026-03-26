@@ -7,7 +7,6 @@ from .basemodel import BaseModel
 
 
 def build_model(model_conf: Mapping[str, Any]) -> nn.Module:
-
     if "name" in model_conf:
         name = model_conf["name"]
         params = model_conf.get("params", {})

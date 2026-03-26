@@ -47,14 +47,14 @@ training_model:
   aggregation: ${model.aggregation}
   emb_head: ${model.emb_head}
   head0:
-    name: Projection
+    name: Linear
     params:
       in_features: output_dim_from_prev
       out_features: output_dim_from_prev
   relu:
     name: nn.ReLU
   head1:
-    name: Projection
+    name: Linear
     params:
       in_features: output_dim_from_prev
       out_features: output_dim_from_prev  
@@ -79,7 +79,7 @@ model:
   aggregation:
     name: ValidHiddenMean
   emb_head:
-    name: Projection
+    name: Linear
     params:
       in_features: output_dim_from_prev
       out_features: 128

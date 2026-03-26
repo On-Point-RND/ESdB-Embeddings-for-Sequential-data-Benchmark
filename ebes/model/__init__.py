@@ -3,6 +3,7 @@ from .agg import TakeLastHidden, AllHiddenMean, ValidHiddenMean
 from .preprocess import Batch2Seq
 from .seq2seq import BaseSeq2Seq, GRU, Transformer, Projection
 from .utils import build_model, FrozenModel
+from .basic import Linear
 from .PrimeNet.models import TimeBERTForMultiTask
 from .neural_hawkes.ctlstm import CTLSTM
 from .neural_hawkes.seq_modelling import NeuralHawkes
