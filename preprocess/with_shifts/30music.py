@@ -18,6 +18,7 @@ from .common_pandas import (
     add_shift_columns,
     global_time_split,
     save_partitioned_parquet,
+    sample_users,
     filter_short,
     split_num_shifts,
     global_train_column,
@@ -141,6 +142,12 @@ def main():
         "--ntp",
         help="Whether to use splitting for NTP",
         action="store_true",
+    )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.25,
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
@@ -300,6 +307,13 @@ def main():
         test_df=test_df,
         rescale_features=RESCALE_FEATURES,
         log_features=LOG_FEATURES,
+    )
+    train_df, test_df = sample_users(
+        train_df=train_df,
+        test_df=test_df,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="client_id",
     )
 
     keep_cols = (
