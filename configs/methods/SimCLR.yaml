@@ -45,15 +45,16 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
+  emb_head: ${model.emb_head}
   head0:
-    name: nn.Linear
+    name: Projection
     params:
       in_features: output_dim_from_prev
       out_features: output_dim_from_prev
   relu:
     name: nn.ReLU
   head1:
-    name: nn.Linear
+    name: Projection
     params:
       in_features: output_dim_from_prev
       out_features: output_dim_from_prev  
@@ -78,7 +79,7 @@ model:
   aggregation:
     name: ValidHiddenMean
   emb_head:
-    name: nn.Linear
+    name: Projection
     params:
       in_features: output_dim_from_prev
       out_features: 128
@@ -108,7 +109,7 @@ optuna:
     data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [64, 128, 256, 512]}]
 
     unsupervised_loss.params.temperature: [suggest_float, {low: 1.e-2, high: 1.e2, log: True}]
-    training_model.head0.out_features: [suggest_int, {low: 64, high: 512, log: True}]
+    training_model.head0.params.out_features: [suggest_int, {low: 64, high: 512, log: True}]
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]

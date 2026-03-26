@@ -43,6 +43,7 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
+  emb_head: ${model.emb_head}
 model:
   preprocess:
     name: Batch2Seq
@@ -63,7 +64,7 @@ model:
   aggregation:
     name: ValidHiddenMean
   emb_head:
-    name: nn.Linear
+    name: Projection
     params:
       in_features: output_dim_from_prev
       out_features: 128
