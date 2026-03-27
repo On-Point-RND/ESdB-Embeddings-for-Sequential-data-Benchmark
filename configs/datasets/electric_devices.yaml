@@ -45,6 +45,11 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
+        TTF:
+          TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        TTL:
+          TargetToLong
         MV:
           MaskValid
         CT:
