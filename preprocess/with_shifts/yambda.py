@@ -19,7 +19,7 @@ from .common_pandas import (
 )
 
 CAT_FEATURES = ["item_id", "is_organic", "event_type"]
-NUM_FEATURES = ["track_length_seconds"]
+NUM_FEATURES = ["track_length_seconds", "played_ratio_pct"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["timestamp"]
 TM = ORDERING_COLUMNS[0]
@@ -162,6 +162,7 @@ def main():
             F.col("timestamp").cast(LongType()),
             F.col("item_id").cast(LongType()),
             F.col("track_length_seconds").cast(LongType()),
+            F.col("played_ratio_pct").cast(LongType()),
             F.col("event_type").cast(StringType()),
             F.col("is_organic").cast(LongType()),
         )
@@ -176,6 +177,7 @@ def main():
             .otherwise(-1),
         )
         df_kag_train = df_kag_train.fillna({"track_length_seconds": 0})
+        df_kag_train = df_kag_train.fillna({"played_ratio_pct": 0})
 
         df = df_kag_train
         df = df.withColumnRenamed("uid", "client_id")

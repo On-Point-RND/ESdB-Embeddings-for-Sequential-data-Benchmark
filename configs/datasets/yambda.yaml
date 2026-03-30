@@ -11,7 +11,7 @@ tasks:
 - target__forecast__local__r2
 
 cc: 
-  item_id: 934057
+  item_id: 15000
   is_organic: 2
   event_type: 5
 nn:
@@ -31,9 +31,9 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 2000
+      max_seq_len: 1024
       time_name: timestamp
-      index_name: uid
+      index_name: client_id
       target_name: _seq_len
       num_names: ${nn}
       cat_cardinalities: ${cc}

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .common_pandas import filter_short, save_partitioned_parquet
+from .common_pandas import filter_short, sample_users, save_partitioned_parquet
 
 CAT_FEATURES = ["char"]
 INDEX_COLUMNS = ["tweet_id"]
@@ -94,6 +94,12 @@ def main():
         help="Whether to use splitting for NTP",
         action="store_true",
     )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.02,
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -104,6 +110,8 @@ def main():
 
     if not (0.0 < USER_TRAIN_SPLIT < 1.0):
         parser.error("user_train_split must be in range (0, 1)")
+    if not (0.0 < args.user_sample_frac <= 1.0):
+        parser.error("user_sample_frac must be in range (0, 1]")
 
     cols = ["sentiment", "tweet_id", "date", "flag", "user_name", "text"]
     csv_path = args.data_path / "training.1600000.processed.noemoticon.csv"
@@ -151,11 +159,20 @@ def main():
     )
 
     # Keep compatibility with the with_shifts data format.
-    df["shifts"] = [[-1] for _ in range(len(df))]
+    df["shifts"] = [[] for _ in range(len(df))]
 
     df["target__clf__global__accuracy+f1_macro"] = df["sentiment"]
     df["target__reg_mentions__global__r2"] = df["mentions"]
     df["target__anomaly__global__roc_auc"] = get_anomaly_target(df)
+
+    train_df, _ = sample_users(
+        train_df=df,
+        test_df=None,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="tweet_id",
+        split_name="user_split",
+    )
 
     keep_cols = (
         INDEX_COLUMNS
@@ -171,8 +188,13 @@ def main():
         ]
     )
 
-    save_partitioned_parquet(df[keep_cols], args.save_path / "train", 20, mode=mode)
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
 
+    save_partitioned_parquet(
+        train_df[keep_cols][:1], args.save_path / "test", 1, mode=mode
+    )
 
 if __name__ == "__main__":
     main()
