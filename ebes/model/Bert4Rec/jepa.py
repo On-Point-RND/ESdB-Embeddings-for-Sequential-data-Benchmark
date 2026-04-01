@@ -146,17 +146,17 @@ class JEPA(BaseModel):
             num_emb_dim=num_emb_dim,
             num_norm=num_norm,
         )
-        block_conf = (
-            acceleration_config.get("transformer_block")
-            if acceleration_config is not None
-            else None
-        )
-        self.transformer_blocks = self._build_transformer_blocks(
-            hidden_size=hidden_size,
-            num_heads=num_heads,
-            num_blocks=num_blocks,
-            dropout=dropout,
-            block_conf=block_conf,
+
+        self.transformer_blocks = nn.ModuleList(
+            [
+                TransformerBlock(
+                    hidden_size,
+                    num_heads,
+                    4 * hidden_size,
+                    dropout,
+                )
+                for _ in range(num_blocks)
+            ]
         )
 
         predictor_hidden_size = (
@@ -201,7 +201,9 @@ class JEPA(BaseModel):
             total_loss = total_loss + self._objective_weight("jepa") * jepa["jepa_loss"]
 
         if self._objective_enabled("mlm"):
-            raise NotImplementedError("MLM objective scaffold exists but is not implemented yet")
+            raise NotImplementedError(
+                "MLM objective scaffold exists but is not implemented yet"
+            )
         if self._objective_enabled("contrastive"):
             raise NotImplementedError(
                 "Contrastive objective scaffold exists but is not implemented yet"
@@ -215,51 +217,6 @@ class JEPA(BaseModel):
             self._momentum_update_target()
 
         return output
-
-    def get_query_embeddings(self, batch: Batch) -> torch.Tensor:
-        batch = batch.tail_clamp(self.max_len)
-        x = self._encode_online(batch)
-        x = self.projection_head(x)
-        mode = cast(AggregationMode, self.query_aggregation)
-        return self._aggregate_embeddings(x, batch.lengths, mode, self.query_aggregation_k)
-
-    @staticmethod
-    def _aggregate_embeddings(
-        x: torch.Tensor,
-        lengths: torch.Tensor,
-        aggregation: AggregationMode,
-        k: int | None = None,
-    ) -> torch.Tensor:
-        if aggregation == "last":
-            batch_idx = torch.arange(x.shape[0], device=x.device)
-            last_idx = lengths.clamp_min(1) - 1
-            return x[batch_idx, last_idx]
-
-        idx = torch.arange(x.shape[1], device=x.device)[None, :]
-        valid_2d = idx < lengths[:, None]
-        valid = valid_2d.unsqueeze(-1)
-
-        if aggregation == "mean":
-            summed = (x * valid).sum(dim=1)
-            denom = lengths.clamp_min(1).unsqueeze(-1)
-            return summed / denom
-
-        if aggregation == "mean_last_k":
-            if k is None or k < 1:
-                raise ValueError("mean_last_k requires k >= 1")
-            start = (lengths - k).clamp_min(0)[:, None]
-            tail_2d = (idx >= start) & valid_2d
-            tail = tail_2d.unsqueeze(-1)
-            summed = (x * tail).sum(dim=1)
-            denom = tail_2d.sum(dim=1).clamp_min(1).unsqueeze(-1)
-            return summed / denom
-
-        if aggregation == "max":
-            neg_inf = torch.finfo(x.dtype).min
-            masked = x.masked_fill(~valid, neg_inf)
-            return masked.max(dim=1).values
-
-        raise ValueError(f"Aggregation {aggregation} - is not known. Check your configs.")
 
     def _compute_jepa_objective(
         self,
@@ -326,7 +283,9 @@ class JEPA(BaseModel):
         num_loss_mask = targets.get("num_loss_mask")
         if isinstance(num_loss_mask, torch.Tensor):
             num_event_mask = num_loss_mask.any(dim=2)
-            combined = num_event_mask if combined is None else (combined | num_event_mask)
+            combined = (
+                num_event_mask if combined is None else (combined | num_event_mask)
+            )
 
         if combined is not None:
             return combined.permute(1, 0)
@@ -372,7 +331,9 @@ class JEPA(BaseModel):
         context_mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x = self.item_embedder(batch)
-        x, context_positions, context_lengths = self._gather_tokens_by_mask(x, context_mask)
+        x, context_positions, context_lengths = self._gather_tokens_by_mask(
+            x, context_mask
+        )
         x = self._apply_transformer_blocks(
             x=x,
             lengths=context_lengths,
@@ -401,15 +362,21 @@ class JEPA(BaseModel):
         return x
 
     @staticmethod
-    def _gather_indices_by_mask(mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _gather_indices_by_mask(
+        mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         lengths = mask.sum(dim=1).long()
         max_len = int(lengths.max().item()) if lengths.numel() > 0 else 0
         if max_len == 0:
             empty = mask.new_zeros((mask.shape[0], 0), dtype=torch.long)
             return empty, lengths
 
-        positions = torch.arange(mask.shape[1], device=mask.device)[None, :].expand_as(mask)
-        gathered = positions.masked_fill(~mask, mask.shape[1]).sort(dim=1).values[:, :max_len]
+        positions = torch.arange(mask.shape[1], device=mask.device)[None, :].expand_as(
+            mask
+        )
+        gathered = (
+            positions.masked_fill(~mask, mask.shape[1]).sort(dim=1).values[:, :max_len]
+        )
         valid = JEPA._get_pad_mask_from_lengths(lengths, max_len)
         gathered = gathered.clamp_max(mask.shape[1] - 1)
         return gathered.masked_fill(~valid, 0), lengths
@@ -435,7 +402,9 @@ class JEPA(BaseModel):
         self._ema_update(self.target_projection_head, self.projection_head, tau)
 
     @staticmethod
-    def _ema_update(target_module: nn.Module, online_module: nn.Module, tau: float) -> None:
+    def _ema_update(
+        target_module: nn.Module, online_module: nn.Module, tau: float
+    ) -> None:
         for target_param, online_param in zip(
             target_module.parameters(), online_module.parameters()
         ):
@@ -507,36 +476,51 @@ class JEPA(BaseModel):
                 cfg[name]["weight"] = float(obj_cfg["weight"])
         return cfg
 
-    @staticmethod
-    def _build_transformer_blocks(
-        hidden_size: int,
-        num_heads: int,
-        num_blocks: int,
-        dropout: float,
-        block_conf: Mapping[str, Any] | None = None,
-    ) -> nn.ModuleList:
-        if block_conf is not None:
-            return nn.ModuleList(
-                [
-                    TransformerBlockFast(
-                        hidden_size,
-                        num_heads,
-                        4 * hidden_size,
-                        dropout,
-                        acceleration_config=block_conf,
-                    )
-                    for _ in range(num_blocks)
-                ]
-            )
+    def get_query_embeddings(self, batch: Batch) -> torch.Tensor:
+        batch = batch.tail_clamp(self.max_len)
+        x = self._encode_online(batch)
+        x = self.projection_head(x)
+        mode = cast(AggregationMode, self.query_aggregation)
+        return self._aggregate_embeddings(
+            x, batch.lengths, mode, self.query_aggregation_k
+        )
 
-        return nn.ModuleList(
-            [
-                TransformerBlock(
-                    hidden_size,
-                    num_heads,
-                    4 * hidden_size,
-                    dropout,
-                )
-                for _ in range(num_blocks)
-            ]
+    @staticmethod
+    def _aggregate_embeddings(
+        x: torch.Tensor,
+        lengths: torch.Tensor,
+        aggregation: AggregationMode,
+        k: int | None = None,
+    ) -> torch.Tensor:
+        if aggregation == "last":
+            batch_idx = torch.arange(x.shape[0], device=x.device)
+            last_idx = lengths.clamp_min(1) - 1
+            return x[batch_idx, last_idx]
+
+        idx = torch.arange(x.shape[1], device=x.device)[None, :]
+        valid_2d = idx < lengths[:, None]
+        valid = valid_2d.unsqueeze(-1)
+
+        if aggregation == "mean":
+            summed = (x * valid).sum(dim=1)
+            denom = lengths.clamp_min(1).unsqueeze(-1)
+            return summed / denom
+
+        if aggregation == "mean_last_k":
+            if k is None or k < 1:
+                raise ValueError("mean_last_k requires k >= 1")
+            start = (lengths - k).clamp_min(0)[:, None]
+            tail_2d = (idx >= start) & valid_2d
+            tail = tail_2d.unsqueeze(-1)
+            summed = (x * tail).sum(dim=1)
+            denom = tail_2d.sum(dim=1).clamp_min(1).unsqueeze(-1)
+            return summed / denom
+
+        if aggregation == "max":
+            neg_inf = torch.finfo(x.dtype).min
+            masked = x.masked_fill(~valid, neg_inf)
+            return masked.max(dim=1).values
+
+        raise ValueError(
+            f"Aggregation {aggregation} - is not known. Check your configs."
         )

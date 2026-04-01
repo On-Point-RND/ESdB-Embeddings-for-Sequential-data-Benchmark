@@ -42,16 +42,14 @@ model:
         enabled: false
         weight: 0.0
     masker:
-      name: MixedMasker
+      name: PointMasker
       params:
         mask_prob: 0.2
-        span_len: 10
-        span_share: 0.5
-        random_token_prob: 0.1
+        random_token_prob: 0.0
         keep_event_prob: 0.0
         num_mask_fill: zero
-        partial_cat_feature_prob: 0.1
-        partial_num_feature_prob: 0.1
+        partial_cat_feature_prob: 0.0
+        partial_num_feature_prob: 0.0
     query_aggregation: last
     max_len: ${data.preprocessing.common_pipeline.max_seq_len}
     hidden_size: 128
@@ -68,7 +66,7 @@ model:
 optimizer:
   name: Adam
   params:
-    lr: 1.e-3
+    lr: 3.e-4
     weight_decay: 1.e-6
 
 optuna:
@@ -88,11 +86,6 @@ optuna:
     model.params.num_passes_over_block: [suggest_int, {low: 1, high: 2, log: False}]
     model.params.cat_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
     model.params.num_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+    model.params.embedding_size: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.params.masker.params.mask_prob: [suggest_float, {low: 0.1, high: 0.8, log: False}]
-    model.params.masker.params.span_len: [suggest_int, {low: 5, high: 100, log: False}]
-    model.params.masker.params.span_share: [suggest_float, {low: 0.1, high: 0.9, step: 0.05}]
-    model.params.masker.params.random_token_prob: [suggest_float, {low: 0., high: 0.2, step: 0.05}]
-    model.params.masker.params.keep_event_prob: [suggest_float, {low: 0., high: 0.15, step: 0.05}]
-    model.params.masker.params.partial_cat_feature_prob: [suggest_float, {low: 0., high: 0.5, step: 0.05}]
-    model.params.masker.params.partial_num_feature_prob: [suggest_float, {low: 0., high: 0.5, step: 0.05}]

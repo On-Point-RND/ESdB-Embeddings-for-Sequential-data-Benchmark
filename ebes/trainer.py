@@ -373,7 +373,15 @@ class Trainer:
         """
 
         self._metric_values = {}
-        for name, metric in self._metrics.items():
+        metrics = self._metrics
+        if phase == "train" and not self._metrics_on_train:
+            metrics = {
+                name: metric
+                for name, metric in self._metrics.items()
+                if name == "loss"
+            }
+
+        for name, metric in metrics.items():
             try:
                 val = metric.compute().squeeze()
             except (RuntimeError, ValueError):
