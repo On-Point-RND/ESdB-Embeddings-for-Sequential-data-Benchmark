@@ -68,6 +68,38 @@ def save_partitioned_parquet(
     df.to_parquet(save_path, partition_cols=["shard"], engine="pyarrow", index=False)
 
 
+def sample_users(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame | None,
+    sample_frac: float,
+    seed: int,
+    index_col: str = "client_id",
+    split_name: str = "global_time_split",
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    if not (0.0 < sample_frac <= 1.0):
+        raise ValueError("sample_frac must be in range (0, 1]")
+    if split_name not in {"global_time_split", "user_split"}:
+        raise ValueError(f"Unknown split_name: {split_name}")
+    if split_name == "global_time_split" and test_df is None:
+        raise ValueError("test_df must be provided for global time split")
+    if split_name == "user_split" and test_df is not None:
+        raise ValueError("test_df must be None for user split")
+    if sample_frac == 1.0:
+        return train_df.copy(), None if test_df is None else test_df.copy()
+
+    user_ids = np.sort(train_df[index_col].drop_duplicates().to_numpy())
+    n_users = max(1, int(np.floor(len(user_ids) * sample_frac)))
+    rng = np.random.default_rng(seed)
+    sampled_users = rng.choice(user_ids, size=n_users, replace=False).tolist()
+
+    train_sampled = train_df.loc[train_df[index_col].isin(sampled_users)].copy()
+    if test_df is None:
+        return train_sampled, None
+
+    test_sampled = test_df.loc[test_df[index_col].isin(sampled_users)].copy()
+    return train_sampled, test_sampled
+
+
 def filter_short(
     df: pd.DataFrame,
     min_len: int = MIN_SEQ_LEN,

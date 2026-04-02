@@ -74,6 +74,7 @@ optuna:
     model.params.num_passes_over_block: [suggest_int, {low: 1, high: 2, log: False}]
     model.params.cat_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
     model.params.num_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+    model.params.embedding_size: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.params.masker.params.mask_prob: [suggest_float, {low: 0.1, high: 0.8, log: False}]
     model.params.masker.params.span_len: [suggest_int, {low: 5, high: 100, log: False}]
