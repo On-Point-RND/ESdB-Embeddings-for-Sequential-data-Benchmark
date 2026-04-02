@@ -12,5 +12,5 @@ from .mtand import MTAND
 from .mlem.model import MLEMEncoder, MLEMPretrainer
 from .convtran.model import ConvTran
 from .Bert4Rec.model import Bert4Rec
-from .Bert4Rec.jepa import JEPA
+from .jepa.model import JEPA
 from .ntp.model import NTPEncoder, NTPPretrainer

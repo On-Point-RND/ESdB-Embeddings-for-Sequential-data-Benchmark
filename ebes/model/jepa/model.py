@@ -6,11 +6,11 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .fast_blocks import TransformerBlockFast
-from .masking import build_masker
-from .model import AggregationMode, BertEmbedding, TransformerBlock
+from ..Bert4Rec.masking import build_masker
+from ..Bert4Rec.model import AggregationMode, BertEmbedding, TransformerBlock
 from ..basemodel import BaseModel
 from ...types import Batch
+from .model_utils import get_pad_mask_from_lengths
 
 
 class JEPAPredictor(nn.Module):
@@ -68,7 +68,7 @@ class JEPAPredictor(nn.Module):
             self.query_norm(query),
             self.context_norm(context),
             self.context_norm(context),
-            key_padding_mask=~JEPA._get_pad_mask_from_lengths(
+            key_padding_mask=~get_pad_mask_from_lengths(
                 context_lengths,
                 context_tokens.shape[1],
             ),
@@ -442,9 +442,7 @@ class JEPA(BaseModel):
         seq_len: int,
         device: torch.device | None = None,
     ) -> torch.Tensor:
-        if device is None:
-            device = lengths.device
-        return torch.arange(seq_len, device=device)[None, :] < lengths[:, None]
+        return get_pad_mask_from_lengths(lengths, seq_len, device=device)
 
     def _objective_enabled(self, name: str) -> bool:
         return bool(self.objectives.get(name, {}).get("enabled", False))
