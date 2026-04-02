@@ -43,7 +43,7 @@ data:
       max_seq_len: 512
       time_name: transaction_datetime
       index_name: client_id
-      target_name: age_clf
+      target_name: _seq_len
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:

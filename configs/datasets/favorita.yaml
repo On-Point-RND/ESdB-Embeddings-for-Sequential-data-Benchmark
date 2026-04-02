@@ -395,7 +395,7 @@ data:
     train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 128
+      batch_size: 16
       drop_incomplete: true
       shuffle: true
       loop: false
@@ -404,12 +404,12 @@ data:
     full_train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 128
+      batch_size: 16
       num_workers: 4
     train_val:
       split_idx: 1
       preprocessing: common_pipeline
-      batch_size: 128
+      batch_size: 16
       num_workers: 4
     gen_train:
       split_idx: 0
@@ -437,7 +437,7 @@ test_data:
     test:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 128
+      batch_size: 16
       num_workers: 4
     gen_test:
       split_idx: 0
