@@ -1,4 +1,5 @@
 import logging
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -12,6 +13,22 @@ from ...types import Batch
 logger = logging.getLogger(__name__)
 
 MIN_SHIFT_VALUE = 2
+FASTPATH_ENV_VAR = "EBES_BERT4REC_EMB_FASTPATH"
+
+
+def _fastpath_enabled() -> bool:
+    value = os.getenv(FASTPATH_ENV_VAR, "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _pad_seq_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
+    if not tensors:
+        raise ValueError("Cannot pad an empty list of tensors")
+    max_len = max(t.shape[0] for t in tensors)
+    out = tensors[0].new_zeros((max_len, len(tensors), *tensors[0].shape[1:]))
+    for i, tensor in enumerate(tensors):
+        out[: tensor.shape[0], i] = tensor
+    return out
 
 
 class ResultsGetter:
@@ -51,8 +68,21 @@ class ResultsGetter:
                 raise ValueError("Incorrect loader for embeddings generation")
             logger.info(f"Embedding generation on {loader_name} started")
             records = []
+            logged_fastpath = False
             for batch_old in tqdm(loader, disable=False):
-                batches_array = self.shift_transform(batch_old)
+                use_fastpath = self._should_use_bert4rec_fastpath(model, batch_old)
+                if use_fastpath and not logged_fastpath:
+                    logger.info(
+                        "Embedding generation on %s uses Bert4Rec tail-window fast-path",
+                        loader_name,
+                    )
+                    logged_fastpath = True
+                if use_fastpath:
+                    batches_array = self.shift_transform_tail_window(
+                        batch_old, int(model.max_len)
+                    )
+                else:
+                    batches_array = self.shift_transform(batch_old)
                 # If we want to check the memory consumption
                 # torch.cuda.reset_peak_memory_stats(trainer.device)
                 for batch in batches_array:
@@ -86,6 +116,17 @@ class ResultsGetter:
             df_all = pd.concat([df_all, df_list[i]], ignore_index=True)
 
         return df_all
+
+    def _should_use_bert4rec_fastpath(self, model, batch: Batch) -> bool:
+        if not _fastpath_enabled():
+            return False
+        if model.__class__.__name__ != "Bert4Rec":
+            return False
+        if not hasattr(model, "max_len"):
+            return False
+        if batch.emb_features is not None or batch.emb_mask is not None:
+            return False
+        return True
 
     def get_shifts(self, old_index, full_len):
         shifts = self.shifts_by_index[old_index]
@@ -262,6 +303,104 @@ class ResultsGetter:
                     num_mask=num_mask_i,
                     cat_mask=cat_mask_i,
                     emb_mask=emb_mask_i,
+                    cat_features_names=batch.cat_features_names,
+                    num_features_names=batch.num_features_names,
+                    emb_features_names=batch.emb_features_names,
+                )
+            )
+        return batches_array
+
+    def shift_transform_tail_window(self, batch: Batch, window_len: int):
+        if window_len < 1:
+            raise ValueError("window_len must be positive")
+
+        device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
+        _, old_batch = batch.time.shape
+
+        new_num_features = defaultdict(list)
+        new_cat_features = defaultdict(list)
+        new_num_mask = defaultdict(list)
+        new_cat_mask = defaultdict(list)
+        new_times = defaultdict(list)
+        new_lengths = defaultdict(list)
+        new_indices = defaultdict(list)
+
+        for b in range(old_batch):
+            old_index = batch.index[b]
+            full_len = int(batch.lengths[b])
+            orig_len = int(self.orig_len_by_index[old_index])
+            if full_len != orig_len:
+                raise ValueError(
+                    "Bert4Rec tail-window fast-path requires full untruncated "
+                    f"sequences during embedding generation, got full_len={full_len} "
+                    f"and orig_len={orig_len} for index={old_index!r}"
+                )
+
+            shifts = self.get_shifts(old_index, full_len)
+            time_slice = batch.time[:full_len, b]
+            for i, s in enumerate(shifts):
+                s = int(s)
+                start = max(0, s - window_len)
+                length = s - start
+
+                new_times[i].append(time_slice[start:s].clone())
+
+                if batch.num_features is not None:
+                    new_num_features[i].append(
+                        batch.num_features[start:s, b, :].clone()
+                    )
+
+                if batch.num_mask is not None:
+                    new_num_mask[i].append(batch.num_mask[start:s, b, :].clone())
+
+                if batch.cat_features is not None:
+                    new_cat_features[i].append(
+                        batch.cat_features[start:s, b, :].clone()
+                    )
+
+                if batch.cat_mask is not None:
+                    new_cat_mask[i].append(batch.cat_mask[start:s, b, :].clone())
+
+                new_lengths[i].append(length)
+                new_indices[i].append(f"{old_index}__{s}")
+
+        batches_array = []
+        for i in sorted(new_times.keys()):
+            times_i = _pad_seq_tensors(new_times[i])
+            lengths_i = torch.tensor(new_lengths[i], device=device)
+            num_features_i = (
+                _pad_seq_tensors(new_num_features[i])
+                if batch.num_features is not None and new_num_features[i]
+                else None
+            )
+            num_mask_i = (
+                _pad_seq_tensors(new_num_mask[i])
+                if batch.num_mask is not None and new_num_mask[i]
+                else None
+            )
+            cat_features_i = (
+                _pad_seq_tensors(new_cat_features[i])
+                if batch.cat_features is not None and new_cat_features[i]
+                else None
+            )
+            cat_mask_i = (
+                _pad_seq_tensors(new_cat_mask[i])
+                if batch.cat_mask is not None and new_cat_mask[i]
+                else None
+            )
+
+            batches_array.append(
+                Batch(
+                    lengths=lengths_i,
+                    time=times_i,
+                    index=new_indices[i],
+                    target=None,
+                    num_features=num_features_i,
+                    cat_features=cat_features_i,
+                    emb_features=None,
+                    num_mask=num_mask_i,
+                    cat_mask=cat_mask_i,
+                    emb_mask=None,
                     cat_features_names=batch.cat_features_names,
                     num_features_names=batch.num_features_names,
                     emb_features_names=batch.emb_features_names,

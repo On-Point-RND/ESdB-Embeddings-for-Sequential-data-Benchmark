@@ -7,12 +7,13 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, FloatType
 import numpy as np
 
-from ..common import cat_freq, collect_lists
+from ..common import CatMap, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     global_time_split,
     save_partitioned_parquet,
     filter_short,
+    sample_users,
     split_num_shifts,
     global_train_column,
     transform_train_test_features,
@@ -137,6 +138,12 @@ def main():
         help="Whether to use splitting for NTP",
         action="store_true",
     )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.02,
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -150,6 +157,8 @@ def main():
         parser.error("time_train_split must be in range (0, 1)")
     if not (0.0 < USER_TRAIN_SPLIT < 1.0):
         parser.error("user_train_split must be in range (0, 1)")
+    if not (0.0 < args.user_sample_frac <= 1.0):
+        parser.error("user_sample_frac must be in range (0, 1]")
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     if args.ntp and args.which_split != "train":
@@ -230,10 +239,17 @@ def main():
 
     df = df.join(df_target, on="app_id")
     df = df.withColumnRenamed("app_id", "client_id")
-    vcs = cat_freq(df, CAT_FEATURES)
+    existing_cat_codes = (
+        args.cat_codes_path is not None
+        and all((args.cat_codes_path / feature).exists() for feature in CAT_FEATURES)
+    )
+    if existing_cat_codes:
+        vcs = [CatMap.read(args.cat_codes_path / feature) for feature in CAT_FEATURES]
+    else:
+        vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
         df = vc.encode(df)
-        if args.cat_codes_path is not None:
+        if args.cat_codes_path is not None and not existing_cat_codes:
             vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
 
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by="transaction_number")
@@ -314,6 +330,14 @@ def main():
             rescale_features=RESCALE_FEATURES,
             log_features=LOG_FEATURES,
         )
+        train_df, test_df = sample_users(
+            train_df=train_df,
+            test_df=test_df,
+            sample_frac=args.user_sample_frac,
+            seed=args.split_seed,
+            index_col="client_id",
+            split_name="global_time_split",
+        )
     else:
         train_df = df.copy()
         train_df["shift_start"] = 2
@@ -347,6 +371,14 @@ def main():
             test_df=train_df.copy(),
             rescale_features=RESCALE_FEATURES,
             log_features=LOG_FEATURES,
+        )
+        train_df, _ = sample_users(
+            train_df=train_df,
+            test_df=None,
+            sample_frac=args.user_sample_frac,
+            seed=args.split_seed,
+            index_col="client_id",
+            split_name="user_split",
         )
 
     keep_cols = (
