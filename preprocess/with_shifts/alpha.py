@@ -142,7 +142,7 @@ def main():
         "--user-sample-frac",
         help="Fraction of users to keep after preprocessing",
         type=float,
-        default=0.03,
+        default=0.02,
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
