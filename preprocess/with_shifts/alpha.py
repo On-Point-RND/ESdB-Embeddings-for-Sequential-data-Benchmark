@@ -355,7 +355,16 @@ def main():
 
         num_shifts = train_n_shifts if args.which_split == "train" else test_n_shifts
         train_df = add_shift_columns(train_df, num_shifts, args.shift_seed)
-        train_df["global_train"] = 1 if args.which_split == "train" else 0
+        if args.which_split == "train":
+            rng = np.random.default_rng(seed=args.split_seed)
+            n_train_users = int(len(train_df.index) * USER_TRAIN_SPLIT)
+            train_indices = rng.choice(
+                train_df.index, size=n_train_users, replace=False
+            ).tolist()
+            train_df["global_train"] = 0
+            train_df.loc[train_indices, "global_train"] = 1
+        else:
+            train_df["global_train"] = 0
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
         train_df["target__reg_amount__local__r2"] = train_df.apply(
