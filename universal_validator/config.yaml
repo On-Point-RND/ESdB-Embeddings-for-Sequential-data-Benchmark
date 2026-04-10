@@ -50,25 +50,44 @@ models:
       batch_size: [128, 256, 512, 1024]
     task_specific:
 
-  # lgbm:
-  #   classifier: lightgbm.LGBMClassifier
-  #   regressor: lightgbm.LGBMRegressor
-  #   shared_params:
-  #     n_estimators: 100
-  #     random_state: 42
-  #     verbose: 1
-  #     n_jobs: 1
+  lgbm:
+    classifier: lightgbm.LGBMClassifier
+    regressor: lightgbm.LGBMRegressor
+    shared_params:
+      n_estimators: 1000
+      boosting_type: gbdt
+      learning_rate: 0.02
+      subsample: 0.75
+      subsample_freq: 1
+      feature_fraction: 0.75
+      max_depth: 12
+      lambda_l1: 1
+      lambda_l2: 1
+      min_data_in_leaf: 50
+      num_leaves: 50
+      random_state: 42
+      n_jobs: 4
 
-  #   search_space:
-  #     n_estimators: { low: 100, high: 1000 }
-  #     max_depth: { low: 3, high: 12 }
-  #     num_leaves: { low: 10, high: 200 }
-  #     learning_rate: { low: 0.001, high: 0.3, log: true }
-  #     subsample: { low: 0.6, high: 1.0 }
-  #     colsample_bytree: { low: 0.6, high: 1.0 }
-  #     reg_alpha: { low: 1e-8, high: 10.0, log: true }
-  #     reg_lambda: { low: 1e-8, high: 10.0, log: true }
-  #     min_child_samples: { low: 5, high: 100 }
-  #   task_specific:
-  #     anomaly_detection:
-  #       is_unbalance: true
+    search_space:
+      n_estimators: { low: 100, high: 1000 }
+      max_depth: { low: 3, high: 12 }
+      num_leaves: { low: 10, high: 200 }
+      learning_rate: { low: 0.001, high: 0.3, log: true }
+      subsample: { low: 0.6, high: 1.0 }
+      colsample_bytree: { low: 0.6, high: 1.0 }
+      reg_alpha: { low: 1e-8, high: 10.0, log: true }
+      reg_lambda: { low: 1e-8, high: 10.0, log: true }
+      min_child_samples: { low: 5, high: 100 }
+    task_specific:
+      anomaly_detection:
+        is_unbalance: true
+
+  lgbm_default:
+    classifier: lightgbm.LGBMClassifier
+    regressor: lightgbm.LGBMRegressor
+    shared_params:
+      random_state: 42
+      n_jobs: 4
+    task_specific:
+      anomaly_detection:
+        is_unbalance: true

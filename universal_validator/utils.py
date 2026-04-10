@@ -1,3 +1,4 @@
+import logging
 import sys
 import tempfile
 
@@ -5,6 +6,24 @@ import pyrallis
 from omegaconf import OmegaConf
 
 from .pipeline.utils import ValidatorConfig
+
+logger = logging.getLogger(__name__)
+
+
+def ensure_validator_logging() -> None:
+    """Attach a default StreamHandler if the root logger has none (e.g. CLI validate).
+
+    When the validator runs under ``Runner._run_and_log``, the root logger already
+    has handlers from ``log_to_file`` and this is a no-op.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="{levelname:8} - {asctime} - {message}",
+        style="{",
+    )
 
 
 def pop_arg(args, key):
@@ -39,6 +58,7 @@ def run_config_factory(config_path, config_factory, base_path="."):
 
 
 def run_with_config(func, base_path=".", default_conf="config.yaml"):
+    ensure_validator_logging()
     args = sys.argv[1:]
 
     # 1. config generation
@@ -53,7 +73,7 @@ def run_with_config(func, base_path=".", default_conf="config.yaml"):
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as tmpfile:
         OmegaConf.save(config=merged_config, f=tmpfile.name)
         temp_config_path = tmpfile.name
-        print(f"Saved temporary config: {temp_config_path}")
+        logger.info("Saved temporary config: %s", temp_config_path)
         cfg = pyrallis.parse(ValidatorConfig, temp_config_path, args)
         res = func(cfg)
     return res

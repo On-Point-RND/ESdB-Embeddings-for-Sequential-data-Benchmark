@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 
 from universal_validator.pipeline.universal_validator import UniversalValidator
 from universal_validator.pipeline.utils import ValidatorConfig
-from universal_validator.utils import run_with_config
+from universal_validator.utils import ensure_validator_logging, run_with_config
 
 
 def _suppress_noisy_py4j_logs() -> None:
@@ -22,6 +22,7 @@ def _suppress_noisy_py4j_logs() -> None:
 
 
 def main(cfg: ValidatorConfig):
+    ensure_validator_logging()
     _suppress_noisy_py4j_logs()
     validator = UniversalValidator(cfg)
 

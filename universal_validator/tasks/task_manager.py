@@ -1,5 +1,7 @@
 import importlib
-from typing import Any, Optional
+import logging
+from datetime import datetime
+from typing import Any
 
 import optuna.logging
 from sklearn.base import BaseEstimator
@@ -8,6 +10,8 @@ from ..data.dataset import DataSplit
 from ..pipeline.utils import ValidatorConfig
 from .hpo_optimizer import HPOOptimizer
 from .scorers import METRIC_INFO, TaskType, get_scorers
+
+logger = logging.getLogger(__name__)
 
 
 def import_model_class(class_path: str):
@@ -42,7 +46,9 @@ class TaskManager:
             elif task_type == TaskType.REGRESSION:
                 estimator_path = model_config["regressor"]
             else:
-                print(f"Warning: No estimator defined for {name} in {task_type} mode")
+                logger.warning(
+                    "No estimator defined for %s in %s mode", name, task_type
+                )
                 continue
             params = model_config.get("shared_params", {}).copy()
             task_specific = model_config.get("task_specific", {})
@@ -53,25 +59,25 @@ class TaskManager:
                 model_class = import_model_class(estimator_path)
                 models[name] = (model_class(**params), search_space)
             except Exception as e:
-                print(f"Warning: Failed to initialize {name}: {e}")
+                logger.warning("Failed to initialize %s: %s", name, e)
 
         return models
 
     def _check_metric(self, metrics):
         for metric in metrics:
             if metric not in METRIC_INFO.keys():
-                print(f"Metric {metric} is not supported!")
+                logger.warning("Metric %s is not supported!", metric)
                 return False
         task_types = [METRIC_INFO[metric]["task"] for metric in metrics]
         if len(set(task_types)) > 1:
-            print(f"Metrics {metrics} have different task types!")
+            logger.warning("Metrics %s have different task types!", metrics)
             return False
         return True
 
     def _print_task_info(self, split_data: dict[str, Any]) -> None:
         pass
 
-    def execute(self, split_data: DataSplit) -> Optional[dict[str, Any] | None]:
+    def execute(self, split_data: DataSplit) -> dict[str, Any] | None:
         metrics = split_data.metrics
         if not self._check_metric(metrics):
             return None
@@ -79,13 +85,15 @@ class TaskManager:
         models = self._init_models(metrics, split_data.task_name)
         self._print_task_info(split_data)
         if self.use_hpo:
-            print("Using HPO optimization")
-        #print(f"Models: {models}")
+            logger.info("Using HPO optimization")
         results = {}
         for name in models:
-            print(f"\nTraining {name}...")
+            logger.info("Training %s", name)
             base_model, search_space = models[name]
-            if base_model.__class__.__module__ == "universal_validator.models.torch_mlp":
+            if (
+                base_model.__class__.__module__
+                == "universal_validator.models.torch_mlp"
+            ):
                 base_model.set_params(
                     early_stopping_scorer=scorers[0],
                 )
@@ -115,18 +123,15 @@ class TaskManager:
                 "model": model,
                 "cv_results": cv_results,
             }
-            self._print_model_results(name, result_metrics, cv_results)
-            print()
-        print()
+            self._log_model_results(name, result_metrics, cv_results)
         return results
 
-    def _print_model_results(
+    def _log_model_results(
         self, model_name: str, metrics: dict[str, float], cv_results: dict | None
-    ):
+    ) -> None:
         if cv_results and not cv_results.get("failed", False):
-            print(f"  {model_name}: CV = {cv_results.get('best_score', 0):.4f}", end="")
+            head = f"  {model_name}: CV = {cv_results.get('best_score', 0):.4f}"
         else:
-            print(f"  {model_name}:", end="")
-        for metric_name, value in metrics.items():
-            print(f", {metric_name} = {value:.4f}", end="")
-        
+            head = f"  {model_name}:"
+        tail = "".join(f", {k} = {v:.4f}" for k, v in metrics.items())
+        logger.info("%s%s", head, tail)
