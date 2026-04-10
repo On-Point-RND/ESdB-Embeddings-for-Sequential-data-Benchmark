@@ -69,6 +69,7 @@ model:
       emb_dimensionalities: ${ee}
       cat_emb_dim: 128
       num_emb_dim: 128
+      #emb_noise: 0.003
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
   encoder: 
@@ -91,11 +92,11 @@ optimizer:
     lr: 1.e-3
     weight_decay: 1.e-8
 
-lr_scheduler:
-  name: StepLR
-  params:
-    step_size: 30
-    gamma: 0.9025
+#lr_scheduler:
+#  name: StepLR
+#  params:
+#    step_size: 30
+#    gamma: 0.9025
 
 optuna:
   params:

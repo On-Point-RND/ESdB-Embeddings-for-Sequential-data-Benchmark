@@ -33,6 +33,26 @@ class SeqBatchNorm(nn.Module):
         return res.reshape(x.shape)
 
 
+class NoisyEmbedding(nn.Embedding):
+    """Embedding with additive Gaussian noise during training (regularization).
+
+    Noise is sampled once per embedding dimension and broadcast across the
+    batch, matching the original CoLES implementation where the same
+    perturbation is applied to every sample in the batch.
+    """
+
+    def __init__(self, num_embeddings, embedding_dim, noise_scale=0.0, **kwargs):
+        super().__init__(num_embeddings, embedding_dim, **kwargs)
+        self.noise_scale = noise_scale
+
+    def forward(self, x):
+        out = super().forward(x)
+        if self.training and self.noise_scale > 0:
+            noise = torch.randn(self.embedding_dim, device=out.device) * self.noise_scale
+            out = out + noise
+        return out
+
+
 class Batch2Seq(BaseModel):
     def __init__(
         self,
@@ -44,6 +64,7 @@ class Batch2Seq(BaseModel):
         num_emb_dim: int | None = None,
         time_process: Literal["cat", "diff", "none"] = "none",
         num_norm: bool = False,
+        emb_noise: float = 0.0,
     ):
         super().__init__()
         cat_cardinalities = cat_cardinalities if cat_cardinalities is not None else {}
@@ -72,7 +93,12 @@ class Batch2Seq(BaseModel):
 
             self._out_dim += dim
             cat_dims.append(dim)
-            self._cat_embs[name] = nn.Embedding(card, dim)
+            if emb_noise > 0:
+                self._cat_embs[name] = NoisyEmbedding(
+                    card, dim, noise_scale=emb_noise, padding_idx=0,
+                )
+            else:
+                self._cat_embs[name] = nn.Embedding(card, dim, padding_idx=0)
 
         if num_emb_dim is None:
             if not cat_dims:
