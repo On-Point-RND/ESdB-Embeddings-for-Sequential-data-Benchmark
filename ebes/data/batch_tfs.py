@@ -311,6 +311,81 @@ class TargetToLong(BatchTransform):
             batch.target = batch.target.long()
 
 
+
+
+@dataclass
+class TrxDropout(BatchTransform):
+    """Randomly drop events from sequences (data augmentation).
+
+    Each event is independently dropped with probability ``dropout``.
+    Mirrors ``DropoutTrxDataset`` from the original CoLES implementation.
+    """
+
+    dropout: float = 0.0
+
+    def __call__(self, batch: Batch):
+        if self.dropout <= 0:
+            return
+
+        batch_size = len(batch)
+        # Masks may be stale after RandomSlices (which doesn't propagate them),
+        # so only process masks if their batch dim matches.
+        has_cat_mask = (
+            batch.cat_mask is not None and batch.cat_mask.shape[1] == batch_size
+        )
+        has_num_mask = (
+            batch.num_mask is not None and batch.num_mask.shape[1] == batch_size
+        )
+
+        new_lens = []
+        new_times = []
+        new_cats = []
+        new_nums = []
+        new_cat_masks = []
+        new_num_masks = []
+        max_len = 0
+
+        for i in range(batch_size):
+            seq_len = batch.lengths[i].item()
+            if seq_len <= 1:
+                keep = np.arange(seq_len)
+            else:
+                n_keep = int(seq_len * (1 - self.dropout) + 1)
+                n_keep = min(n_keep, seq_len)
+                keep = np.sort(np.random.choice(seq_len, size=n_keep, replace=False))
+
+            kl = len(keep)
+            new_lens.append(kl)
+            max_len = max(max_len, kl)
+            new_times.append(batch.time[keep, i])
+            if batch.cat_features is not None:
+                new_cats.append(batch.cat_features[keep, i])
+            if batch.num_features is not None:
+                new_nums.append(batch.num_features[keep, i])
+            if has_cat_mask:
+                new_cat_masks.append(batch.cat_mask[keep, i])
+            if has_num_mask:
+                new_num_masks.append(batch.num_mask[keep, i])
+
+        def cat_pad(tensors, dtype):
+            t0 = tensors[0]
+            res = torch.zeros(max_len, len(tensors), *t0.shape[1:], dtype=dtype)
+            for j, ten in enumerate(tensors):
+                res[: ten.shape[0], j] = ten
+            return res
+
+        batch.lengths = torch.tensor(new_lens)
+        batch.time = cat_pad(new_times, batch.time.dtype)
+        if batch.cat_features is not None:
+            batch.cat_features = cat_pad(new_cats, batch.cat_features.dtype)
+        if batch.num_features is not None:
+            batch.num_features = cat_pad(new_nums, batch.num_features.dtype)
+        if has_cat_mask:
+            batch.cat_mask = cat_pad(new_cat_masks, batch.cat_mask.dtype)
+        if has_num_mask:
+            batch.num_mask = cat_pad(new_num_masks, batch.num_mask.dtype)
+
+            
 @dataclass
 class RandomSlices(BatchTransform):
     """Sample random slices from input sequences.

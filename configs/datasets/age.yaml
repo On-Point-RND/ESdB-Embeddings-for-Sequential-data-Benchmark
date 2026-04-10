@@ -80,6 +80,9 @@ data:
               num_mask_fill: zero
               partial_cat_feature_prob: 0.0
               partial_num_feature_prob: 0.0
+        TD:
+          TrxDropout:
+            dropout: 0.01
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
