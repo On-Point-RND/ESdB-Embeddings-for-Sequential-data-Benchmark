@@ -11,11 +11,12 @@ from pyspark.sql.types import FloatType, LongType, TimestampType
 from ..common import cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
-    filter_short,
     global_time_split,
-    global_train_column,
     save_partitioned_parquet,
+    sample_users,
+    filter_short,
     split_num_shifts,
+    global_train_column,
     transform_train_test_features,
     trim_test,
 )
@@ -154,6 +155,12 @@ def main():
         "--ntp",
         help="Whether to use splitting for NTP",
         action="store_true",
+    )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.1,
     )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
@@ -302,15 +309,9 @@ def main():
         test_df = test_df.apply(trim_test, axis=1)
         test_df["_seq_len"] = test_df[TM].apply(len)
 
-    train_df, test_df = global_train_column(
-        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
-    )
-
     test_df["target__clf__global__accuracy+f1_macro"] = test_df["age_clf"]
     test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__r2"] = test_df.apply(
-        get_forecast_target, axis=1
-    )
+    test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
     test_df["target__anomaly__local__roc_auc"] = test_df.apply(
         get_anomaly_target, axis=1
     )
@@ -332,6 +333,18 @@ def main():
         time_col=TM,
         datetime_loc=DATETIME_LOC,
         datetime_scale=DATETIME_SCALE,
+    )
+
+    train_df, test_df = sample_users(
+        train_df=train_df,
+        test_df=test_df,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="client_id",
+    )
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
 
     keep_cols = (

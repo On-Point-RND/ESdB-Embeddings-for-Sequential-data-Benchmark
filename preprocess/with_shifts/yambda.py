@@ -11,6 +11,7 @@ from .common_pandas import (
     add_shift_columns,
     global_time_split,
     save_partitioned_parquet,
+    sample_users,
     filter_short,
     split_num_shifts,
     global_train_column,
@@ -19,7 +20,7 @@ from .common_pandas import (
 )
 
 CAT_FEATURES = ["item_id", "is_organic", "event_type"]
-NUM_FEATURES = ["track_length_seconds"]
+NUM_FEATURES = ["track_length_seconds", "played_ratio_pct"]
 INDEX_COLUMNS = ["client_id"]
 ORDERING_COLUMNS = ["timestamp"]
 TM = ORDERING_COLUMNS[0]
@@ -126,6 +127,12 @@ def main():
         help="Whether to use splitting for NTP",
         action="store_true",
     )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.4,
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -162,6 +169,7 @@ def main():
             F.col("timestamp").cast(LongType()),
             F.col("item_id").cast(LongType()),
             F.col("track_length_seconds").cast(LongType()),
+            F.col("played_ratio_pct").cast(LongType()),
             F.col("event_type").cast(StringType()),
             F.col("is_organic").cast(LongType()),
         )
@@ -176,6 +184,7 @@ def main():
             .otherwise(-1),
         )
         df_kag_train = df_kag_train.fillna({"track_length_seconds": 0})
+        df_kag_train = df_kag_train.fillna({"played_ratio_pct": 0})
 
         df = df_kag_train
         df = df.withColumnRenamed("uid", "client_id")
@@ -231,10 +240,6 @@ def main():
         test_df = test_df.apply(trim_test, axis=1)
         test_df["_seq_len"] = test_df[TM].apply(len)
 
-    train_df, test_df = global_train_column(
-        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
-    )
-
     test_df["mode_is_organic"] = test_df["is_organic"].apply(
         lambda x: 1 if np.mean(x) > 1.5 else 0
     )
@@ -271,6 +276,17 @@ def main():
         test_df=test_df,
         rescale_features=RESCALE_FEATURES,
         log_features=LOG_FEATURES,
+    )
+    train_df, test_df = sample_users(
+        train_df=train_df,
+        test_df=test_df,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="client_id",
+    )
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
 
     keep_cols = (

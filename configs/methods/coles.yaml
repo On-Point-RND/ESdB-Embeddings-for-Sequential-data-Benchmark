@@ -31,7 +31,7 @@ unsupervised_loss:
   params: 
     selector: HardNegativePairSelector
     neg_count: 5
-    margin: 0.5
+    margin: 1
 unsupervised_metrics: null
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -43,21 +43,20 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
-  # emb_head: ${model.emb_head}
   normalization:
     name: L2Normalization
-  head0:
-    name: Linear
+  head_1:
+    name: nn.Linear
     params:
       in_features: output_dim_from_prev
-      out_features: 128 #output_dim_from_prev
+      out_features: 64
   relu:
     name: nn.ReLU
-  head1:
-    name: Linear
+  head_2:
+    name: nn.Linear
     params:
-      in_features: 128 #output_dim_from_prev
-      out_features: 128 #output_dim_from_prev
+      in_features: 64
+      out_features: 64
 
 
 model:
@@ -67,24 +66,18 @@ model:
       cat_cardinalities: ${cc}
       num_features: ${nn}
       emb_dimensionalities: ${ee}
-      cat_emb_dim: 128
-      num_emb_dim: 128
-      #emb_noise: 0.003
+      cat_emb_dim: 64
+      num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
   encoder: 
     name: GRU
     params:
       input_size: output_dim_from_prev
-      hidden_size: 256
+      hidden_size: 512
       num_layers: 1
   aggregation:
     name: TakeLastHidden
-  #emb_head:
-  #  name: Linear
-  #  params:
-  #    in_features: output_dim_from_prev
-  #    out_features: 128
 
 optimizer:
   name: Adam
