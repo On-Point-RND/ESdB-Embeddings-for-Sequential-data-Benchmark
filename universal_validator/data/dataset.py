@@ -1,4 +1,4 @@
-from typing import Tuple
+import logging
 
 import pandas as pd
 import numpy as np
@@ -6,6 +6,9 @@ import pyarrow.parquet as pq
 
 from dataclasses import dataclass
 from ..tasks.scorers import METRIC_INFO, TaskType
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class DataConfig:
@@ -36,16 +39,19 @@ class ValidatorDataset:
         if not verbose:
             return target_cols
 
-        print(f"Available tasks for {self.data_conf.dataset_name} dataset:")
+        logger.info("Available tasks for %s dataset:", self.data_conf.dataset_name)
         for col in target_cols:
             name, target_type, metrics = self._parse_target_name(col)
-            print(
-                f"Task Name: {name},\t{target_type} type,\tMetrics: {metrics}\t| {col}"
+            logger.info(
+                "Task Name: %s,\t%s type,\tMetrics: %s\t| %s",
+                name,
+                target_type,
+                metrics,
+                col,
             )
         return target_cols
 
     def load_for_task(self, target_name) -> DataSplit:
-        #print(f"Loading {self.data_conf.dataset_name} dataset...")
         _, target_type, metrics = self._parse_target_name(target_name)
         if target_type in ["local"]:
             columns = ["shift_emb", target_name]
@@ -79,7 +85,6 @@ class ValidatorDataset:
         else:
             raise ValueError(METRIC_INFO[metrics[0]]["task"])
 
-        #print(f"Done!")
         return DataSplit(
             X_train=X_train,
             y_train=y_train,
