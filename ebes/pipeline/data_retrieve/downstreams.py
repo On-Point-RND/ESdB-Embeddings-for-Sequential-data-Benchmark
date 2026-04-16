@@ -1,5 +1,6 @@
 import logging
 import shutil
+from multiprocessing import current_process
 from pathlib import Path
 
 from pyspark.sql import SparkSession
@@ -13,12 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 def create_postproc_spark_session() -> SparkSession:
+    # Assign unique ports per worker process to avoid conflicts when multiple
+    # seeds run in parallel. Uses the same process-name pattern as _run_with_seed.
+    proc_name = current_process().name
+    idx_str = proc_name.split("-")[-1]
+    idx = int(idx_str) if idx_str.isdigit() else 0
+    port_base = 34000 + idx * 20  # e.g. worker-1 → 34020, worker-2 → 34040
+
     return (
-        SparkSession.builder.appName("JoinEmbeddings") # type: ignore
+        SparkSession.builder.appName(f"JoinEmbeddings_{proc_name}") # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "4g")
-        .config("spark.driver.memoryOverhead", "1g")
-        .config("spark.executor.memory", "2g")
+        .config("spark.driver.memory", "2g")
+        .config("spark.driver.memoryOverhead", "512m")
+        .config("spark.executor.memory", "1g")
+        .config("spark.ui.enabled", "false")
+        .config("spark.driver.port", str(port_base))
+        .config("spark.blockManager.port", str(port_base + 1))
         .getOrCreate()
     )
 
