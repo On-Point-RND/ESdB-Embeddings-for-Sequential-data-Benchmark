@@ -22,10 +22,8 @@ def create_postproc_spark_session() -> SparkSession:
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
         .config("spark.driver.memory", "4g")
         .config("spark.driver.memoryOverhead", "1g")
-        .config("spark.executor.memory", "2g")
-        .config("spark.ui.enabled", "false")
-        .config("spark.driver.port", "0")
-        .config("spark.blockManager.port", "0")
+        .config("spark.executor.memory", "4g")
+        .config("spark.sql.parquet.enableVectorizedReader", "false")
         .getOrCreate()
     )
 
