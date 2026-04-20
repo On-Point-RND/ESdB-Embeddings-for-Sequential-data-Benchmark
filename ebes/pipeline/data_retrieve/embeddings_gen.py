@@ -70,11 +70,12 @@ class ResultsGetter:
             records = []
             logged_fastpath = False
             for batch_old in tqdm(loader, disable=False):
-                use_fastpath = self._should_use_bert4rec_fastpath(model, batch_old)
+                use_fastpath = self._should_use_tail_window_fastpath(model, batch_old)
                 if use_fastpath and not logged_fastpath:
                     logger.info(
-                        "Embedding generation on %s uses Bert4Rec tail-window fast-path",
+                        "Embedding generation on %s uses %s tail-window fast-path",
                         loader_name,
+                        model.__class__.__name__,
                     )
                     logged_fastpath = True
                 if use_fastpath:
@@ -117,10 +118,10 @@ class ResultsGetter:
 
         return df_all
 
-    def _should_use_bert4rec_fastpath(self, model, batch: Batch) -> bool:
+    def _should_use_tail_window_fastpath(self, model, batch: Batch) -> bool:
         if not _fastpath_enabled():
             return False
-        if model.__class__.__name__ != "Bert4Rec":
+        if model.__class__.__name__ not in {"Bert4Rec", "JEPA"}:
             return False
         if not hasattr(model, "max_len"):
             return False
@@ -331,7 +332,7 @@ class ResultsGetter:
             orig_len = int(self.orig_len_by_index[old_index])
             if full_len != orig_len:
                 raise ValueError(
-                    "Bert4Rec tail-window fast-path requires full untruncated "
+                    "Tail-window fast-path requires full untruncated "
                     f"sequences during embedding generation, got full_len={full_len} "
                     f"and orig_len={orig_len} for index={old_index!r}"
                 )
