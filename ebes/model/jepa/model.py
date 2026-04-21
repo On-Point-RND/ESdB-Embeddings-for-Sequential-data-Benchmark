@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..Bert4Rec.masking import build_masker
-from ..Bert4Rec.model import AggregationMode, BertEmbedding, TransformerBlock
+from ..Bert4Rec.model import AggregationMode, SequenceEmbedding, TransformerBlock
 from ..basemodel import BaseModel
 from ...types import Batch
 from .model_utils import get_pad_mask_from_lengths
@@ -134,7 +134,7 @@ class JEPA(BaseModel):
             contrastive_weight=contrastive_weight,
         )
 
-        self.item_embedder = BertEmbedding(
+        self.item_embedder = SequenceEmbedding(
             cat_cardinalities=cat_cardinalities,
             num_features=num_features,
             hidden_size=hidden_size,
@@ -334,6 +334,8 @@ class JEPA(BaseModel):
         x, context_positions, context_lengths = self._gather_tokens_by_mask(
             x, context_mask
         )
+        # JEPA keeps context positions explicit and adds them inside the predictor.
+        # For JEPA configs, input positional embedding should stay disabled.
         x = self._apply_transformer_blocks(
             x=x,
             lengths=context_lengths,

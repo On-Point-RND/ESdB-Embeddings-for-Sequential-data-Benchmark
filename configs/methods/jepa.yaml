@@ -58,7 +58,7 @@ model:
     num_heads: 4
     num_passes_over_block: 1
     dropout: 0.1
-    enable_positional_embedding: true
+    enable_positional_embedding: false
   preprocess:
     params:
       time_process: "cat"
