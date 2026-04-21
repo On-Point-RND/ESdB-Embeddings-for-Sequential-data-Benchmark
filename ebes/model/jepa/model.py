@@ -22,6 +22,12 @@ def get_pad_mask_from_lengths(
     return torch.arange(seq_len, device=device)[None, :] < lengths[:, None]
 
 
+DownstreamEmbeddingSource = Literal[
+    "online",
+    "target",
+]
+
+
 class JEPAPredictor(nn.Module):
     """Predict target latents from encoded context and target positions."""
 
@@ -110,9 +116,11 @@ class JEPA(BaseModel):
         query_aggregation: AggregationMode = "last",
         query_aggregation_k: int | None = None,
         enable_positional_embedding: bool = True,
+        downstream_embedding_source: DownstreamEmbeddingSource = "target",
         acceleration_config: Mapping | None = None,
         ignore_index: int = -100,
         ema_tau: float = 0.99,
+        predictor_hidden_multiplier: float = 1.0,
         predictor_hidden_size: int | None = None,
         objectives: Mapping[str, Mapping[str, Any]] | None = None,
         jepa_weight: float = 1.0,
@@ -126,6 +134,7 @@ class JEPA(BaseModel):
         self.ignore_index = ignore_index
         self.query_aggregation = query_aggregation
         self.query_aggregation_k = query_aggregation_k
+        self.downstream_embedding_source = downstream_embedding_source
         self.ema_tau = ema_tau
 
         cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
@@ -168,9 +177,10 @@ class JEPA(BaseModel):
             ]
         )
 
-        predictor_hidden_size = (
-            hidden_size if predictor_hidden_size is None else predictor_hidden_size
-        )
+        if predictor_hidden_size is None:
+            predictor_hidden_size = max(
+                1, int(round(hidden_size * predictor_hidden_multiplier))
+            )
         self.projection_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 2),
             nn.GELU(),
@@ -487,8 +497,15 @@ class JEPA(BaseModel):
 
     def get_query_embeddings(self, batch: Batch) -> torch.Tensor:
         batch = batch.tail_clamp(self.max_len)
-        x = self._encode_online(batch)
-        x = self.projection_head(x)
+        if self.downstream_embedding_source == "online":
+            x = self._encode_online(batch)
+        elif self.downstream_embedding_source == "target":
+            x = self._encode_target(batch)
+        else:
+            raise ValueError(
+                f"Unknown downstream embedding source: "
+                f"{self.downstream_embedding_source}"
+            )
         mode = cast(AggregationMode, self.query_aggregation)
         return self._aggregate_embeddings(
             x, batch.lengths, mode, self.query_aggregation_k
