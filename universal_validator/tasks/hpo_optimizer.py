@@ -1,3 +1,4 @@
+import logging
 import warnings
 from dataclasses import dataclass, field
 from typing import Any
@@ -8,6 +9,8 @@ from sklearn.base import BaseEstimator
 from sklearn.model_selection import KFold, cross_val_score
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,11 +39,13 @@ class HPOOptimizer:
         model_name = base_model.__class__.__name__
 
         if not search_space:
-            print(f"  No search space for {model_name}")
+            logger.warning("No search space for %s", model_name)
             base_model.fit(X_train, y_train)
             return base_model, None
 
-        print(f"  Optimizing {model_name}... by {scorer.name} (maximize)")
+        logger.info(
+            "Optimizing %s by %s (maximize)", model_name, scorer.name
+        )
         study = optuna.create_study(direction="maximize")
         try:
             objective = self._create_objective(
@@ -63,11 +68,11 @@ class HPOOptimizer:
                 "best_params": best_params,
                 "failed": False,
             }
-            print(f"  Best CV: {study.best_value:.4f}")
+            logger.info("Best CV: %.4f", study.best_value)
             return final_model, cv_results
 
         except Exception as e:
-            print(f"  Optuna failed: {e}")
+            logger.exception("Optuna failed: %s", e)
             base_model.fit(X_train, y_train)
             return base_model, {"failed": True}
 

@@ -32,6 +32,8 @@ def build_model(model_conf: Mapping[str, Any]) -> nn.Module:
 
     def resolve_output_dim():
         for m in reversed(layers):
+            if isinstance(m, nn.Linear):
+                return m.out_features
             try:
                 return m.output_dim
             except AttributeError:

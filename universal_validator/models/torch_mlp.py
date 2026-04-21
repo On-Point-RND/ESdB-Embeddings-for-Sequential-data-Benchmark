@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 
 import numpy as np
@@ -9,6 +10,8 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision.ops import MLP
+
+logger = logging.getLogger(__name__)
 
 
 class BaseMLP:
@@ -196,7 +199,12 @@ class BaseMLP:
 
             if not early_stopping:
                 if verbose:
-                    print(f"Epoch {epoch + 1}/{max_epoch}: train_loss={train_loss:.6f}")
+                    logger.info(
+                        "Epoch %s/%s: train_loss=%.6f",
+                        epoch + 1,
+                        max_epoch,
+                        train_loss,
+                    )
                 continue
 
             self.model_.eval()
@@ -210,10 +218,13 @@ class BaseMLP:
                 improved = monitor_value + tol < best_monitor
 
             if verbose:
-                print(
-                    f"Epoch {epoch + 1}/{max_epoch}: "
-                    f"train_loss={train_loss:.6f}, "
-                    f"{early_stopper_name}={monitor_value:.6f}"
+                logger.info(
+                    "Epoch %s/%s: train_loss=%.6f, %s=%.6f",
+                    epoch + 1,
+                    max_epoch,
+                    train_loss,
+                    early_stopper_name,
+                    monitor_value,
                 )
 
             if improved:
@@ -224,7 +235,7 @@ class BaseMLP:
                 stale_epochs += 1
                 if stale_epochs >= patience:
                     if verbose:
-                        print(f"Early stopping at epoch {epoch + 1}")
+                        logger.info("Early stopping at epoch %s", epoch + 1)
                     break
 
         if best_state is not None:
