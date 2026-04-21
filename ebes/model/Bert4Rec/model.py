@@ -78,8 +78,8 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))
 
 
-class BertEmbedding(nn.Module):
-    """Feature embedding for BERT4Rec using Batch2Seq + projection + positional encoding."""
+class SequenceEmbedding(nn.Module):
+    """Generic sequence embedding: Batch2Seq + projection + optional positions."""
 
     def __init__(
         self,
@@ -113,7 +113,7 @@ class BertEmbedding(nn.Module):
         self.sequential = nn.Sequential(
             nn.Linear(self.processor.output_dim, hidden_size * 2),
             nn.GELU(),
-            nn.Linear(hidden_size * 2, hidden_size),   
+            nn.Linear(hidden_size * 2, hidden_size),
         )
 
         self.dropout = nn.Dropout(p=dropout)
@@ -175,7 +175,7 @@ class Bert4Rec(BaseModel):
             0 if time_process == "none" else 1
         )
 
-        self.item_embedder = BertEmbedding(
+        self.item_embedder = SequenceEmbedding(
             cat_cardinalities=cat_cardinalities,
             num_features=num_features,
             hidden_size=hidden_size,
