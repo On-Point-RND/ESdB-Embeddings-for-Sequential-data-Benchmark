@@ -107,33 +107,7 @@ class TaskManager:
                 )
             else:
                 model = base_model
-                if base_model.__class__.__module__.startswith("lightgbm"):
-                    import lightgbm
-                    import numpy as np
-                    from sklearn.model_selection import train_test_split
-
-                    X_tr, X_val, y_tr, y_val = train_test_split(
-                        split_data.X_train,
-                        split_data.y_train,
-                        test_size=0.1,
-                        random_state=42,
-                    )
-                    if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
-                        val_mask = np.isin(y_val, np.unique(y_tr))
-                        X_val, y_val = X_val[val_mask], y_val[val_mask]
-                    model.fit(
-                        X_tr,
-                        y_tr,
-                        eval_set=[(X_val, y_val)],
-                        callbacks=[
-                            lightgbm.early_stopping(
-                                stopping_rounds=30, verbose=False
-                            ),
-                            lightgbm.log_evaluation(period=0),
-                        ],
-                    )
-                else:
-                    model.fit(split_data.X_train, split_data.y_train)
+                model.fit(split_data.X_train, split_data.y_train)
                 cv_results = None
 
             result_metrics = {}
