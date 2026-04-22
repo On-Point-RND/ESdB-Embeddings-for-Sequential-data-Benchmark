@@ -112,18 +112,15 @@ class TaskManager:
                     import numpy as np
                     from sklearn.model_selection import train_test_split
 
-                    stratify = None
-                    if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
-                        _, counts = np.unique(split_data.y_train, return_counts=True)
-                        if counts.min() >= 2:
-                            stratify = split_data.y_train
                     X_tr, X_val, y_tr, y_val = train_test_split(
                         split_data.X_train,
                         split_data.y_train,
                         test_size=0.1,
                         random_state=42,
-                        stratify=stratify,
                     )
+                    if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
+                        val_mask = np.isin(y_val, np.unique(y_tr))
+                        X_val, y_val = X_val[val_mask], y_val[val_mask]
                     model.fit(
                         X_tr,
                         y_tr,
