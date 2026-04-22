@@ -57,6 +57,7 @@ models:
       n_estimators: 1000
       boosting_type: gbdt
       learning_rate: 0.02
+      verbose: -1
       subsample: 0.75
       subsample_freq: 1
       colsample_bytree: 0.75
