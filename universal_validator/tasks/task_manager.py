@@ -107,7 +107,35 @@ class TaskManager:
                 )
             else:
                 model = base_model
-                model.fit(split_data.X_train, split_data.y_train)
+                if base_model.__class__.__module__.startswith("lightgbm"):
+                    import lightgbm
+                    from sklearn.model_selection import train_test_split
+
+                    stratify = (
+                        split_data.y_train
+                        if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION
+                        else None
+                    )
+                    X_tr, X_val, y_tr, y_val = train_test_split(
+                        split_data.X_train,
+                        split_data.y_train,
+                        test_size=0.1,
+                        random_state=42,
+                        stratify=stratify,
+                    )
+                    model.fit(
+                        X_tr,
+                        y_tr,
+                        eval_set=[(X_val, y_val)],
+                        callbacks=[
+                            lightgbm.early_stopping(
+                                stopping_rounds=30, verbose=False
+                            ),
+                            lightgbm.log_evaluation(period=0),
+                        ],
+                    )
+                else:
+                    model.fit(split_data.X_train, split_data.y_train)
                 cv_results = None
 
             result_metrics = {}
