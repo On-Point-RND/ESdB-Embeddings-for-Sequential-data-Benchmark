@@ -109,13 +109,14 @@ class TaskManager:
                 model = base_model
                 if base_model.__class__.__module__.startswith("lightgbm"):
                     import lightgbm
+                    import numpy as np
                     from sklearn.model_selection import train_test_split
 
-                    stratify = (
-                        split_data.y_train
-                        if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION
-                        else None
-                    )
+                    stratify = None
+                    if METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
+                        _, counts = np.unique(split_data.y_train, return_counts=True)
+                        if counts.min() >= 2:
+                            stratify = split_data.y_train
                     X_tr, X_val, y_tr, y_val = train_test_split(
                         split_data.X_train,
                         split_data.y_train,
