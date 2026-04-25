@@ -1,4 +1,5 @@
 import logging
+from numbers import Number
 import shutil
 from pathlib import Path
 
@@ -26,13 +27,27 @@ def create_postproc_spark_session() -> SparkSession:
 def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
     for report in reports:
-        task_name, metric_names = report["task_name"].rsplit("__", 1)
-        task_name = task_name.replace("target__", "")
+        _, metric_names = report["task_name"].rsplit("__", 1)
         best_model = report.get("best_model")
         m = metric_names.split("+")[0]
         if m == "mse":
             m = "neg_mean_squared_error"
-        metrics[report["task_name"]] = float(report["all_results"][best_model][m])
+        all_results = report["all_results"]
+        metrics[report["task_name"]] = float(all_results[best_model][m])
+
+        for model_name, model_results in all_results.items():
+            for metric_name, value in model_results.items():
+                if metric_name in {
+                    "main_metric",
+                    "predictions",
+                    "model",
+                    "cv_results",
+                }:
+                    continue
+                if not isinstance(value, Number):
+                    continue
+                key = f"{report['task_name']}__{model_name}__{metric_name}"
+                metrics[key] = float(value)
     return metrics
 
 
