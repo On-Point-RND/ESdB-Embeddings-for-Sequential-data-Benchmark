@@ -13,14 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
 from omegaconf import OmegaConf
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from main import collect_config  # noqa: E402
 from ebes.pipeline.base_runner import Runner  # noqa: E402
 
 
@@ -53,8 +51,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--num-trials", type=int, default=10)
     parser.add_argument("--start-trial", type=int, default=0)
+    parser.add_argument(
+        "--trial-order",
+        choices=["first", "last"],
+        default="first",
+        help="Select first or last successful Optuna trials after start-trial.",
+    )
     parser.add_argument("--seed-dir", default="seed_0")
     parser.add_argument("--n-runs", type=int, default=1)
+    parser.add_argument(
+        "--validator-seeds",
+        default="42",
+        help="Comma-separated downstream validator random_state values.",
+    )
+    parser.add_argument(
+        "--correlation-exp-name",
+        default=None,
+        help="Override correlation output folder name.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--force",
@@ -62,6 +76,21 @@ def parse_args() -> argparse.Namespace:
         help="Remove existing correlation trial directories before rerunning.",
     )
     return parser.parse_args()
+
+
+def parse_validator_seeds(value: str) -> list[int]:
+    seeds = [int(seed.strip()) for seed in value.split(",") if seed.strip()]
+    if not seeds:
+        raise ValueError("--validator-seeds must contain at least one seed")
+    return seeds
+
+
+def resolve_correlation_exp_name(args: argparse.Namespace) -> str:
+    if args.correlation_exp_name:
+        return args.correlation_exp_name
+    if args.validator_seeds == [42]:
+        return "correlation_exp"
+    return "correlation_exp_3seeds"
 
 
 def numeric_trial_dirs(optuna_dir: Path) -> list[Path]:
@@ -84,8 +113,9 @@ def select_trials(
     seed_dir: str,
     start_trial: int,
     num_trials: int,
+    trial_order: str,
 ) -> list[TrialRun]:
-    selected = []
+    valid_trials = []
     for trial_dir in numeric_trial_dirs(optuna_dir):
         trial_id = int(trial_dir.name)
         if trial_id < start_trial:
@@ -98,7 +128,7 @@ def select_trials(
             logger.info("skip trial %s: no params.txt", trial_id)
             continue
         ckpt_path = find_ckpt(trial_dir, seed_dir)
-        selected.append(
+        valid_trials.append(
             TrialRun(
                 trial_id=trial_id,
                 trial_dir=trial_dir,
@@ -107,17 +137,10 @@ def select_trials(
                 mode="inference" if ckpt_path else "test",
             )
         )
-        if len(selected) == num_trials:
-            break
-    return selected
 
-
-def load_trial_params(params_path: Path) -> dict[str, Any]:
-    with params_path.open() as f:
-        params = yaml.safe_load(f) or {}
-    if not isinstance(params, dict):
-        raise ValueError(f"Expected mapping in {params_path}")
-    return params
+    if trial_order == "first":
+        return valid_trials[:num_trials]
+    return valid_trials[-num_trials:]
 
 
 def set_downstream_device(config, device: str) -> None:
@@ -130,25 +153,42 @@ def set_downstream_device(config, device: str) -> None:
             shared_params["device"] = device
 
 
-def build_config(args: argparse.Namespace, trial: TrialRun):
-    config = collect_config(
-        dataset=args.dataset,
-        method=args.method,
-        experiment="inference" if trial.ckpt_path else "test",
-        specify=None,
-        gpu=args.gpu,
-        downstream_validator=args.downstream_validator,
-    )
-    trial_params = OmegaConf.create(load_trial_params(trial.params_path))
-    config = OmegaConf.merge(config, trial_params)
+def load_downstream_validator(dataset: str, downstream_validator: str):
+    validator_config_path = Path(downstream_validator)
+    if not validator_config_path.exists():
+        raise ValueError(
+            f"Config for downstream validator is not found: {validator_config_path}"
+        )
+    validator_config = OmegaConf.load(validator_config_path)
+    validator_config = OmegaConf.to_container(validator_config, resolve=True)
+    validator_config["data_conf"] = {"dataset_name": dataset}
+    return validator_config
 
-    config["run_name"] = f"{args.method}/correlation_exp/trial_{trial.trial_id}"
+
+def build_config(args: argparse.Namespace, trial: TrialRun):
+    trial_config_path = trial.trial_dir / args.seed_dir / "config.yaml"
+    if not trial_config_path.exists():
+        raise FileNotFoundError(f"Trial config not found: {trial_config_path}")
+    config = OmegaConf.load(trial_config_path)
+
+    config["run_name"] = (
+        f"{args.method}/{args.correlation_exp_name}/trial_{trial.trial_id}"
+    )
+    config["runner"]["run_type"] = "simple"
     config["runner"]["params"]["n_runs"] = args.n_runs
+    config["device"] = args.gpu
+    config["universal_validator"] = load_downstream_validator(
+        args.dataset,
+        args.downstream_validator,
+    )
+    config["universal_validator"]["validator_seeds"] = args.validator_seeds
     set_downstream_device(config, args.gpu)
 
     if trial.ckpt_path:
         config["trainer"]["total_iters"] = 0
         config["trainer"]["ckpt_resume"] = str(trial.ckpt_path)
+    else:
+        config["trainer"].pop("ckpt_resume", None)
     return config
 
 
@@ -172,7 +212,7 @@ def write_summary_row(summary_path: Path, row: dict[str, Any]) -> None:
 
 
 def run_trial(args: argparse.Namespace, trial: TrialRun, summary_path: Path) -> bool:
-    run_dir = ROOT / "log" / args.dataset / args.method / "correlation_exp" / (
+    run_dir = ROOT / "log" / args.dataset / args.method / args.correlation_exp_name / (
         f"trial_{trial.trial_id}"
     )
     results_csv = run_dir / "results.csv"
@@ -290,6 +330,8 @@ def run_trial(args: argparse.Namespace, trial: TrialRun, summary_path: Path) -> 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     args = parse_args()
+    args.validator_seeds = parse_validator_seeds(args.validator_seeds)
+    args.correlation_exp_name = resolve_correlation_exp_name(args)
 
     optuna_dir = ROOT / "log" / args.dataset / args.method / "optuna"
     if not optuna_dir.exists():
@@ -301,6 +343,7 @@ def main() -> int:
         seed_dir=args.seed_dir,
         start_trial=args.start_trial,
         num_trials=args.num_trials,
+        trial_order=args.trial_order,
     )
     if len(selected) < args.num_trials:
         print(
@@ -309,7 +352,7 @@ def main() -> int:
         )
         return 1
 
-    output_dir = ROOT / "log" / args.dataset / args.method / "correlation_exp"
+    output_dir = ROOT / "log" / args.dataset / args.method / args.correlation_exp_name
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "summary.csv"
     if args.force and summary_path.exists():

@@ -1,4 +1,6 @@
+import csv
 import logging
+from copy import deepcopy
 from numbers import Number
 import shutil
 from pathlib import Path
@@ -51,6 +53,52 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
     return metrics
 
 
+def set_validator_seed(downstream_config: dict, seed: int) -> None:
+    for model_config in downstream_config.get("models", {}).values():
+        shared_params = model_config.get("shared_params", {})
+        if "random_state" in shared_params:
+            shared_params["random_state"] = seed
+
+
+def run_downstream_with_seed(
+    downstream_config: dict,
+    train_path: str,
+    test_path: str,
+    seed: int,
+) -> dict[str, float]:
+    seeded_config = deepcopy(downstream_config)
+    seeded_config.pop("validator_seeds", None)
+    set_validator_seed(seeded_config, seed)
+    reports = run_with_paths(
+        downstream_config=seeded_config,
+        train_path=train_path,
+        test_path=test_path,
+    )
+    return extract_downstream_metrics(reports)
+
+
+def aggregate_seed_metrics(
+    metrics_by_seed: list[tuple[int, dict[str, float]]],
+) -> dict[str, float]:
+    if len(metrics_by_seed) == 1:
+        return metrics_by_seed[0][1]
+
+    aggregated = {}
+    for seed, metrics in metrics_by_seed:
+        for key, value in metrics.items():
+            aggregated[f"{key}__validator_seed_{seed}"] = value
+    return aggregated
+
+
+def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "value"])
+        for key, value in metrics.items():
+            writer.writerow([key, value])
+
+
 def compute_downstreams(
     trainer, train_loaders, test_loaders, config, downstream_config
 ):
@@ -83,11 +131,22 @@ def compute_downstreams(
 
     downstream_metrics = {}
     if downstream_config:
-        reports = run_with_paths(
-            downstream_config=downstream_config,
-            train_path=str(embed_train_file) + "_postproc",
-            test_path=str(embed_test_file) + "_postproc",
-        )
-        downstream_metrics = extract_downstream_metrics(reports)
+        validator_seeds = downstream_config.get("validator_seeds", [42])
+        metrics_by_seed = []
+        run_dir = Path(config["log_dir"]) / config["run_name"]
+        for seed in validator_seeds:
+            seed_metrics = run_downstream_with_seed(
+                downstream_config=downstream_config,
+                train_path=str(embed_train_file) + "_postproc",
+                test_path=str(embed_test_file) + "_postproc",
+                seed=seed,
+            )
+            metrics_by_seed.append((seed, seed_metrics))
+            if len(validator_seeds) > 1:
+                save_seed_metrics(
+                    run_dir / f"downstream_validator_seed_{seed}.csv",
+                    seed_metrics,
+                )
+        downstream_metrics = aggregate_seed_metrics(metrics_by_seed)
         shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
     return downstream_metrics
