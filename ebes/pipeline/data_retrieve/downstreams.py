@@ -131,7 +131,17 @@ def compute_downstreams(
 
     downstream_metrics = {}
     if downstream_config:
-        validator_seeds = downstream_config.get("validator_seeds", [42])
+        validator_seeds = downstream_config.get("validator_seeds")
+        if validator_seeds is None:
+            reports = run_with_paths(
+                downstream_config=downstream_config,
+                train_path=str(embed_train_file) + "_postproc",
+                test_path=str(embed_test_file) + "_postproc",
+            )
+            downstream_metrics = extract_downstream_metrics(reports)
+            shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
+            return downstream_metrics
+
         metrics_by_seed = []
         run_dir = Path(config["log_dir"]) / config["run_name"]
         for seed in validator_seeds:

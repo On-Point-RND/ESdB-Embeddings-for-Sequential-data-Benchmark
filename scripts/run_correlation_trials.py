@@ -85,6 +85,13 @@ def parse_validator_seeds(value: str) -> list[int]:
     return seeds
 
 
+def validate_positive_args(args: argparse.Namespace) -> None:
+    if args.num_trials < 1:
+        raise ValueError("--num-trials must be positive")
+    if args.n_runs < 1:
+        raise ValueError("--n-runs must be positive")
+
+
 def resolve_correlation_exp_name(args: argparse.Namespace) -> str:
     if args.correlation_exp_name:
         return args.correlation_exp_name
@@ -330,6 +337,7 @@ def run_trial(args: argparse.Namespace, trial: TrialRun, summary_path: Path) -> 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     args = parse_args()
+    validate_positive_args(args)
     args.validator_seeds = parse_validator_seeds(args.validator_seeds)
     args.correlation_exp_name = resolve_correlation_exp_name(args)
 
