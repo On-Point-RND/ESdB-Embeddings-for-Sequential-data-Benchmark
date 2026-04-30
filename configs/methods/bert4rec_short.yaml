@@ -1,4 +1,4 @@
-method_name: bert4rec
+method_name: bert4rec_short
 runner_name: BertRunner
 
 main_loss:
