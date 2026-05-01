@@ -95,10 +95,10 @@ class Batch2Seq(BaseModel):
             cat_dims.append(dim)
             if emb_noise > 0:
                 self._cat_embs[name] = NoisyEmbedding(
-                    card, dim, noise_scale=emb_noise, padding_idx=0,
+                    card, dim, noise_scale=emb_noise,
                 )
             else:
-                self._cat_embs[name] = nn.Embedding(card, dim, padding_idx=0)
+                self._cat_embs[name] = nn.Embedding(card, dim)
 
         if num_emb_dim is None:
             if not cat_dims:

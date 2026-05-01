@@ -43,8 +43,6 @@ training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
-  normalization:
-    name: L2Normalization
   head_1:
     name: nn.Linear
     params:
@@ -95,26 +93,15 @@ optuna:
   params:
     n_trials: 70
     n_startup_trials: 7
-    request_list: 
-      - 'optimizer.params.weight_decay': 4.860750469427699e-08
-        'optimizer.params.lr': 0.0014647200853061758
-        'model.encoder.params.hidden_size': 136
-        'model.emb_head.params.out_features': 136
-        'model.encoder.params.num_layers': 3
-        'model.encoder.params.dropout': 0.1148464169808482
-        'model.preprocess.params.time_process': 'cat'
+    request_list:
+      - 'optimizer.params.weight_decay': 1.e-08
+        'optimizer.params.lr': 1.e-3
+        'model.encoder.params.num_layers': 1
+        'model.encoder.params.dropout': 1.e-10
+        'model.preprocess.params.time_process': 'diff'
         'model.preprocess.params.num_norm': True
-        'model.preprocess.params.cat_emb_dim': 105
-        'model.preprocess.params.num_emb_dim': 108
-        'model.aggregation.name': 'TakeLastHidden'
-        'unsupervised_loss.params.margin': 0.7449117372206818
-        'data.loaders.unsupervised_train.batch_size': 128 
-        'data.preprocessing.contrastive_pipeline.batch_transforms.AUG_slices.RandomSlices.cnt_min': 25
-        'data.preprocessing.contrastive_pipeline.batch_transforms.AUG_slices.RandomSlices.cnt_max': 200
     target_metric: ${tasks}
   suggestions:
-    
-
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
 
@@ -122,12 +109,11 @@ optuna:
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
-    model.emb_head.params.out_features: [suggest_int, {low: 64, high: 1024, log: True}]
+    model.emb_head.params.out_features: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat"]}]
     model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
     model.preprocess.params.cat_emb_dim: [suggest_int, {low: 1, high: 128, log: False}]
     model.preprocess.params.num_emb_dim: [suggest_int, {low: 1, high: 128, log: False}]
 
-    unsupervised_loss.params.margin: [suggest_float, {low: 0.2, high: 1, log: False}]
     model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]
