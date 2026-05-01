@@ -67,14 +67,22 @@ class ValidatorDataset:
         elif target_type == "global":
             columns = ["global_emb", "global_train", target_name]
             data = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            # TODO for user-wise split test should be loaded directly
-            train, test = data[data["global_train"] == 1], data[data["global_train"] == 0]
+            train = data[data["global_train"] == 1]
+            test = data[data["global_train"] == 0]
 
             X_train = np.stack(train["global_emb"].values).astype(np.float32)
             y_train = train[target_name].values
 
-            X_test = np.stack(test["global_emb"].values).astype(np.float32)
-            y_test = test[target_name].values
+            if len(test) == 0:
+                # Datasets where test users live in a separate test parquet
+                test_data = pd.read_parquet(
+                    self.data_conf.test_path, columns=["global_emb", target_name]
+                )
+                X_test = np.stack(test_data["global_emb"].values).astype(np.float32)
+                y_test = test_data[target_name].values
+            else:
+                X_test = np.stack(test["global_emb"].values).astype(np.float32)
+                y_test = test[target_name].values
         else:
             raise NotImplementedError(f"Target type {target_type} not supported!")
         assert metrics[0] in METRIC_INFO, f"{metrics[0]} not supported!"
