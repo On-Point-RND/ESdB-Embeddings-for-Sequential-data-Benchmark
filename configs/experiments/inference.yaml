@@ -21,19 +21,3 @@ logging:
 trainer:
   total_iters: 0 
   ckpt_resume: "${oc.env:PTH,''}"
-
-data:
-  preprocessing:
-    bert4rec_pipeline:
-      max_seq_len: 1000000
-
-test_data:
-  preprocessing:
-    bert4rec_pipeline:
-      max_seq_len: 1000000
-
-model:
-  params:
-    max_len: 1024
-    query_aggregation: mean
-    query_aggregation_k: 10

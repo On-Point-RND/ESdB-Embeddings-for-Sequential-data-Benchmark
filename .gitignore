@@ -178,3 +178,8 @@ cython_debug/
 *.parquet
 *.pth
 **.code-workspace
+
+configs/specify/**/classification.yaml
+configs/specify/**/regression.yaml
+configs/specify/**/forecasting.yaml
+configs/specify/**/anomaly.yaml

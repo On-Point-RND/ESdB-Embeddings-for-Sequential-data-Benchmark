@@ -473,3 +473,6 @@ metrics:
   - name: ${main_metric}
     params: 
       num_classes: ${n_classes}
+
+trainer:
+  total_iters: 1000
