@@ -1,7 +1,6 @@
 import csv
 import logging
 from copy import deepcopy
-from numbers import Number
 import shutil
 from pathlib import Path
 
@@ -36,20 +35,6 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
             m = "neg_mean_squared_error"
         all_results = report["all_results"]
         metrics[report["task_name"]] = float(all_results[best_model][m])
-
-        for model_name, model_results in all_results.items():
-            for metric_name, value in model_results.items():
-                if metric_name in {
-                    "main_metric",
-                    "predictions",
-                    "model",
-                    "cv_results",
-                }:
-                    continue
-                if not isinstance(value, Number):
-                    continue
-                key = f"{report['task_name']}__{model_name}__{metric_name}"
-                metrics[key] = float(value)
     return metrics
 
 
