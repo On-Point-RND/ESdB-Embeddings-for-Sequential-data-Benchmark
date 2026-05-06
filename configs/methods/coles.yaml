@@ -109,7 +109,6 @@ optuna:
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
-    model.emb_head.params.out_features: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat"]}]
     model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
