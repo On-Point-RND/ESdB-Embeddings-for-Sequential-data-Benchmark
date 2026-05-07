@@ -96,10 +96,18 @@ optuna:
     request_list:
       - 'optimizer.params.weight_decay': 1.e-08
         'optimizer.params.lr': 1.e-3
+
+        'data.loaders.unsupervised_train.batch_size': 128 
+
         'model.encoder.params.num_layers': 1
-        'model.encoder.params.dropout': 1.e-10
-        'model.preprocess.params.time_process': 'diff'
-        'model.preprocess.params.num_norm': True
+        'model.encoder.params.hidden_size': 512
+
+        'model.preprocess.params.time_process': 'cat'
+        'model.preprocess.params.num_norm': False
+        'model.preprocess.params.cat_emb_dim': 64
+        'model.preprocess.params.num_emb_dim': 64
+
+        'model.aggregation.name': "TakeLastHidden"
     target_metric: ${tasks}
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
