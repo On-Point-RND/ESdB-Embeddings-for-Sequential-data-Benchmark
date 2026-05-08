@@ -14,6 +14,7 @@ cc:
   item_id: 15000
   is_organic: 2
   event_type: 5
+ee:
 nn:
   - played_ratio_pct
   - track_length_seconds
