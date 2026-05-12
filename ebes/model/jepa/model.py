@@ -27,6 +27,23 @@ DownstreamEmbeddingSource = Literal[
     "target",
 ]
 
+ObjectiveProjectionMode = Literal[
+    "target_only",
+    "online_target",
+    "predictor_output",
+]
+
+ContextPositionMode = Literal[
+    "predictor",
+    "encoder",
+    "both",
+]
+
+EMAUpdateTiming = Literal[
+    "forward",
+    "post_step",
+]
+
 
 class JEPAPredictor(nn.Module):
     """Predict target latents from encoded context and target positions."""
@@ -39,8 +56,12 @@ class JEPAPredictor(nn.Module):
         max_len: int,
         dropout: float,
         predictor_hidden_size: int,
+        output_size: int | None = None,
+        add_context_positions: bool = True,
     ) -> None:
         super().__init__()
+        output_size = embedding_size if output_size is None else output_size
+        self.add_context_positions = add_context_positions
         self.position = nn.Embedding(max_len, hidden_size)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
         self.context_norm = nn.LayerNorm(hidden_size)
@@ -62,7 +83,7 @@ class JEPAPredictor(nn.Module):
         self.output_head = nn.Sequential(
             nn.Linear(hidden_size, predictor_hidden_size),
             nn.GELU(),
-            nn.Linear(predictor_hidden_size, embedding_size),
+            nn.Linear(predictor_hidden_size, output_size),
         )
 
     def forward(
@@ -72,7 +93,9 @@ class JEPAPredictor(nn.Module):
         context_lengths: torch.Tensor,
         target_positions: torch.Tensor,
     ) -> torch.Tensor:
-        context = context_tokens + self.position(context_positions)
+        context = context_tokens
+        if self.add_context_positions:
+            context = context + self.position(context_positions)
         query = self.mask_token.expand(
             target_positions.shape[0],
             target_positions.shape[1],
@@ -122,6 +145,9 @@ class JEPA(BaseModel):
         ema_tau: float = 0.99,
         predictor_hidden_multiplier: float = 1.0,
         predictor_hidden_size: int | None = None,
+        objective_projection_mode: ObjectiveProjectionMode = "predictor_output",
+        context_position_mode: ContextPositionMode = "predictor",
+        ema_update_timing: EMAUpdateTiming = "post_step",
         objectives: Mapping[str, Mapping[str, Any]] | None = None,
         jepa_weight: float = 1.0,
         mlm_weight: float = 0.0,
@@ -136,6 +162,9 @@ class JEPA(BaseModel):
         self.query_aggregation_k = query_aggregation_k
         self.downstream_embedding_source = downstream_embedding_source
         self.ema_tau = ema_tau
+        self.objective_projection_mode = objective_projection_mode
+        self.context_position_mode = context_position_mode
+        self.ema_update_timing = ema_update_timing
 
         cat_cardinalities = {} if cat_cardinalities is None else dict(cat_cardinalities)
         self.masker = build_masker(
@@ -177,27 +206,41 @@ class JEPA(BaseModel):
             ]
         )
 
+        predictor_model_size = (
+            embedding_size
+            if objective_projection_mode == "online_target"
+            else hidden_size
+        )
+        predictor_output_size = (
+            hidden_size
+            if objective_projection_mode == "predictor_output"
+            else embedding_size
+        )
         if predictor_hidden_size is None:
             predictor_hidden_size = max(
-                1, int(round(hidden_size * predictor_hidden_multiplier))
+                1, int(round(predictor_model_size * predictor_hidden_multiplier))
             )
         self.projection_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 2),
             nn.GELU(),
             nn.Linear(hidden_size * 2, embedding_size),
         )
+        self.encoder_position = nn.Embedding(max_len, hidden_size)
         self.predictor = JEPAPredictor(
-            hidden_size=hidden_size,
+            hidden_size=predictor_model_size,
             embedding_size=embedding_size,
             num_heads=num_heads,
             max_len=max_len,
             dropout=dropout,
             predictor_hidden_size=predictor_hidden_size,
+            output_size=predictor_output_size,
+            add_context_positions=context_position_mode in {"predictor", "both"},
         )
 
         self.target_item_embedder = deepcopy(self.item_embedder)
         self.target_transformer_blocks = deepcopy(self.transformer_blocks)
         self.target_projection_head = deepcopy(self.projection_head)
+        self.target_encoder_position = deepcopy(self.encoder_position)
         self._freeze_target()
 
     def train(self, mode: bool = True):
@@ -205,6 +248,7 @@ class JEPA(BaseModel):
         self.target_item_embedder.eval()
         self.target_transformer_blocks.eval()
         self.target_projection_head.eval()
+        self.target_encoder_position.eval()
         return self
 
     def forward(self, batch: Batch):
@@ -232,10 +276,19 @@ class JEPA(BaseModel):
         output["total_loss"] = total_loss
         output["jepa_weight"] = total_loss.new_tensor(self._objective_weight("jepa"))
 
-        with torch.no_grad():
-            self._momentum_update_target()
+        if self.ema_update_timing == "forward":
+            if self.training:
+                with torch.no_grad():
+                    self._momentum_update_target()
+        elif self.ema_update_timing != "post_step":
+            raise ValueError(f"Unknown ema_update_timing: {self.ema_update_timing}")
 
         return output
+
+    @torch.no_grad()
+    def after_optimizer_step(self) -> None:
+        if self.training and self.ema_update_timing == "post_step":
+            self._momentum_update_target()
 
     def _compute_jepa_objective(
         self,
@@ -253,6 +306,16 @@ class JEPA(BaseModel):
             batch,
             context_mask,
         )
+        if self.objective_projection_mode == "online_target":
+            context_tokens = self.projection_head(context_tokens)
+        elif self.objective_projection_mode not in {
+            "target_only",
+            "predictor_output",
+        }:
+            raise ValueError(
+                f"Unknown objective_projection_mode: "
+                f"{self.objective_projection_mode}"
+            )
         target_positions, target_lengths = self._gather_indices_by_mask(target_mask)
         pred = self.predictor(
             context_tokens=context_tokens,
@@ -260,6 +323,8 @@ class JEPA(BaseModel):
             context_lengths=context_lengths,
             target_positions=target_positions,
         )
+        if self.objective_projection_mode == "predictor_output":
+            pred = self.projection_head(pred)
 
         with torch.no_grad():
             target = self._encode_target(batch)
@@ -338,6 +403,13 @@ class JEPA(BaseModel):
 
     def _encode_online(self, batch: Batch) -> torch.Tensor:
         x = self.item_embedder(batch)
+        if self.context_position_mode in {"encoder", "both"}:
+            positions = torch.arange(x.shape[1], device=x.device)[None, :]
+            x = x + self.encoder_position(positions.expand(x.shape[:2]))
+        elif self.context_position_mode != "predictor":
+            raise ValueError(
+                f"Unknown context_position_mode: {self.context_position_mode}"
+            )
         return self._apply_transformer_blocks(
             x=x,
             lengths=batch.lengths,
@@ -353,8 +425,12 @@ class JEPA(BaseModel):
         x, context_positions, context_lengths = self._gather_tokens_by_mask(
             x, context_mask
         )
-        # JEPA keeps context positions explicit and adds them inside the predictor.
-        # For JEPA configs, input positional embedding should stay disabled.
+        if self.context_position_mode in {"encoder", "both"}:
+            x = x + self.encoder_position(context_positions)
+        elif self.context_position_mode != "predictor":
+            raise ValueError(
+                f"Unknown context_position_mode: {self.context_position_mode}"
+            )
         x = self._apply_transformer_blocks(
             x=x,
             lengths=context_lengths,
@@ -364,6 +440,13 @@ class JEPA(BaseModel):
 
     def _encode_target(self, batch: Batch) -> torch.Tensor:
         x = self.target_item_embedder(batch)
+        if self.context_position_mode in {"encoder", "both"}:
+            positions = torch.arange(x.shape[1], device=x.device)[None, :]
+            x = x + self.target_encoder_position(positions.expand(x.shape[:2]))
+        elif self.context_position_mode != "predictor":
+            raise ValueError(
+                f"Unknown context_position_mode: {self.context_position_mode}"
+            )
         return self._apply_transformer_blocks(
             x=x,
             lengths=batch.lengths,
@@ -421,6 +504,7 @@ class JEPA(BaseModel):
         self._ema_update(self.target_item_embedder, self.item_embedder, tau)
         self._ema_update(self.target_transformer_blocks, self.transformer_blocks, tau)
         self._ema_update(self.target_projection_head, self.projection_head, tau)
+        self._ema_update(self.target_encoder_position, self.encoder_position, tau)
 
     @staticmethod
     def _ema_update(
@@ -441,6 +525,7 @@ class JEPA(BaseModel):
             self.target_item_embedder,
             self.target_transformer_blocks,
             self.target_projection_head,
+            self.target_encoder_position,
         ):
             for param in module.parameters():
                 param.requires_grad = False

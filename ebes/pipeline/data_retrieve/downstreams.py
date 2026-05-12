@@ -4,7 +4,6 @@ from copy import deepcopy
 import shutil
 from pathlib import Path
 
-from py4j.protocol import Py4JError
 from pyspark.sql import SparkSession
 
 from validate import run_with_paths
@@ -15,28 +14,15 @@ from ..data_retrieve.embeddings_gen import ResultsGetter
 logger = logging.getLogger(__name__)
 
 
-def _reset_pyspark_gateway() -> None:
-    from pyspark.context import SparkContext
-
-    SparkContext._active_spark_context = None
-    SparkContext._gateway = None
-    SparkContext._jvm = None
-
-
 def create_postproc_spark_session() -> SparkSession:
-    builder = (
+    return (
         SparkSession.builder.appName("JoinEmbeddings")  # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
         .config("spark.driver.memory", "4g")
         .config("spark.driver.memoryOverhead", "1g")
         .config("spark.executor.memory", "2g")
+        .getOrCreate()
     )
-    try:
-        return builder.getOrCreate()
-    except Py4JError:
-        logger.warning("PySpark gateway is stale. Restarting Spark session.")
-        _reset_pyspark_gateway()
-        return builder.getOrCreate()
 
 
 def extract_downstream_metrics(reports) -> dict[str, float]:

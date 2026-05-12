@@ -1,4 +1,4 @@
-method_name: jepa
+method_name: jepa_clean
 runner_name: BertRunner
 
 main_loss:
@@ -30,9 +30,9 @@ model:
     num_norm: false
     ignore_index: -100
     ema_tau: 0.99
-    ema_update_timing: forward
+    ema_update_timing: post_step
     predictor_hidden_multiplier: 1.0
-    objective_projection_mode: target_only
+    objective_projection_mode: predictor_output
     context_position_mode: predictor
     objectives:
       jepa:
@@ -83,7 +83,10 @@ optuna:
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
 
     model.params.hidden_size: [suggest_int, {low: 64, high: 1024, step: 32}]
+    model.params.objective_projection_mode: [suggest_categorical, {choices: [predictor_output, online_target]}]
     model.params.ema_tau: [suggest_categorical, {choices: [0.99, 0.995, 0.998, 0.999]}]
+    model.params.downstream_embedding_source: [suggest_categorical, {choices: [target, online]}]
+    model.params.context_position_mode: [suggest_categorical, {choices: [predictor, encoder, both]}]
     model.params.predictor_hidden_multiplier: [suggest_categorical, {choices: [0.5, 1.0, 2.0]}]
     model.params.num_heads: [suggest_categorical, {choices: [1, 2, 4, 8]}]
     model.params.query_aggregation: [suggest_categorical, {choices: [last, mean]}]

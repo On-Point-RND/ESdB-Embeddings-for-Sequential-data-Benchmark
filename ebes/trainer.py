@@ -307,6 +307,11 @@ class Trainer:
             pbar.set_postfix_str(f"Loss: {loss_ema:.4g}")
 
             self._opt.step()
+            after_optimizer_step = getattr(
+                self._model, "after_optimizer_step", None
+            )
+            if after_optimizer_step is not None:
+                after_optimizer_step()
 
             if self._metrics_on_train:
                 if gt is not None:
