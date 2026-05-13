@@ -85,6 +85,10 @@ def trim_users(arr):
     return total_duration < HORIZON
 
 
+def first_value(values):
+    return values[0] if isinstance(values, (list, np.ndarray)) else values
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument(
@@ -259,6 +263,8 @@ def main():
     df = pd.read_parquet("/tmp/alpha_cached")
 
     df = df.sort_values("client_id").reset_index(drop=True)
+    df["product"] = df["product"].map(first_value)
+    df["flag"] = df["flag"].map(first_value)
     df[TM] = df["hour_diff"].map(hours_since_first_tx)
     df = filter_short(df)
     df["shift_end"] = df[TM].map(compute_shift_end)
