@@ -11,6 +11,7 @@ VALIDATOR="${VALIDATOR:-universal_validator/configs/validator/logreg.yaml}"
 GPU="${GPU:-cuda:0}"
 SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100}"
+FORCE="${FORCE:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/tests/${TASK}/${SEED_DIR}/ckpt"
@@ -22,7 +23,14 @@ for epoch in ${EPOCHS}; do
   ckpts=("${CKPT_DIR}/epoch__${ep}"*.ckpt)
   [[ ${#ckpts[@]} -eq 1 ]] || { echo "bad ckpt match for epoch ${ep}: ${CKPT_DIR}"; exit 1; }
 
-  PTH="${ckpts[0]}" TASK_NAME="${OUT}_epoch_${ep}" python main.py \
+  task_name="${OUT}_epoch_${ep}"
+  result="${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/results.csv"
+  if [[ "${FORCE}" != "1" && -f "${result}" ]]; then
+    echo "skip epoch ${ep}: ${result}"
+    continue
+  fi
+
+  PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
     -d "${DATASET}" \
     -m "${METHOD}" \
     -e inference \
