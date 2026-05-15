@@ -122,11 +122,13 @@ class TimeToFeatures(BatchTransform):
     Has to be applied BEFORE mask creation. And AFTER DatetoTime
     """
 
-    process_type: Literal["cat", "diff", "none"] = "none"
+    process_type: Literal["cat", "cat_periodic", "diff", "none"] = "none"
     """
     How to add time to features. The options are:
 
     - ``"cat"`` --- add absolute time to other numerical features,
+    - ``"cat_periodic"`` --- same as ``"cat"``; raw time is added here, the periodic
+      expansion is handled inside the model by ``Batch2Seq`` when ``n_periodic > 0``,
     - ``"diff"`` --- add time intervals between sequential events. In this case the
       first interval in a sequence equals zero.
     - ``"none"`` --- do not add time to features. This option is added for the ease of
@@ -139,8 +141,9 @@ class TimeToFeatures(BatchTransform):
         assert self.process_type in [
             "diff",
             "cat",
+            "cat_periodic",
             "none",
-        ], "time_process may only be cat|diff|none"
+        ], "time_process may only be cat|cat_periodic|diff|none"
         assert isinstance(batch.time, torch.Tensor)
         if self.process_type == "none":
             return

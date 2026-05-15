@@ -53,6 +53,41 @@ class NoisyEmbedding(nn.Embedding):
         return out
 
 
+class PeriodicTimeEncoding(nn.Module):
+    """Learnable periodic encoding for a scalar time feature.
+
+    Maps t -> [sin(w_1*t + phi_1), ..., sin(w_k*t + phi_k)], then embeds each
+    component independently via a depthwise Conv1d (1 -> emb_dim per component).
+
+    Inspired by Time2Vec (Kazemi et al., 2019).
+    """
+
+    def __init__(self, n_periodic: int, emb_dim: int):
+        super().__init__()
+        self.n_periodic = n_periodic
+        self.emb_dim = emb_dim
+        self.w = nn.Parameter(torch.randn(n_periodic))
+        self.phi = nn.Parameter(torch.zeros(n_periodic))
+        # depthwise: each periodic component independently mapped to emb_dim
+        self._emb = nn.Conv1d(
+            in_channels=n_periodic,
+            out_channels=emb_dim * n_periodic,
+            kernel_size=1,
+            groups=n_periodic,
+        )
+
+    @property
+    def output_dim(self) -> int:
+        return self.emb_dim * self.n_periodic
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        # t: [T, B, 1]
+        periodic = torch.sin(t * self.w + self.phi)  # [T, B, n_periodic]
+        x = periodic.permute(1, 2, 0)                # [B, n_periodic, T]
+        x = self._emb(x)                             # [B, emb_dim*n_periodic, T]
+        return x.permute(2, 0, 1)                    # [T, B, emb_dim*n_periodic]
+
+
 class Batch2Seq(BaseModel):
     def __init__(
         self,
@@ -62,9 +97,10 @@ class Batch2Seq(BaseModel):
         num_features: Sequence[str] | None = None,
         cat_emb_dim: int | Mapping[str, int] | None = None,
         num_emb_dim: int | None = None,
-        time_process: Literal["cat", "diff", "none"] = "none",
+        time_process: Literal["cat", "cat_periodic", "diff", "none"] = "none",
         num_norm: bool = False,
         emb_noise: float = 0.0,
+        n_periodic: int = 4,
     ):
         super().__init__()
         cat_cardinalities = cat_cardinalities if cat_cardinalities is not None else {}
@@ -77,7 +113,8 @@ class Batch2Seq(BaseModel):
             assert time_process in [
                 "diff",
                 "cat",
-            ], "time_process may only be cat|diff|none"
+                "cat_periodic",
+            ], "time_process may only be cat|cat_periodic|diff|none"
             num_count += 1
         self._out_dim = 0
 
@@ -108,15 +145,33 @@ class Batch2Seq(BaseModel):
                 )
             num_emb_dim = int(sum(cat_dims) / len(cat_dims))
 
+        self._periodic_time = None
+        self._num_emb = None
+        self.batch_norm = None
         if num_count:
             self.batch_norm = SeqBatchNorm(num_count) if num_norm else None
-            self._num_emb = nn.Conv1d(
-                in_channels=num_count,
-                out_channels=num_emb_dim * num_count,
-                kernel_size=1,
-                groups=num_count,
-            )
-        self._out_dim += num_emb_dim * num_count
+            if time_process == "cat_periodic":
+                # Last channel of num_features is time; encode it with learnable sines.
+                # Remaining features (if any) go through the regular depthwise Conv1d.
+                non_time_count = num_count - 1
+                self._periodic_time = PeriodicTimeEncoding(n_periodic, num_emb_dim)
+                self._out_dim += self._periodic_time.output_dim
+                if non_time_count > 0:
+                    self._num_emb = nn.Conv1d(
+                        in_channels=non_time_count,
+                        out_channels=num_emb_dim * non_time_count,
+                        kernel_size=1,
+                        groups=non_time_count,
+                    )
+                    self._out_dim += num_emb_dim * non_time_count
+            else:
+                self._num_emb = nn.Conv1d(
+                    in_channels=num_count,
+                    out_channels=num_emb_dim * num_count,
+                    kernel_size=1,
+                    groups=num_count,
+                )
+                self._out_dim += num_emb_dim * num_count
         ##################################################
         if emb_dimensionalities:
             self._emb_dims = emb_dimensionalities
@@ -155,21 +210,47 @@ class Batch2Seq(BaseModel):
                     masks.append(mask)
 
         if batch.num_features is not None:
-            assert self._num_emb
             x = batch.num_features
             if self.batch_norm:
                 x = self.batch_norm(x, batch.lengths)
-            x = x.permute(1, 2, 0)  # batch, features, len
-            x = self._num_emb(x)
-            embs.append(x.permute(2, 0, 1))
-            if batch.num_mask is not None:
-                masks.append(
-                    torch.repeat_interleave(
-                        batch.num_mask,
-                        self._num_emb.out_channels // self._num_emb.in_channels,
-                        dim=2,
+
+            if self._periodic_time is not None:
+                # Split: last channel is time, rest are regular numerics
+                t = x[:, :, -1:]          # (len, batch, 1)
+                embs.append(self._periodic_time(t))
+                if batch.num_mask is not None:
+                    time_mask = batch.num_mask[:, :, -1:]
+                    masks.append(
+                        torch.repeat_interleave(
+                            time_mask, self._periodic_time.output_dim, dim=2
+                        )
                     )
-                )
+                if self._num_emb is not None:
+                    x_rest = x[:, :, :-1].permute(1, 2, 0)  # (batch, non_time_count, len)
+                    x_rest = self._num_emb(x_rest)
+                    embs.append(x_rest.permute(2, 0, 1))
+                    if batch.num_mask is not None:
+                        rest_mask = batch.num_mask[:, :, :-1]
+                        masks.append(
+                            torch.repeat_interleave(
+                                rest_mask,
+                                self._num_emb.out_channels // self._num_emb.in_channels,
+                                dim=2,
+                            )
+                        )
+            else:
+                assert self._num_emb is not None
+                x = x.permute(1, 2, 0)  # batch, features, len
+                x = self._num_emb(x)
+                embs.append(x.permute(2, 0, 1))
+                if batch.num_mask is not None:
+                    masks.append(
+                        torch.repeat_interleave(
+                            batch.num_mask,
+                            self._num_emb.out_channels // self._num_emb.in_channels,
+                            dim=2,
+                        )
+                    )
         ######################################################################
         # batch.emb_features_names = (features)
         # batch.emb_features = {feature_name: (emb_dim, len, batch)} (is not needed here - batch[feature_name] is used)
