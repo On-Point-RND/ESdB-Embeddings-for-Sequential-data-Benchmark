@@ -24,9 +24,10 @@ for epoch in ${EPOCHS}; do
   [[ ${#ckpts[@]} -eq 1 ]] || { echo "bad ckpt match for epoch ${ep}: ${CKPT_DIR}"; exit 1; }
 
   task_name="${OUT}_epoch_${ep}"
-  result="${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/results.csv"
-  if [[ "${FORCE}" != "1" && -f "${result}" ]]; then
-    echo "skip epoch ${ep}: ${result}"
+  results=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"/results.csv)
+  results+=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"\(*\)/results.csv)
+  if [[ "${FORCE}" != "1" && ${#results[@]} -gt 0 ]]; then
+    echo "skip epoch ${ep}: ${results[0]}"
     continue
   fi
 
