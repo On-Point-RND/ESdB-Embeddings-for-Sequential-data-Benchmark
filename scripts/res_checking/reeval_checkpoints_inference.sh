@@ -10,7 +10,7 @@ OUT="${OUT:-${TASK}_logreg}"
 VALIDATOR="${VALIDATOR:-universal_validator/configs/validator/logreg.yaml}"
 GPU="${GPU:-cuda:0}"
 SEED_DIR="${SEED_DIR:-seed_0}"
-EPOCHS="${EPOCHS:-5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100}"
+EPOCHS="${EPOCHS:-1 $(seq 5 5 1000)}"
 FORCE="${FORCE:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
