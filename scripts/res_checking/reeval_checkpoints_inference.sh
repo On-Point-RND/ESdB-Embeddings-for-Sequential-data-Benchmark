@@ -18,11 +18,28 @@ CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/tests/${TASK}/${SEED_DIR}/ckpt"
 
 cd "${ROOT}"
 
-for epoch in ${EPOCHS}; do
-  ep="$(printf "%04d" "${epoch}")"
-  ckpts=("${CKPT_DIR}/epoch__${ep}"*.ckpt)
-  [[ ${#ckpts[@]} -eq 1 ]] || { echo "bad ckpt match for epoch ${ep}: ${CKPT_DIR}"; exit 1; }
+ckpt_files=("${CKPT_DIR}"/epoch__*.ckpt)
+if [[ ${#ckpt_files[@]} -eq 0 ]]; then
+  echo "no checkpoints in ${CKPT_DIR}"
+  exit 1
+fi
 
+max_epoch=0
+for ckpt in "${ckpt_files[@]}"; do
+  name="$(basename "${ckpt}")"
+  if [[ "${name}" =~ epoch__([0-9]+) ]]; then
+    epoch_num=$((10#${BASH_REMATCH[1]}))
+    (( epoch_num > max_epoch )) && max_epoch="${epoch_num}"
+  fi
+done
+
+for epoch in ${EPOCHS}; do
+  if (( epoch > max_epoch )); then
+    echo "stop: epoch ${epoch} is after last checkpoint epoch ${max_epoch}"
+    break
+  fi
+
+  ep="$(printf "%04d" "${epoch}")"
   task_name="${OUT}_epoch_${ep}"
   results=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"/results.csv)
   results+=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"\(*\)/results.csv)
@@ -30,6 +47,13 @@ for epoch in ${EPOCHS}; do
     echo "skip epoch ${ep}: ${results[0]}"
     continue
   fi
+
+  ckpts=("${CKPT_DIR}/epoch__${ep}"*.ckpt)
+  if [[ ${#ckpts[@]} -eq 0 ]]; then
+    echo "skip epoch ${ep}: no checkpoint"
+    continue
+  fi
+  [[ ${#ckpts[@]} -eq 1 ]] || { echo "bad ckpt match for epoch ${ep}: ${CKPT_DIR}"; exit 1; }
 
   PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
     -d "${DATASET}" \
