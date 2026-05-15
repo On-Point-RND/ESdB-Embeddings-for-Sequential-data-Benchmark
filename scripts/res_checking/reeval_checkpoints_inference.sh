@@ -41,7 +41,9 @@ for epoch in ${EPOCHS}; do
 
   ep="$(printf "%04d" "${epoch}")"
   task_name="${OUT}_epoch_${ep}"
-  results=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"/results.csv)
+  result="${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/results.csv"
+  results=()
+  [[ -f "${result}" ]] && results+=("${result}")
   results+=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"\(*\)/results.csv)
   if [[ "${FORCE}" != "1" && ${#results[@]} -gt 0 ]]; then
     echo "skip epoch ${ep}: ${results[0]}"
