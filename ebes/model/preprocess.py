@@ -54,10 +54,12 @@ class NoisyEmbedding(nn.Embedding):
 
 
 class PeriodicTimeEncoding(nn.Module):
-    """Learnable periodic encoding for a scalar time feature.
+    """Learnable periodic + linear time encoding for a scalar time feature.
 
-    Maps t -> [sin(w_1*t + phi_1), ..., sin(w_k*t + phi_k)], then embeds each
-    component independently via a depthwise Conv1d (1 -> emb_dim per component).
+    For each of ``n_periodic`` instances, computes a scalar
+    ``sin(w_i*t + phi_i) + a_i*t + b_i`` where ``w, phi, a, b`` are learnable
+    per-instance parameters. Each scalar is then embedded independently via a
+    depthwise Conv1d (1 -> emb_dim per instance).
 
     Inspired by Time2Vec (Kazemi et al., 2019).
     """
@@ -68,7 +70,9 @@ class PeriodicTimeEncoding(nn.Module):
         self.emb_dim = emb_dim
         self.w = nn.Parameter(torch.randn(n_periodic))
         self.phi = nn.Parameter(torch.zeros(n_periodic))
-        # depthwise: each periodic component independently mapped to emb_dim
+        self.a = nn.Parameter(torch.randn(n_periodic))
+        self.b = nn.Parameter(torch.zeros(n_periodic))
+        # depthwise: each instance's scalar independently mapped to emb_dim
         self._emb = nn.Conv1d(
             in_channels=n_periodic,
             out_channels=emb_dim * n_periodic,
@@ -82,10 +86,10 @@ class PeriodicTimeEncoding(nn.Module):
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         # t: [T, B, 1]
-        periodic = torch.sin(t * self.w + self.phi)  # [T, B, n_periodic]
-        x = periodic.permute(1, 2, 0)                # [B, n_periodic, T]
-        x = self._emb(x)                             # [B, emb_dim*n_periodic, T]
-        return x.permute(2, 0, 1)                    # [T, B, emb_dim*n_periodic]
+        feats = torch.sin(t * self.w + self.phi) + t * self.a + self.b  # [T, B, n_periodic]
+        x = feats.permute(1, 2, 0)                                       # [B, n_periodic, T]
+        x = self._emb(x)                                                 # [B, emb_dim*n_periodic, T]
+        return x.permute(2, 0, 1)                                        # [T, B, emb_dim*n_periodic]
 
 
 class Batch2Seq(BaseModel):
