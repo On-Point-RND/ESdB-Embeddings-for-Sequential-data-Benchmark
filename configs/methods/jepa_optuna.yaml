@@ -18,6 +18,7 @@ trainer:
   ckpt_track_metric: epoch
   total_iters: null
   total_epochs: 100
+  iters_per_epoch: null
   patience: 1
 
 model:

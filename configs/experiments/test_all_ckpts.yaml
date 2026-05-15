@@ -22,6 +22,6 @@ trainer:
   ckpt_track_metric: epoch
   ckpt_replace: false
   total_iters: null
-  total_epochs: 100
+  total_epochs: 1000
   iters_per_epoch: null
   patience: 1
