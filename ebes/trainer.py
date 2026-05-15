@@ -452,11 +452,15 @@ class Trainer:
             self._last_epoch += 1
             self.save_ckpt()
 
-            assert (
-                self._metric_values is not None
-                and self._ckpt_track_metric in self._metric_values
+            assert self._metric_values is not None and (
+                self._ckpt_track_metric == "epoch"
+                or self._ckpt_track_metric in self._metric_values
             )
-            target_metric = self._metric_values[self._ckpt_track_metric]
+            target_metric = (
+                self._last_epoch
+                if self._ckpt_track_metric == "epoch"
+                else self._metric_values[self._ckpt_track_metric]
+            )
 
             if target_metric > best_metric:
                 best_metric = target_metric
