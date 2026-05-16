@@ -85,6 +85,10 @@ def trim_users(arr):
     return total_duration < HORIZON
 
 
+def first_value(values):
+    return values[0] if isinstance(values, (list, np.ndarray)) else values
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument(
@@ -259,6 +263,8 @@ def main():
     df = pd.read_parquet("/tmp/alpha_cached")
 
     df = df.sort_values("client_id").reset_index(drop=True)
+    df["product"] = df["product"].map(first_value)
+    df["flag"] = df["flag"].map(first_value)
     df[TM] = df["hour_diff"].map(hours_since_first_tx)
     df = filter_short(df)
     df["shift_end"] = df[TM].map(compute_shift_end)
@@ -300,10 +306,6 @@ def main():
         test_df = test_df.apply(trim_test, axis=1)
         test_df["_seq_len"] = test_df[TM].apply(len)
 
-        train_df, test_df = global_train_column(
-            train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
-        )
-
         test_df["target__prod__global__accuracy+f1_macro"] = test_df["product"]
         test_df["target__reg_amount__local__r2"] = test_df.apply(
             reg_target_row, axis=1
@@ -338,6 +340,9 @@ def main():
             index_col="client_id",
             split_name="global_time_split",
         )
+        train_df, test_df = global_train_column(
+            train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+        )
     else:
         train_df = df.copy()
         train_df["shift_start"] = 2
@@ -355,16 +360,6 @@ def main():
 
         num_shifts = train_n_shifts if args.which_split == "train" else test_n_shifts
         train_df = add_shift_columns(train_df, num_shifts, args.shift_seed)
-        if args.which_split == "train":
-            rng = np.random.default_rng(seed=args.split_seed)
-            n_train_users = int(len(train_df.index) * USER_TRAIN_SPLIT)
-            train_indices = rng.choice(
-                train_df.index, size=n_train_users, replace=False
-            ).tolist()
-            train_df["global_train"] = 0
-            train_df.loc[train_indices, "global_train"] = 1
-        else:
-            train_df["global_train"] = 0
 
         train_df["target__prod__global__accuracy+f1_macro"] = train_df["product"]
         train_df["target__reg_amount__local__r2"] = train_df.apply(
@@ -389,6 +384,16 @@ def main():
             index_col="client_id",
             split_name="user_split",
         )
+        if args.which_split == "train":
+            rng = np.random.default_rng(seed=args.split_seed)
+            n_train_users = int(len(train_df.index) * USER_TRAIN_SPLIT)
+            train_indices = rng.choice(
+                train_df.index, size=n_train_users, replace=False
+            ).tolist()
+            train_df["global_train"] = 0
+            train_df.loc[train_indices, "global_train"] = 1
+        else:
+            train_df["global_train"] = 0
 
     keep_cols = (
         INDEX_COLUMNS
