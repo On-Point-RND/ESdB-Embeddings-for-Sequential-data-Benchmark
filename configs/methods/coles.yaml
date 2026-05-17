@@ -66,8 +66,7 @@ model:
       emb_dimensionalities: ${ee}
       cat_emb_dim: 64
       num_emb_dim: 64
-      time_process: "cat_periodic" # "diff" | "cat" | "cat_periodic" | "none"
-      n_periodic: 32   # number of learnable sin+linear instances; used only when time_process == "cat_periodic"
+      time_process: "cat" # "diff" | "cat" | "cat_periodic" | "none"
       num_norm: false
   encoder: 
     name: GRU
@@ -103,7 +102,7 @@ optuna:
         'model.encoder.params.num_layers': 1
         'model.encoder.params.hidden_size': 512
 
-        'model.preprocess.params.time_process': 'cat_periodic'
+        'model.preprocess.params.time_process': 'cat'
         'model.preprocess.params.num_norm': False
         'model.preprocess.params.cat_emb_dim': 64
         'model.preprocess.params.num_emb_dim': 64
