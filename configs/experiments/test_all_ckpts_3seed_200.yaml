@@ -11,7 +11,8 @@ runner:
     - "data.dataset.split_seed"
   params:
     n_runs: 3
-    n_workers: 1
+    n_workers: 3
+  device_list: ["cuda:0", "cuda:1", "cuda:2"]
 
 logging:
   file_lvl: info
