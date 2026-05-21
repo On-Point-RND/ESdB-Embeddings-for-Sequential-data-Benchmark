@@ -30,7 +30,10 @@ model:
     num_norm: false
     ignore_index: -100
     ema_tau: 0.99
+    ema_update_timing: forward
     predictor_hidden_multiplier: 1.0
+    objective_projection_mode: target_only
+    context_position_mode: predictor
     objectives:
       jepa:
         enabled: true
