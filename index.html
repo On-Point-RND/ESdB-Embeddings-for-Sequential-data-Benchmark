@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Interactive cross-domain time-series benchmark result dashboard."
+    >
+    <title>Time-Series Benchmark Results</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <nav aria-label="Page sections">
+        <a href="#overview">Overview</a>
+        <a href="#results">Results</a>
+        <a href="#global-charts">Charts</a>
+        <a href="#additional">Additional</a>
+        <a href="#coverage">Coverage</a>
+        <a href="#authors">Center</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-backdrop" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <p class="kicker">Ai Applied Research Center preview</p>
+          <h1>Cross-domain time-series results, ready to inspect.</h1>
+          <p>
+            Methods are compared per dataset across regression, classification,
+            forecasting, and anomaly detection. Every view below is computed
+            from workbook rows: no synthetic examples, no merged semantics, only
+            traceable tables and interactive summaries.
+          </p>
+          <div class="author-strip" aria-label="Research center">
+            <span>Research center</span>
+            <strong>Ai Applied Research Center</strong>
+          </div>
+        </div>
+        <dl class="stat-grid" aria-label="Benchmark summary">
+          <div>
+            <dt>Datasets</dt>
+            <dd id="stat-datasets">--</dd>
+          </div>
+          <div>
+            <dt>Methods</dt>
+            <dd id="stat-methods">--</dd>
+          </div>
+          <div>
+            <dt>Main rows</dt>
+            <dd id="stat-records">--</dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd id="stat-updated">--</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section id="overview" class="panel overview-panel" aria-labelledby="overview-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Overview</p>
+            <h2 id="overview-title">Readable result atlas</h2>
+          </div>
+          <div class="overview-controls">
+            <label>
+              Task focus
+              <select id="overview-task-filter">
+                <option value="all">All tasks</option>
+              </select>
+            </label>
+            <button id="reset-view" class="ghost-button" type="button">Reset table view</button>
+          </div>
+        </div>
+
+        <div class="overview-grid" aria-label="Interactive benchmark overview">
+          <section class="chart-card donut-card" aria-labelledby="dataset-donut-title">
+            <div class="chart-heading">
+              <h3 id="dataset-donut-title">Dataset share</h3>
+              <span>main rows</span>
+            </div>
+            <div id="dataset-donut" class="donut-layout"></div>
+          </section>
+          <section class="chart-card donut-card" aria-labelledby="task-donut-title">
+            <div class="chart-heading">
+              <h3 id="task-donut-title">Task availability</h3>
+              <span>non-empty scores</span>
+            </div>
+            <div id="task-availability-donut" class="donut-layout"></div>
+          </section>
+          <section class="chart-card donut-card" aria-labelledby="source-donut-title">
+            <div class="chart-heading">
+              <h3 id="source-donut-title">Workbook composition</h3>
+              <span>typed sections</span>
+            </div>
+            <div id="source-donut" class="donut-layout"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="score-histogram-title">
+            <div class="chart-heading">
+              <h3 id="score-histogram-title">Score distribution</h3>
+              <span id="score-histogram-label">task focus</span>
+            </div>
+            <div id="score-histogram" class="histogram"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="composite-histogram-title">
+            <div class="chart-heading">
+              <h3 id="composite-histogram-title">Composite distribution</h3>
+              <span>dataset-normalized</span>
+            </div>
+            <div id="composite-histogram" class="histogram"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="winner-chart-title">
+            <div class="chart-heading">
+              <h3 id="winner-chart-title">Winner frequency</h3>
+              <span>dataset x task</span>
+            </div>
+            <div id="winner-chart" class="bar-chart"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="results" class="panel results-panel" aria-labelledby="results-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Results</p>
+            <h2 id="results-title">Dataset view</h2>
+          </div>
+          <div class="controls" aria-label="Result filters">
+            <label>
+              Dataset
+              <select id="dataset-filter"></select>
+            </label>
+            <label>
+              Sort by
+              <select id="sort-filter">
+                <option value="rank">Composite rank</option>
+                <option value="regression">Regression R2</option>
+                <option value="classification">Classification accuracy</option>
+                <option value="forecasting">Forecasting R2</option>
+                <option value="anomaly">Anomaly roc_auc</option>
+              </select>
+            </label>
+            <label>
+              Search
+              <input id="method-search" type="search" placeholder="BERT, NTP, COLES">
+            </label>
+          </div>
+        </div>
+
+        <div id="task-summary" class="task-summary" aria-label="Task winners"></div>
+
+        <div class="chart-grid" aria-label="Charts for the selected dataset">
+          <section class="chart-card" aria-labelledby="composite-chart-title">
+            <div class="chart-heading">
+              <h3 id="composite-chart-title">Composite ranking</h3>
+              <span>rank-normalized</span>
+            </div>
+            <div id="composite-chart" class="bar-chart"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="task-chart-title">
+            <div class="chart-heading">
+              <h3 id="task-chart-title">Task score map</h3>
+              <span>relative within dataset</span>
+            </div>
+            <div id="task-chart" class="heat-chart"></div>
+          </section>
+        </div>
+
+        <div class="results-layout">
+          <div class="table-shell">
+            <div id="table-status" class="table-status" aria-live="polite"></div>
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th class="rank-col" scope="col">#</th>
+                  <th class="method-col" scope="col">Method</th>
+                  <th scope="col">Composite</th>
+                  <th scope="col">Regression</th>
+                  <th scope="col">Classification</th>
+                  <th scope="col">Forecasting</th>
+                  <th scope="col">Anomaly</th>
+                </tr>
+              </thead>
+              <tbody id="results-body"></tbody>
+            </table>
+          </div>
+
+          <aside class="details" aria-live="polite">
+            <p class="kicker">Selected row</p>
+            <h3 id="detail-method">Select a method</h3>
+            <dl>
+              <div>
+                <dt>Dataset</dt>
+                <dd id="detail-dataset">--</dd>
+              </div>
+              <div>
+                <dt>Best task</dt>
+                <dd id="detail-best">--</dd>
+              </div>
+              <div>
+                <dt>Scores</dt>
+                <dd id="detail-scores">--</dd>
+              </div>
+              <div>
+                <dt>Hyperparameters</dt>
+                <dd id="detail-params">--</dd>
+              </div>
+              <div>
+                <dt>Masking</dt>
+                <dd id="detail-masking">--</dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+
+      <section id="global-charts" class="panel global-charts-panel" aria-labelledby="global-charts-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Global charts</p>
+            <h2 id="global-charts-title">Across the full table</h2>
+          </div>
+          <p class="panel-note">
+            These views aggregate all rows from the verified benchmark table:
+            method coverage, best dataset scores, and task-level score spread.
+          </p>
+        </div>
+        <div class="global-chart-grid">
+          <section class="chart-card wide-chart" aria-labelledby="method-landscape-title">
+            <div class="chart-heading">
+              <h3 id="method-landscape-title">Method landscape</h3>
+              <span>coverage x normalized score</span>
+            </div>
+            <div id="method-landscape" class="scatter-plot"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="dataset-heatmap-title">
+            <div class="chart-heading">
+              <h3 id="dataset-heatmap-title">Best score map</h3>
+              <span>best method per dataset/task</span>
+            </div>
+            <div id="dataset-heatmap" class="dataset-heatmap"></div>
+          </section>
+          <section class="chart-card" aria-labelledby="distribution-title">
+            <div class="chart-heading">
+              <h3 id="distribution-title">Metric distributions</h3>
+              <span>min / quartiles / max</span>
+            </div>
+            <div id="metric-distribution" class="boxplot-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="additional" class="panel additional-panel" aria-labelledby="additional-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Additional sections</p>
+            <h2 id="additional-title">Other workbook tables</h2>
+          </div>
+          <p class="panel-note">
+            These sections are kept separate from the main leaderboard. They
+            expose raw validator runs, archive tables, progress, papers, and
+            exact sheet rows without merging their semantics.
+          </p>
+        </div>
+
+        <div id="additional-summary" class="task-summary" aria-label="Additional data summary"></div>
+
+        <div class="global-chart-grid">
+          <section class="chart-card" aria-labelledby="ntp-chart-title">
+            <div class="chart-heading">
+              <h3 id="ntp-chart-title">NTP_LGBM classifier runs</h3>
+              <span>dataset / task / classifier</span>
+            </div>
+            <div class="controls compact-controls" aria-label="NTP filters">
+              <label>
+                Dataset
+                <select id="ntp-dataset-filter"></select>
+              </label>
+              <label>
+                Task
+                <select id="ntp-task-filter"></select>
+              </label>
+            </div>
+            <div id="ntp-chart" class="bar-chart extra-chart"></div>
+            <div class="table-shell compact-table-shell">
+              <table class="compact-table">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Method</th>
+                    <th>Task</th>
+                    <th>Classifier</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody id="ntp-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="chart-card" aria-labelledby="archive-chart-title">
+            <div class="chart-heading">
+              <h3 id="archive-chart-title">Archive result coverage</h3>
+              <span>records by source sheet</span>
+            </div>
+            <div id="archive-chart" class="bar-chart extra-chart"></div>
+          </section>
+        </div>
+
+        <section class="chart-card sheet-explorer" aria-labelledby="sheet-explorer-title">
+          <div class="chart-heading">
+            <h3 id="sheet-explorer-title">Raw sheet explorer</h3>
+            <span>exact rows preserved</span>
+          </div>
+          <div class="controls" aria-label="Raw sheet controls">
+            <label>
+              Sheet
+              <select id="sheet-filter"></select>
+            </label>
+            <label>
+              Search
+              <input id="sheet-search" type="search" placeholder="dataset, method, value">
+            </label>
+          </div>
+          <div id="sheet-summary" class="sheet-summary"></div>
+          <div id="sheet-chart" class="bar-chart extra-chart"></div>
+          <div class="table-shell raw-table-shell">
+            <table class="compact-table raw-table">
+              <thead id="sheet-head"></thead>
+              <tbody id="sheet-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="coverage" class="panel coverage-panel" aria-labelledby="coverage-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Coverage</p>
+            <h2 id="coverage-title">Datasets</h2>
+          </div>
+          <p class="panel-note">
+            Open a dataset card to inspect the selected features, feature types,
+            known cardinalities, targets, and preprocessing notes in a compact
+            paper-ready format.
+          </p>
+        </div>
+        <div id="dataset-cards" class="dataset-grid"></div>
+      </section>
+
+      <dialog id="dataset-modal" class="dataset-dialog" aria-labelledby="dataset-modal-title">
+        <div class="dataset-dialog-card">
+          <button id="dataset-modal-close" class="dataset-dialog-close" type="button" aria-label="Close dataset details">
+            Close
+          </button>
+          <div id="dataset-modal-content"></div>
+        </div>
+      </dialog>
+
+      <section id="authors" class="panel authors-panel" aria-labelledby="authors-title">
+        <div>
+          <p class="kicker">Research center</p>
+          <h2 id="authors-title">Ai Applied Research Center</h2>
+          <p>
+            Research preview for a cross-domain time-series benchmark and
+            embedding comparison study. The public page keeps only verified
+            table results and interactive diagnostics.
+          </p>
+        </div>
+        <div class="authors-mark" aria-hidden="true">
+          <span>AI</span>
+          <i></i>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
