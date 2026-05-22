@@ -1,4 +1,4 @@
-run_name: "${method_name}/tests/${oc.env:TASK_NAME,test_all_ckpts_3seed_200}"
+run_name: "${method_name}/tests/${oc.env:TASK_NAME,train_best}"
 common_seed: 0
 device: "cuda:0"
 
@@ -19,10 +19,4 @@ logging:
   cons_lvl: info
 
 trainer:
-  metrics_on_train: true
-  ckpt_track_metric: epoch
   ckpt_replace: false
-  total_iters: null
-  total_epochs: 200
-  iters_per_epoch: null
-  patience: 1
