@@ -1,25 +1,22 @@
-run_name: "${method_name}/tests/${oc.env:TASK_NAME,simple}"
+run_name: "${method_name}/tests/${oc.env:TASK_NAME,train_best}"
 common_seed: 0
 device: "cuda:0"
 
 runner:
   name: ${runner_name}
   run_type: simple
-  seed_keys: 
+  seed_keys:
     - "common_seed"
     - "data.loaders.train.random_seed"
     - "data.dataset.split_seed"
   params:
-    n_runs: 1
+    n_runs: 3
     n_workers: 3
-  # device_list: ["cuda:0", "cuda:1", "cuda:2"]
+  device_list: ["cuda:0", "cuda:1", "cuda:2"]
 
 logging:
   file_lvl: info
   cons_lvl: info
-  
+
 trainer:
-  total_iters: 0 
-  total_epochs: null
-  iters_per_epoch: null
-  ckpt_resume: "${oc.env:PTH,''}"
+  ckpt_replace: false
