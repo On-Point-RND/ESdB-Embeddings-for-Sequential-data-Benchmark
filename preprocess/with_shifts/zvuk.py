@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
-from pyspark.sql.types import LongType, TimestampType, FloatType
+from pyspark.sql.types import LongType, TimestampType, FloatType, DecimalType
 import numpy as np
 
 from ..common import cat_freq, collect_lists
@@ -32,7 +32,7 @@ HORIZON = np.timedelta64(40, "D")
 
 def get_reg_target(row):
     a = np.asarray(row["play_duration"], dtype=float)
-    t = np.asarray(row["datetime"], dtype="datetime64[s]")
+    t = np.asarray(row["datetime"], dtype="datetime64[us]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
@@ -45,7 +45,7 @@ def get_reg_target(row):
 
 
 def get_forecast_target(row):
-    t = np.asarray(row["datetime"], dtype="datetime64[s]").astype("datetime64[D]")
+    t = np.asarray(row["datetime"], dtype="datetime64[us]").astype("datetime64[D]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
@@ -55,7 +55,7 @@ def get_forecast_target(row):
 
 def get_clf_target(row, no_future_class: int):
     c = np.asarray(row["cluster_id"])
-    t = np.asarray(row["datetime"], dtype="datetime64[s]")
+    t = np.asarray(row["datetime"], dtype="datetime64[us]")
     out = []
     for s in row["shifts"]:
         assert s > 0, "shift should be more than zero"
@@ -73,7 +73,7 @@ def get_clf_target(row, no_future_class: int):
 
 def get_diversity(row):
     d = np.asarray(row["play_duration"], dtype=float)
-    t = np.asarray(row["datetime"], dtype="datetime64[s]")
+    t = np.asarray(row["datetime"], dtype="datetime64[us]")
     out = []
     for s in row["shifts"]:
         delta = t - t[s - 1]
@@ -90,13 +90,13 @@ def apply_threshold(ratio, threshold):
 
 
 def compute_shift_end(arr):
-    arr = np.asarray(arr, dtype="datetime64[s]")
+    arr = np.asarray(arr, dtype="datetime64[us]")
     diff = arr[-1] - arr
     return (diff > HORIZON).sum() - 1 if len(arr) else -1
 
 
 def trim_users(arr):
-    arr = np.asarray(arr, dtype="datetime64[s]")
+    arr = np.asarray(arr, dtype="datetime64[us]")
     if len(arr) < 2:
         return True
     total_duration = arr[-1] - arr[0]
@@ -196,7 +196,7 @@ def main():
             F.col("user_id").cast(LongType()),
             F.col("track_id").cast(LongType()),
             F.col("play_duration").cast(FloatType()),
-            F.col("datetime").cast(TimestampType()).cast(LongType()).alias("datetime"),
+            F.col("datetime").cast(TimestampType()).cast(DecimalType(20, 6)).alias("datetime"),
         )
 
         df_interactions = df_interactions.withColumnRenamed("user_id", "client_id")
@@ -214,6 +214,7 @@ def main():
         ).dropDuplicates(["track_id"])
 
         df = df_interactions.join(df_artist, on="track_id")
+        df = df.dropDuplicates(["client_id", "datetime"])
     else:
         raise NotImplementedError(
             "We doesn't know what to do with test.csv for Zvuk hero dataset without labels."
@@ -228,7 +229,12 @@ def main():
     df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
 
     df = df.sort("client_id").toPandas()
-    df[TM] = df[TM].map(lambda x: np.asarray(x, dtype="datetime64[s]"))
+
+    df[TM] = df[TM].map(
+        lambda x: np.array(
+            [int(d * 1_000_000) for d in x], dtype="datetime64[us]"
+        )
+    )
     df = filter_short(df)
     all_clusters = np.concatenate(df["cluster_id"].values)
     no_future_class = int(all_clusters.max()) + 1 if len(all_clusters) else 0
@@ -308,7 +314,7 @@ def main():
         datetime_scale=DATETIME_SCALE,
     )
 
-    keep_cols = (
+    keep_cols = list(dict.fromkeys(
         INDEX_COLUMNS
         + ORDERING_COLUMNS
         + CAT_FEATURES
@@ -322,7 +328,7 @@ def main():
             "target__reg__local__r2",
             "target__forecast__local__r2",
         ]
-    )
+    ))
 
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
     save_partitioned_parquet(
