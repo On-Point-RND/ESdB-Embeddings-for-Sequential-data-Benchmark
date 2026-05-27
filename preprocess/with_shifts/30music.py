@@ -14,7 +14,7 @@ import pyspark.sql.functions as F
 import numpy as np
 import pandas as pd
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     global_time_split,
@@ -30,7 +30,7 @@ from .common_pandas import (
 CAT_FEATURES = ["track_id"]
 NUM_FEATURES = ["play_duration"]
 INDEX_COLUMNS = ["client_id"]
-ORDERING_COLUMNS = ["timestamp", "event_id"]
+ORDERING_COLUMNS = ["timestamp"]
 TM = ORDERING_COLUMNS[0]
 LOG_FEATURES: list[str] = []
 RESCALE_FEATURES = [x for x in NUM_FEATURES if x not in LOG_FEATURES] + [TM]
@@ -196,13 +196,13 @@ def main():
         )
 
         df_parsed = df_raw.select(
-            col("_c1").cast(LongType()).alias("event_id"),
+            col("_c1").cast(LongType()).alias(SORT_IDX_COL),
             col("_c2").cast(LongType()).alias("timestamp"),
             from_json(col("_c3"), playtime_schema).alias("props"),
             from_json(col("_c4"), full_schema).alias("entities"),
         )
         df_final = df_parsed.select(
-            col("event_id"),
+            col(SORT_IDX_COL),
             col("timestamp"),
             col("props.playtime").alias("play_duration"),
             col("entities.subjects")[0]["id"].alias("user_id"),

@@ -6,7 +6,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, TimestampType, FloatType, DecimalType
 import numpy as np
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     global_time_split,
@@ -191,18 +191,17 @@ def main():
     if args.which_split == "train":
         df_interactions = spark.read.parquet(
             (args.data_path / "zvuk-interactions.parquet").as_posix(), header=True
-        ).limit(10000000)
+        )
+        df_interactions = add_row_order(df_interactions)
         df_interactions = df_interactions.select(
-            F.col("user_id").cast(LongType()),
+            F.col("user_id").cast(LongType()).alias("client_id"),
             F.col("track_id").cast(LongType()),
             F.col("play_duration").cast(FloatType()),
-            F.col("datetime").cast(TimestampType()).cast(DecimalType(20, 6)).alias("datetime"),
-        )
-
-        df_interactions = df_interactions.withColumnRenamed("user_id", "client_id")
-
-        df_interactions = df_interactions.withColumn(
-            "client_id", F.abs(F.hash(F.col("client_id"))).cast(LongType())
+            F.col("datetime")
+            .cast(TimestampType())
+            .cast(DecimalType(20, 6))
+            .alias("datetime"),
+            F.col(SORT_IDX_COL).cast(LongType()),
         )
 
         df_artist = spark.read.parquet(
@@ -214,10 +213,12 @@ def main():
         ).dropDuplicates(["track_id"])
 
         df = df_interactions.join(df_artist, on="track_id")
-        df = df.dropDuplicates(["client_id", "datetime"])
+        df = df.dropDuplicates(
+            ["track_id", "client_id", "play_duration", "datetime", "cluster_id"]
+        )
     else:
         raise NotImplementedError(
-            "We doesn't know what to do with test.csv for Zvuk hero dataset without labels."
+            "We doesn't know what to do with test.csv for Zvuk dataset without labels."
         )
 
     vcs = cat_freq(df, CAT_FEATURES)
@@ -231,9 +232,7 @@ def main():
     df = df.sort("client_id").toPandas()
 
     df[TM] = df[TM].map(
-        lambda x: np.array(
-            [int(d * 1_000_000) for d in x], dtype="datetime64[us]"
-        )
+        lambda x: np.array([int(d * 1_000_000) for d in x], dtype="datetime64[us]")
     )
     df = filter_short(df)
     all_clusters = np.concatenate(df["cluster_id"].values)
@@ -286,9 +285,7 @@ def main():
         lambda r: get_clf_target(r, no_future_class), axis=1
     )
     test_df["target__reg__local__r2"] = test_df.apply(get_reg_target, axis=1)
-    test_df["target__forecast__local__r2"] = test_df.apply(
-        get_forecast_target, axis=1
-    )
+    test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
     test_df["target__anomaly__local__roc_auc"] = test_df["cv"].apply(
         lambda x: apply_threshold(x, threshold)
     )
@@ -300,9 +297,9 @@ def main():
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__local__roc_auc"] = train_df[
-        "cv"
-    ].apply(lambda x: apply_threshold(x, threshold))
+    train_df["target__anomaly__local__roc_auc"] = train_df["cv"].apply(
+        lambda x: apply_threshold(x, threshold)
+    )
 
     train_df, test_df = transform_train_test_features(
         train_df=train_df,
@@ -314,21 +311,23 @@ def main():
         datetime_scale=DATETIME_SCALE,
     )
 
-    keep_cols = list(dict.fromkeys(
-        INDEX_COLUMNS
-        + ORDERING_COLUMNS
-        + CAT_FEATURES
-        + NUM_FEATURES
-        + [
-            "_seq_len",
-            "shifts",
-            "global_train",
-            "target__clf__local__accuracy+f1_macro",
-            "target__anomaly__local__roc_auc",
-            "target__reg__local__r2",
-            "target__forecast__local__r2",
-        ]
-    ))
+    keep_cols = list(
+        dict.fromkeys(
+            INDEX_COLUMNS
+            + ORDERING_COLUMNS
+            + CAT_FEATURES
+            + NUM_FEATURES
+            + [
+                "_seq_len",
+                "shifts",
+                "global_train",
+                "target__clf__local__accuracy+f1_macro",
+                "target__anomaly__local__roc_auc",
+                "target__reg__local__r2",
+                "target__forecast__local__r2",
+            ]
+        )
+    )
 
     save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
     save_partitioned_parquet(
