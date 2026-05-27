@@ -19,7 +19,7 @@ logging:
   cons_lvl: info
 
 trainer:
-  metrics_on_train: false
+  metrics_on_train: true
   ckpt_track_metric: epoch
   ckpt_replace: false
   total_iters: null
