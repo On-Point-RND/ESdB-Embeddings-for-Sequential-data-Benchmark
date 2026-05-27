@@ -10,10 +10,11 @@ from pyspark.sql.types import (
     StructField,
     ArrayType,
 )
+import pyspark.sql.functions as F
 import numpy as np
 import pandas as pd
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     global_time_split,
@@ -195,11 +196,13 @@ def main():
         )
 
         df_parsed = df_raw.select(
+            col("_c1").cast(LongType()).alias(SORT_IDX_COL),
             col("_c2").cast(LongType()).alias("timestamp"),
             from_json(col("_c3"), playtime_schema).alias("props"),
             from_json(col("_c4"), full_schema).alias("entities"),
         )
         df_final = df_parsed.select(
+            col(SORT_IDX_COL),
             col("timestamp"),
             col("props.playtime").alias("play_duration"),
             col("entities.subjects")[0]["id"].alias("user_id"),
@@ -211,7 +214,7 @@ def main():
         raise NotImplementedError(
             "We doesn't know what to do with test.csv for Retail hero dataset without labels."
         )
-
+    
     vcs = cat_freq(df, CAT_FEATURES)
     for vc in vcs:
         df = vc.encode(df)
