@@ -7,7 +7,7 @@ import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import FloatType, LongType
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     add_debug_f,
@@ -163,11 +163,14 @@ def main():
         df_kag_train = spark.read.csv(
             (args.data_path / "transactions_train.csv").as_posix(), header=True
         )
+        df_kag_train = add_row_order(df_kag_train)
+
         df_kag_train = df_kag_train.select(
             F.col("client_id").cast(LongType()),
             F.col("trans_date").cast(LongType()),
             F.col("small_group").cast(LongType()),
             F.col("amount_rur").cast(FloatType()),
+            F.col(SORT_IDX_COL).cast(LongType()),
         )
 
         df_label = spark.read.csv(
@@ -233,23 +236,15 @@ def main():
     )
     test_df["target__reg_amount__local__r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
-    test_df["target__forecast__local__r2"] = test_df.apply(
-        get_forecast_target, axis=1
-    )
-    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
-        test_df
-    )
+    test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
+    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(test_df)
 
-    train_df["target__reg_amount__local__r2"] = train_df.apply(
-        get_reg_target, axis=1
-    )
+    train_df["target__reg_amount__local__r2"] = train_df.apply(get_reg_target, axis=1)
     train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
-        train_df
-    )
+    train_df["target__anomaly__global__roc_auc"] = get_anomaly_target(train_df)
 
     train_df, test_df = transform_train_test_features(
         train_df=train_df,

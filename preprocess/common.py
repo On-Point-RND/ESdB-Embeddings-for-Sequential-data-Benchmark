@@ -7,7 +7,6 @@ from pyspark.sql import Window, SparkSession
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.types import LongType
 
-
 NA_VALUE = 0
 
 
@@ -66,6 +65,16 @@ class CatMap:
         return cls(df)
 
 
+SORT_IDX_COL = "_sort_idx"
+
+
+def add_row_order(df: DataFrame, col: str = SORT_IDX_COL) -> DataFrame:
+    """Assign a global row index to preserve input order for equal sort keys."""
+    if col in df.columns:
+        raise ValueError(f"Column {col!r} already exists")
+    return df.withColumn(col, F.monotonically_increasing_id())
+
+
 def collect_lists(
     df: DataFrame,
     group_by: str | Iterable[str],
@@ -96,10 +105,28 @@ def collect_lists(
         group_by = (group_by,)
     group_by = list(group_by)
 
-    seq_cols = list(set(df.columns) - set(group_by) - set(order_by))
+    has_sort_idx = SORT_IDX_COL in df.columns
+    seq_cols = sorted(
+        set(df.columns)
+        - set(group_by)
+        - set(order_by)
+        - ({SORT_IDX_COL} if has_sort_idx else set())
+    )
+    sort_idx = (
+        F.col(SORT_IDX_COL)
+        if has_sort_idx
+        else F.monotonically_increasing_id()
+    )
 
     return (
-        df.select(*group_by, F.struct(*order_by, *seq_cols).alias("s"))
+        df.select(
+            *group_by,
+            F.struct(
+                *[F.col(c) for c in order_by],
+                sort_idx.alias(SORT_IDX_COL),
+                *[F.col(c) for c in seq_cols],
+            ).alias("s"),
+        )
         .groupBy(*group_by)
         .agg(F.sort_array(F.collect_list("s")).alias("s"))
         .select(
@@ -184,8 +211,8 @@ def train_test_split(
         test_index = index.sample(fraction=test_frac, seed=random_seed).cache()
         test_df = df.join(test_index, on=index_col)
         train_index = index.select(index_col).join(
-                test_index, on=index_col, how="left_anti"
-            )
+            test_index, on=index_col, how="left_anti"
+        )
         train_df = df.join(train_index, on=index_col)
         return train_df, test_df
 
@@ -209,8 +236,8 @@ def train_test_split(
     test_df = df.join(test_index, on=index_col)
 
     train_index = index.select(index_col).join(
-            test_index, on=index_col, how="left_anti"
-        )
+        test_index, on=index_col, how="left_anti"
+    )
     train_df = df.join(train_index, on=index_col)
 
     return train_df, test_df
