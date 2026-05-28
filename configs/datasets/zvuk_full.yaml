@@ -1,27 +1,25 @@
-log_dir: log/yambda
+log_dir: log/zvuk
 patience: 10
 n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 tasks:
-- target__clf__global__accuracy+f1_macro
-- target__anomaly__global__roc_auc
+- target__clf__local__accuracy+f1_macro
+- target__anomaly__local__roc_auc
 - target__reg__local__r2
 - target__forecast__local__r2
 
 cc: 
-  item_id: 15000
-  is_organic: 2
-  event_type: 5
+  cluster_id: 129
+  track_id: 20000
 nn:
-  - played_ratio_pct
-  - track_length_seconds
-
+  - play_duration
+ee:
 
 data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/train"
+    parquet_path: "data/zvuk/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -31,12 +29,12 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1024
-      time_name: timestamp
+      max_seq_len: 512
+      time_name: datetime
       index_name: client_id
       target_name: _seq_len
-      num_names: ${nn}
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -53,8 +51,8 @@ data:
         - ContrastiveTarget
         - RandomSlices:
             split_count: 5
-            cnt_min: 100
-            cnt_max: 700
+            cnt_min: 20
+            cnt_max: 100
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -70,7 +68,7 @@ data:
     train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       drop_incomplete: true
       shuffle: true
       loop: false
@@ -79,12 +77,12 @@ data:
     full_train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     train_val:
       split_idx: 1
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_train:
       split_idx: 0
@@ -100,7 +98,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/test"
+    parquet_path: "data/zvuk/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:
@@ -112,7 +110,7 @@ test_data:
     test:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_test:
       split_idx: 0

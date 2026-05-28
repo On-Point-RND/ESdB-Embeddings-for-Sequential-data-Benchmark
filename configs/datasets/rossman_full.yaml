@@ -1,4 +1,4 @@
-log_dir: log/yambda
+log_dir: log/rossman
 patience: 10
 n_classes: 2
 main_metric: MulticlassAUROC
@@ -6,22 +6,23 @@ main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__global__accuracy+f1_macro
-- target__anomaly__global__roc_auc
-- target__reg__local__r2
+- target__anomaly__local__roc_auc
+- target__reg_amount__local__r2
 - target__forecast__local__r2
 
 cc: 
-  item_id: 15000
-  is_organic: 2
-  event_type: 5
+  DayOfWeek: 8
+  Open: 3
+  Promo: 3
+  StateHoliday: 2
+  SchoolHoliday: 3
+ee:
 nn:
-  - played_ratio_pct
-  - track_length_seconds
-
-
+  - Sales
+  - Customers
 data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/train"
+    parquet_path: "data/rossman/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -31,9 +32,9 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1024
-      time_name: timestamp
-      index_name: client_id
+      max_seq_len: 1000
+      time_name: Date
+      index_name: Store
       target_name: _seq_len
       num_names: ${nn}
       cat_cardinalities: ${cc}
@@ -53,8 +54,8 @@ data:
         - ContrastiveTarget
         - RandomSlices:
             split_count: 5
-            cnt_min: 100
-            cnt_max: 700
+            cnt_min: 25
+            cnt_max: 200
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -70,7 +71,7 @@ data:
     train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       drop_incomplete: true
       shuffle: true
       loop: false
@@ -79,12 +80,12 @@ data:
     full_train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     train_val:
       split_idx: 1
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_train:
       split_idx: 0
@@ -97,10 +98,9 @@ data:
       batch_size: 32
       num_workers: 4
 
-
 test_data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/test"
+    parquet_path: "data/rossman/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:
@@ -112,7 +112,7 @@ test_data:
     test:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_test:
       split_idx: 0

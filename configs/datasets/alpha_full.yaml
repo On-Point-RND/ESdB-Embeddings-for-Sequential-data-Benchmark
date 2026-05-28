@@ -1,27 +1,38 @@
-log_dir: log/yambda
-patience: 10
+log_dir: log/alpha
+patience: 3
 n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 tasks:
-- target__clf__global__accuracy+f1_macro
+- target__prod__global__accuracy+f1_macro
 - target__anomaly__global__roc_auc
-- target__reg__local__r2
+- target__reg_amount__local__r2
 - target__forecast__local__r2
 
 cc: 
-  item_id: 15000
-  is_organic: 2
-  event_type: 5
+  currency: 12
+  operation_kind: 8
+  card_type: 174
+  operation_type: 23
+  operation_type_group: 5
+  ecommerce_flag: 4
+  payment_system: 8
+  income_flag: 4
+  mcc: 109
+  country: 25
+  city: 164
+  mcc_category: 28
+  day_of_week: 8
+ee:  
 nn:
-  - played_ratio_pct
-  - track_length_seconds
-
+  - hour
+  - amnt
+  - hour_diff
 
 data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/train"
+    parquet_path: "data/alpha/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -31,10 +42,10 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1024
-      time_name: timestamp
+      max_seq_len: 512
+      time_name: time_from_first_trn
       index_name: client_id
-      target_name: _seq_len
+      target_name: shard
       num_names: ${nn}
       cat_cardinalities: ${cc}
       batch_transforms:
@@ -53,8 +64,8 @@ data:
         - ContrastiveTarget
         - RandomSlices:
             split_count: 5
-            cnt_min: 100
-            cnt_max: 700
+            cnt_min: 25
+            cnt_max: 150
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -70,7 +81,7 @@ data:
     train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       drop_incomplete: true
       shuffle: true
       loop: false
@@ -79,12 +90,12 @@ data:
     full_train:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     train_val:
       split_idx: 1
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_train:
       split_idx: 0
@@ -100,7 +111,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/yambda/preprocessed_full/test"
+    parquet_path: "data/alpha/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:
@@ -112,7 +123,7 @@ test_data:
     test:
       split_idx: 0
       preprocessing: common_pipeline
-      batch_size: 64
+      batch_size: 128
       num_workers: 4
     gen_test:
       split_idx: 0
