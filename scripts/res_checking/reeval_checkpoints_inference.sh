@@ -12,6 +12,7 @@ SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
 REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
+KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/tests/${TASK}/${SEED_DIR}/ckpt"
@@ -67,4 +68,9 @@ for epoch in ${EPOCHS}; do
     -s "${SPECIFY}" \
     -g "${GPU}" \
     "${validator_args[@]}"
+
+  if [[ "${KEEP_RAW_EMBEDDINGS}" != "1" ]]; then
+    rm -rf "${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/embeddings/train"
+    rm -rf "${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/embeddings/test"
+  fi
 done
