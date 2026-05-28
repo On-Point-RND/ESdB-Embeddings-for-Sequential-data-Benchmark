@@ -6,7 +6,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType, StringType
 import numpy as np
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     global_time_split,
@@ -164,6 +164,7 @@ def main():
         df_kag_train = spark.read.parquet(
             (args.data_path / "multi_event.parquet").as_posix(), header=True
         )
+        df_kag_train = add_row_order(df_kag_train)
         df_kag_train = df_kag_train.select(
             F.col("uid").cast(LongType()),
             F.col("timestamp").cast(LongType()),
@@ -172,6 +173,7 @@ def main():
             F.col("played_ratio_pct").cast(LongType()),
             F.col("event_type").cast(StringType()),
             F.col("is_organic").cast(LongType()),
+            F.col(SORT_IDX_COL).cast(LongType()),
         )
 
         df_kag_train = df_kag_train.withColumn(

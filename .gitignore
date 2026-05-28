@@ -8,6 +8,7 @@ zhores/
 .idea
 embeddings/
 notebooks/local/
+scripts/local/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -178,3 +179,9 @@ cython_debug/
 *.parquet
 *.pth
 **.code-workspace
+*locexp_*
+
+configs/specify/**/classification.yaml
+configs/specify/**/regression.yaml
+configs/specify/**/forecasting.yaml
+configs/specify/**/anomaly.yaml

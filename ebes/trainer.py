@@ -307,6 +307,11 @@ class Trainer:
             pbar.set_postfix_str(f"Loss: {loss_ema:.4g}")
 
             self._opt.step()
+            after_optimizer_step = getattr(
+                self._model, "after_optimizer_step", None
+            )
+            if after_optimizer_step is not None:
+                after_optimizer_step()
 
             if self._metrics_on_train:
                 if gt is not None:
@@ -452,11 +457,14 @@ class Trainer:
             self._last_epoch += 1
             self.save_ckpt()
 
-            assert (
-                self._metric_values is not None
-                and self._ckpt_track_metric in self._metric_values
-            )
-            target_metric = self._metric_values[self._ckpt_track_metric]
+            if self._ckpt_track_metric == "epoch":
+                target_metric = self._last_epoch
+            else:
+                assert (
+                    self._metric_values is not None
+                    and self._ckpt_track_metric in self._metric_values
+                )
+                target_metric = self._metric_values[self._ckpt_track_metric]
 
             if target_metric > best_metric:
                 best_metric = target_metric

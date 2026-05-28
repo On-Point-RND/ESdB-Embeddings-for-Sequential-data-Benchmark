@@ -6,7 +6,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import LongType
 import numpy as np
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     add_debug_f,
@@ -205,6 +205,7 @@ def main():
             (args.data_path / "tianchi_mobile_recommend_train_user.csv").as_posix(),
             header=True,
         )
+        df = add_row_order(df)
 
         df = df.select(
             F.col("user_id").cast(LongType()),
@@ -214,6 +215,7 @@ def main():
             F.to_timestamp(F.col("time"), "yyyy-MM-dd HH")
             .cast(LongType())
             .alias("time"),
+            F.col(SORT_IDX_COL).cast(LongType()),
         )
         df = df.withColumnRenamed("user_id", "client_id")
     else:

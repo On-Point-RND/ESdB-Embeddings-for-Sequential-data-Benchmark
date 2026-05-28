@@ -72,7 +72,7 @@ optuna:
     model.preprocess.params.cat_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     model.preprocess.params.num_emb_dim: [suggest_int, {low: 8, high: 128, log: False, step: 8}]
     # Encoder:
-    model.preprocess.params.enc_hidden_size: [suggest_categorical, {choices: [64, 128, 256, 512, 768, 1024]}]
+    model.preprocess.params.enc_hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
     model.preprocess.params.emb_size: [suggest_categorical, {choices: [64, 256, 1024]}]
     model.preprocess.params.enc_num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.aggregation.name: [suggest_categorical, {choices: ["TakeLastHidden", "ValidHiddenMean"]}]

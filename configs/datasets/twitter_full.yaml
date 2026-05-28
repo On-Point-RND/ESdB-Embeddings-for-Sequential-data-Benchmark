@@ -1,41 +1,36 @@
-log_dir: log/ett
+log_dir: log/twitter_full
 patience: 10
-n_classes: 2
+n_classes: 3
 main_metric: MulticlassAUROC
-main_loss: 
+main_loss:
   name: nn.CrossEntropyLoss
 tasks:
-- target__forecast__local__r2
+- target__clf__global__accuracy+f1_macro
+- target__reg_mentions__global__r2
+- target__anomaly__global__roc_auc
 
-cc:
 ee:
-
+cc: 
+  char: 190
 nn:
-  - HUFL
-  - HULL
-  - MUFL
-  - MULL
-  - LUFL
-  - LULL
 
 data:
   dataset:
-    parquet_path: "data/ett/preprocessed/train"
+    parquet_path: "data/twitter/preprocessed_full/train"
     random_split: true
     split_seed: 42
-
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000
-      time_name: time
-      index_name: week_id
+      max_seq_len: 512
+      time_name: char_number
+      index_name: tweet_id
       target_name: _seq_len
-      num_names: ${nn}
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -52,18 +47,10 @@ data:
         - ContrastiveTarget
         - RandomSlices:
             split_count: ${oc.select:additional_params.split_count, 5}
-            cnt_min: 73
-            cnt_max: 220
+            cnt_min: 25
+            cnt_max: 100
             short_seq_crop_rate: 0.8
             seed: 0
-    primenet_pipeline:
-      <<: *common_pipeline
-      batch_transforms:
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - PrimeNetSampler:
-            segment_num: 3
 
   loaders:
     train:
@@ -98,7 +85,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/ett/preprocessed/test"
+    parquet_path: "data/twitter/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:
@@ -122,6 +109,3 @@ metrics:
   - name: ${main_metric}
     params: 
       num_classes: ${n_classes}
-
-trainer:
-  total_iters: 1000
