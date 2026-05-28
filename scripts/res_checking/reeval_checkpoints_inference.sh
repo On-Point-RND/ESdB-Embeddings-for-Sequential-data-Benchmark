@@ -3,15 +3,15 @@ set -euo pipefail
 shopt -s nullglob
 
 DATASET="${DATASET:-age}"
-METHOD="${METHOD:-jepa_clean}"
-SPECIFY="${SPECIFY:-manual_1}"
-TASK="${TASK:-jepa_manual_1}"
-OUT="${OUT:-${TASK}_logreg}"
-VALIDATOR="${VALIDATOR:-universal_validator/configs/validator/logreg.yaml}"
+METHOD="${METHOD:-jepa_optuna}"
+SPECIFY="${SPECIFY:-classification}"
+TASK="${TASK:-reeval_clf}"
+VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
 SEED_DIR="${SEED_DIR:-seed_0}"
-EPOCHS="${EPOCHS:-1 $(seq 5 5 1000)}"
+EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
+REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/tests/${TASK}/${SEED_DIR}/ckpt"
@@ -40,7 +40,7 @@ for epoch in ${EPOCHS}; do
   fi
 
   ep="$(printf "%04d" "${epoch}")"
-  task_name="${OUT}_epoch_${ep}"
+  task_name="${REVAL_DIR}/epoch_${ep}"
   result="${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/results.csv"
   results=()
   [[ -f "${result}" ]] && results+=("${result}")
@@ -57,11 +57,14 @@ for epoch in ${EPOCHS}; do
   fi
   [[ ${#ckpts[@]} -eq 1 ]] || { echo "bad ckpt match for epoch ${ep}: ${CKPT_DIR}"; exit 1; }
 
+  validator_args=()
+  [[ -n "${VALIDATOR}" ]] && validator_args=(-dv "${VALIDATOR}")
+
   PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
     -d "${DATASET}" \
     -m "${METHOD}" \
     -e inference \
     -s "${SPECIFY}" \
     -g "${GPU}" \
-    -dv "${VALIDATOR}"
+    "${validator_args[@]}"
 done
