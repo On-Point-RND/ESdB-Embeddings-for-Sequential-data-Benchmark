@@ -1,25 +1,38 @@
-log_dir: log/age
-patience: 10
-n_classes: 4
-main_metric: MulticlassAccuracy
+log_dir: log/full/alpha
+patience: 3
+n_classes: 2
+main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 tasks:
-- target__reg_amount__local__r2
-- target__age__global__accuracy+f1_macro
-- target__forecast__local__r2
+- target__prod__global__accuracy+f1_macro
 - target__anomaly__global__roc_auc
+- target__reg_amount__local__r2
+- target__forecast__local__r2
 
 cc: 
-  small_group: 202
-ee:
-
+  currency: 12
+  operation_kind: 8
+  card_type: 174
+  operation_type: 23
+  operation_type_group: 5
+  ecommerce_flag: 4
+  payment_system: 8
+  income_flag: 4
+  mcc: 109
+  country: 25
+  city: 164
+  mcc_category: 28
+  day_of_week: 8
+ee:  
 nn:
-  - amount_rur
+  - hour
+  - amnt
+  - hour_diff
 
 data:
   dataset:
-    parquet_path: "data/age/preprocessed_full/train"
+    parquet_path: "data/alpha/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -29,16 +42,15 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 1000
-      time_name: trans_date
+      max_seq_len: 512
+      time_name: time_from_first_trn
       index_name: client_id
-      target_name: age
-      cat_cardinalities: ${cc}
+      target_name: shard
       num_names: ${nn}
+      cat_cardinalities: ${cc}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - TargetToLong
         - MaskValid
     gen_pipeline:
       <<: *common_pipeline
@@ -51,9 +63,9 @@ data:
         - MaskValid
         - ContrastiveTarget
         - RandomSlices:
-            split_count: ${oc.select:additional_params.split_count, 5}
+            split_count: 5
             cnt_min: 25
-            cnt_max: 200
+            cnt_max: 150
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -61,7 +73,6 @@ data:
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - TargetToLong
         - MaskValid
         - PrimeNetSampler:
             segment_num: 3
@@ -100,7 +111,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/age/preprocessed_full/test"
+    parquet_path: "data/alpha/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:

@@ -1,38 +1,24 @@
-log_dir: log/alpha
-patience: 3
+log_dir: log/full/30music
+patience: 10
 n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 tasks:
-- target__prod__global__accuracy+f1_macro
+- target__clf__global__accuracy+f1_macro
 - target__anomaly__global__roc_auc
-- target__reg_amount__local__r2
+- target__reg__local__r2
 - target__forecast__local__r2
 
 cc: 
-  currency: 12
-  operation_kind: 8
-  card_type: 174
-  operation_type: 23
-  operation_type_group: 5
-  ecommerce_flag: 4
-  payment_system: 8
-  income_flag: 4
-  mcc: 109
-  country: 25
-  city: 164
-  mcc_category: 28
-  day_of_week: 8
+  track_id: 15000
 ee:  
 nn:
-  - hour
-  - amnt
-  - hour_diff
+  - play_duration
 
 data:
   dataset:
-    parquet_path: "data/alpha/preprocessed_full/train"
+    parquet_path: "data/30music/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -42,12 +28,12 @@ data:
 
   preprocessing:
     common_pipeline: &common_pipeline
-      max_seq_len: 512
-      time_name: time_from_first_trn
+      max_seq_len: 1000
+      time_name: timestamp
       index_name: client_id
-      target_name: shard
-      num_names: ${nn}
+      target_name: _seq_len
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -63,9 +49,9 @@ data:
         - MaskValid
         - ContrastiveTarget
         - RandomSlices:
-            split_count: 5
+            split_count: ${oc.select:additional_params.split_count, 5}
             cnt_min: 25
-            cnt_max: 150
+            cnt_max: 200
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -111,7 +97,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/alpha/preprocessed_full/test"
+    parquet_path: "data/30music/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:

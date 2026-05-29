@@ -15,7 +15,7 @@ REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
 KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/tests/${TASK}/${SEED_DIR}/ckpt"
+CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/${TASK}/${SEED_DIR}/ckpt"
 
 cd "${ROOT}"
 
