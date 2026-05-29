@@ -1,4 +1,4 @@
-log_dir: log/alpha
+log_dir: log/alpha_full
 patience: 3
 n_classes: 2
 main_metric: MulticlassAUROC

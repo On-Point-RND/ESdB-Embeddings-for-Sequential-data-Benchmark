@@ -1,4 +1,4 @@
-log_dir: log/electric_devices
+log_dir: log/electric_devices_full
 patience: 10
 n_classes: 7
 main_metric: MulticlassAccuracy
