@@ -1,4 +1,4 @@
-log_dir: log/rossman_full
+log_dir: log/full/30music
 patience: 10
 n_classes: 2
 main_metric: MulticlassAUROC
@@ -6,23 +6,19 @@ main_loss:
   name: nn.CrossEntropyLoss
 tasks:
 - target__clf__global__accuracy+f1_macro
-- target__anomaly__local__roc_auc
-- target__reg_amount__local__r2
+- target__anomaly__global__roc_auc
+- target__reg__local__r2
 - target__forecast__local__r2
 
 cc: 
-  DayOfWeek: 8
-  Open: 3
-  Promo: 3
-  StateHoliday: 2
-  SchoolHoliday: 3
-ee:
+  track_id: 15000
+ee:  
 nn:
-  - Sales
-  - Customers
+  - play_duration
+
 data:
   dataset:
-    parquet_path: "data/rossman/preprocessed_full/train"
+    parquet_path: "data/30music/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -33,11 +29,11 @@ data:
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 1000
-      time_name: Date
-      index_name: Store
+      time_name: timestamp
+      index_name: client_id
       target_name: _seq_len
-      num_names: ${nn}
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -53,7 +49,7 @@ data:
         - MaskValid
         - ContrastiveTarget
         - RandomSlices:
-            split_count: 5
+            split_count: ${oc.select:additional_params.split_count, 5}
             cnt_min: 25
             cnt_max: 200
             short_seq_crop_rate: 0.8
@@ -98,9 +94,10 @@ data:
       batch_size: 32
       num_workers: 4
 
+
 test_data:
   dataset:
-    parquet_path: "data/rossman/preprocessed_full/test"
+    parquet_path: "data/30music/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:

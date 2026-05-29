@@ -20,3 +20,9 @@ logging:
 
 trainer:
   ckpt_replace: false
+
+unsupervised_trainer:
+  ckpt_replace: false
+
+pretrainer:
+  ckpt_replace: false
