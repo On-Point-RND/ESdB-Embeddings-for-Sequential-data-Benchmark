@@ -1,4 +1,4 @@
-log_dir: log/twitter
+log_dir: log/twitter_full
 patience: 10
 n_classes: 3
 main_metric: MulticlassAUROC

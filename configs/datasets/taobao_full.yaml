@@ -1,4 +1,4 @@
-log_dir: log/taobao
+log_dir: log/taobao_full
 patience: 10
 n_classes: 4
 main_metric: MulticlassAUROC

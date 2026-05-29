@@ -1,4 +1,4 @@
-log_dir: log/age
+log_dir: log/age_full
 patience: 10
 n_classes: 4
 main_metric: MulticlassAccuracy
