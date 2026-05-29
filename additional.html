@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Additional workbook tables for the cross-domain time-series benchmark."
+    >
+    <title>Additional Benchmark Tables</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <nav aria-label="Site sections">
+        <a href="index.html#overview">Overview</a>
+        <a href="index.html#results">Results</a>
+        <a href="index.html#global-charts">Charts</a>
+        <a href="insights.html">Insights</a>
+        <a href="datasets.html">Datasets</a>
+        <a class="active" href="additional.html">Additional</a>
+        <a href="index.html#authors">Center</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="page-hero panel">
+        <div>
+          <p class="kicker">Workbook appendix</p>
+          <h1>Additional runs, archive sheets, and raw workbook rows.</h1>
+          <p>
+            These sections are kept outside the main leaderboard so experimental
+            and archival material can be inspected without changing the verified
+            result table semantics.
+          </p>
+        </div>
+        <dl class="stat-grid" aria-label="Benchmark summary">
+          <div>
+            <dt>Datasets</dt>
+            <dd id="stat-datasets">--</dd>
+          </div>
+          <div>
+            <dt>Methods</dt>
+            <dd id="stat-methods">--</dd>
+          </div>
+          <div>
+            <dt>Main rows</dt>
+            <dd id="stat-records">--</dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd id="stat-updated">--</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section id="additional" class="panel additional-panel" aria-labelledby="additional-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Additional sections</p>
+            <h2 id="additional-title">Other workbook tables</h2>
+          </div>
+          <p class="panel-note">
+            These sections expose raw validator runs, archive tables, progress,
+            papers, Optuna summaries, and exact sheet rows without merging their
+            semantics into the main leaderboard.
+          </p>
+        </div>
+
+        <div id="additional-summary" class="task-summary" aria-label="Additional data summary"></div>
+
+        <div class="global-chart-grid">
+          <section class="chart-card" aria-labelledby="ntp-chart-title">
+            <div class="chart-heading">
+              <h3 id="ntp-chart-title">NTP_LGBM classifier runs</h3>
+              <span>dataset / task / classifier</span>
+            </div>
+            <div class="controls compact-controls" aria-label="NTP filters">
+              <label>
+                Dataset
+                <select id="ntp-dataset-filter"></select>
+              </label>
+              <label>
+                Task
+                <select id="ntp-task-filter"></select>
+              </label>
+            </div>
+            <div id="ntp-chart" class="bar-chart extra-chart"></div>
+            <div class="table-shell compact-table-shell">
+              <table class="compact-table">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Method</th>
+                    <th>Task</th>
+                    <th>Classifier</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody id="ntp-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="chart-card" aria-labelledby="archive-chart-title">
+            <div class="chart-heading">
+              <h3 id="archive-chart-title">Archive result coverage</h3>
+              <span>records by source sheet</span>
+            </div>
+            <div id="archive-chart" class="bar-chart extra-chart"></div>
+          </section>
+        </div>
+
+        <section class="chart-card sheet-explorer" aria-labelledby="sheet-explorer-title">
+          <div class="chart-heading">
+            <h3 id="sheet-explorer-title">Raw sheet explorer</h3>
+            <span>exact rows preserved</span>
+          </div>
+          <div class="controls" aria-label="Raw sheet controls">
+            <label>
+              Sheet
+              <select id="sheet-filter"></select>
+            </label>
+            <label>
+              Search
+              <input id="sheet-search" type="search" placeholder="dataset, method, value">
+            </label>
+          </div>
+          <div id="sheet-summary" class="sheet-summary"></div>
+          <div id="sheet-chart" class="bar-chart extra-chart"></div>
+          <div class="table-shell raw-table-shell">
+            <table class="compact-table raw-table">
+              <thead id="sheet-head"></thead>
+              <tbody id="sheet-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

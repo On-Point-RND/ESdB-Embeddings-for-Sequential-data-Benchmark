@@ -16,6 +16,7 @@ const selectors = {
   datasetFilter: document.querySelector("#dataset-filter"),
   sortFilter: document.querySelector("#sort-filter"),
   search: document.querySelector("#method-search"),
+  methodChips: document.querySelector("#method-filter-chips"),
   summary: document.querySelector("#task-summary"),
   compositeChart: document.querySelector("#composite-chart"),
   taskChart: document.querySelector("#task-chart"),
@@ -34,6 +35,13 @@ const selectors = {
   sheetChart: document.querySelector("#sheet-chart"),
   sheetHead: document.querySelector("#sheet-head"),
   sheetBody: document.querySelector("#sheet-body"),
+  comparisonSubtitle: document.querySelector("#comparison-subtitle"),
+  comparisonPies: document.querySelector("#comparison-pies"),
+  comparisonTakeaways: document.querySelector("#comparison-takeaways"),
+  insightHeatmap: document.querySelector("#insight-heatmap"),
+  optunaNotes: document.querySelector("#optuna-notes"),
+  optunaComparison: document.querySelector("#optuna-comparison"),
+  featurePlans: document.querySelector("#feature-plans"),
   tableStatus: document.querySelector("#table-status"),
   body: document.querySelector("#results-body"),
   cards: document.querySelector("#dataset-cards"),
@@ -55,6 +63,16 @@ const chartPalette = [
   "#411BD6",
   "#D2DE26",
   "#2EE4B6"
+];
+
+const comparisonPalette = [
+  "#66D92C",
+  "#0057FF",
+  "#FF7A1A",
+  "#7A3CFF",
+  "#00A6A6",
+  "#F03A6A",
+  "#B9D600"
 ];
 
 const datasetInfo = {
@@ -453,10 +471,16 @@ async function loadData() {
 }
 
 function hydrateStats() {
-  document.querySelector("#stat-datasets").textContent = state.data.meta.datasets;
-  document.querySelector("#stat-methods").textContent = state.data.meta.methods;
-  document.querySelector("#stat-records").textContent = state.data.meta.records;
-  document.querySelector("#stat-updated").textContent = state.data.meta.lastVerified;
+  const stats = [
+    ["#stat-datasets", state.data.meta.datasets],
+    ["#stat-methods", state.data.meta.methods],
+    ["#stat-records", state.data.meta.records],
+    ["#stat-updated", state.data.meta.lastVerified]
+  ];
+  stats.forEach(([selector, value]) => {
+    const element = document.querySelector(selector);
+    if (element) element.textContent = value;
+  });
 }
 
 function defaultDatasetId() {
@@ -466,10 +490,16 @@ function defaultDatasetId() {
 }
 
 function setupControls() {
+  if (!selectors.datasetFilter || !selectors.sortFilter || !selectors.search) return;
   selectors.datasetFilter.innerHTML = state.data.datasets
     .map((dataset) => `<option value="${escapeHtml(dataset.id)}">${escapeHtml(dataset.name)}</option>`)
     .join("");
-  selectors.datasetFilter.value = defaultDatasetId();
+  const requestedDataset = new URLSearchParams(window.location.search).get("dataset");
+  const requestedMethod = new URLSearchParams(window.location.search).get("method");
+  selectors.datasetFilter.value = state.data.datasets.some((dataset) => dataset.id === requestedDataset)
+    ? requestedDataset
+    : defaultDatasetId();
+  selectors.search.value = requestedMethod ?? "";
 
   selectors.datasetFilter.addEventListener("change", () => {
     state.selected = null;
@@ -480,6 +510,7 @@ function setupControls() {
 }
 
 function setupOverviewControls() {
+  if (!selectors.overviewTaskFilter || !selectors.resetView) return;
   selectors.overviewTaskFilter.innerHTML = [
     `<option value="all">All tasks</option>`,
     ...state.data.tasks.map((task) => `<option value="${escapeHtml(task.id)}">${escapeHtml(task.label)}</option>`)
@@ -491,11 +522,11 @@ function setupOverviewControls() {
     selectors.search.value = "";
     state.selected = null;
     render();
-    document.querySelector("#results").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
 function setupAdditionalControls() {
+  if (!selectors.ntpDatasetFilter || !selectors.ntpTaskFilter || !selectors.sheetFilter || !selectors.sheetSearch) return;
   const ntpRecords = state.data.additional?.ntpLgbm?.records ?? [];
   const ntpDatasets = [...new Set(ntpRecords.map((record) => record.dataset))].sort();
   const ntpTasks = [...new Set(ntpRecords.map((record) => record.task))].sort();
@@ -513,7 +544,7 @@ function setupAdditionalControls() {
   selectors.sheetFilter.innerHTML = state.data.rawSheets
     .map((sheet) => `<option value="${sheet.id}">${escapeHtml(sheet.name)}</option>`)
     .join("");
-  selectors.sheetFilter.value = state.data.rawSheets.find((sheet) => sheet.name === "RESULTS NEW from March")?.id
+  selectors.sheetFilter.value = state.data.rawSheets.find((sheet) => sheet.name === state.data.meta.sourceSheet)?.id
     ?? state.data.rawSheets[0]?.id
     ?? "";
   selectors.sheetFilter.addEventListener("change", renderRawSheet);
@@ -522,18 +553,19 @@ function setupAdditionalControls() {
 
 function setupNavigationState() {
   const links = [...document.querySelectorAll(".topbar nav a")];
-  const sections = links
+  const localLinks = links.filter((link) => link.getAttribute("href")?.startsWith("#"));
+  const sections = localLinks
     .map((link) => document.querySelector(link.getAttribute("href")))
     .filter(Boolean);
 
-  if (!("IntersectionObserver" in window)) return;
+  if (!sections.length || !("IntersectionObserver" in window)) return;
 
   const observer = new IntersectionObserver((entries) => {
     const active = entries
       .filter((entry) => entry.isIntersecting)
       .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]?.target;
     if (!active) return;
-    links.forEach((link) => {
+    localLinks.forEach((link) => {
       link.classList.toggle("active", link.getAttribute("href") === `#${active.id}`);
     });
   }, {
@@ -559,10 +591,31 @@ function setupInteractiveSurfaces() {
 
 function rowsForDataset() {
   const datasetId = selectors.datasetFilter.value;
-  const query = selectors.search.value.trim().toLowerCase();
+  const queries = methodSearchQueries();
   return state.data.records
     .filter((record) => record.datasetId === datasetId)
-    .filter((record) => !query || record.method.toLowerCase().includes(query));
+    .filter((record) => {
+      if (!queries.length) return true;
+      const haystack = [record.method, record.methodId, record.validator].join(" ").toLowerCase();
+      return queries.some((query) => haystack.includes(query));
+    });
+}
+
+function methodSearchQueries() {
+  return methodSearchParts().map((part) => part.toLowerCase());
+}
+
+function methodSearchParts() {
+  return selectors.search.value
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function setMethodSearch(parts) {
+  selectors.search.value = parts.join(", ");
+  state.selected = null;
+  render();
 }
 
 function taskWinners(rows) {
@@ -637,32 +690,109 @@ function normalizeScore(value, range) {
   return (value - range.min) / (range.max - range.min);
 }
 
-function scrollToResults() {
-  document.querySelector("#results").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
 function applyDatasetFilter(datasetId) {
+  if (!selectors.datasetFilter) {
+    window.location.href = `index.html?dataset=${encodeURIComponent(datasetId)}#results`;
+    return;
+  }
   selectors.datasetFilter.value = datasetId;
   selectors.search.value = "";
   state.selected = null;
   render();
-  scrollToResults();
 }
 
 function applyMethodSearch(methodName) {
-  selectors.search.value = methodName;
+  if (!selectors.search) {
+    window.location.href = `index.html?method=${encodeURIComponent(methodName)}#results`;
+    return;
+  }
+  const existing = methodSearchParts();
+  if (!existing.some((value) => value.toLowerCase() === methodName.toLowerCase())) {
+    existing.push(methodName);
+  }
+  selectors.search.value = existing.join(", ");
   state.selected = null;
   render();
-  scrollToResults();
+  document.querySelector("#results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderMethodFilterChips() {
+  if (!selectors.methodChips) return;
+  const parts = methodSearchParts();
+  selectors.methodChips.innerHTML = parts.map((part, index) => `
+    <button type="button" data-method-filter-index="${index}">
+      <span>${escapeHtml(part)}</span>
+      <b aria-hidden="true">x</b>
+    </button>
+  `).join("");
+  selectors.methodChips.querySelectorAll("[data-method-filter-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = methodSearchParts().filter((_, index) => index !== Number(button.dataset.methodFilterIndex));
+      setMethodSearch(next);
+    });
+  });
+}
+
+function validatorRowsForDataset(datasetId) {
+  return (state.data.additional?.validatorTrials?.records ?? [])
+    .filter((record) => record.datasetId === datasetId);
+}
+
+function validatorsForDataset(datasetId) {
+  return [...new Set(validatorRowsForDataset(datasetId).map((record) => record.validator).filter(Boolean))].sort();
+}
+
+function validatorWinnersForDataset(datasetId) {
+  const rows = validatorRowsForDataset(datasetId);
+  const taskIds = [...new Set(rows.map((record) => record.task))].sort();
+  return taskIds.map((taskId) => {
+    const taskRows = rows.filter((record) => record.task === taskId);
+    const declared = taskRows.find((record) => record.winner)?.winner;
+    const inferred = [...taskRows].sort((a, b) => (b.total ?? -Infinity) - (a.total ?? -Infinity))[0]?.validator;
+    const taskLabel = taskRows[0]?.taskLabel ?? taskId;
+    return { taskLabel, winner: declared || inferred || "not specified" };
+  });
+}
+
+function renderDatasetValidatorView(datasetId) {
+  const validators = validatorsForDataset(datasetId);
+  const winners = validatorWinnersForDataset(datasetId);
+  if (!validators.length) {
+    return `<p class="muted-text">Main table rows do not expose a per-row validator for this dataset, and no BERT_CORR validator trial rows are registered.</p>`;
+  }
+  return `
+    <div class="validator-view">
+      <div class="validator-pill-row">
+        ${validators.map((validator) => `<span class="validator-pill">${escapeHtml(validator)}</span>`).join("")}
+      </div>
+      <div class="validator-task-grid">
+        ${winners.map((item) => `
+          <div>
+            <span>${escapeHtml(item.taskLabel)}</span>
+            <b>${escapeHtml(item.winner)}</b>
+          </div>
+        `).join("")}
+      </div>
+      <p class="muted-text">Main table rows do not specify validators directly; this section is derived from BERT_CORR validator trials.</p>
+    </div>
+  `;
 }
 
 function renderSummary(rows, winners) {
   const dataset = state.data.datasets.find((item) => item.id === selectors.datasetFilter.value);
+  const validators = validatorsForDataset(dataset?.id);
   const datasetCard = `
     <article class="summary-card">
       <span>Dataset</span>
       <strong>${dataset?.name ?? "Unknown"}</strong>
       <small>${rows.length} visible rows</small>
+    </article>
+  `;
+  const validatorCard = `
+    <article class="summary-card">
+      <span>Validators</span>
+      <strong>${validators.length ? validators.join(" / ") : "Not specified"}</strong>
+      <small>${validators.length ? "BERT_CORR trial view" : "not exposed in the main table"}</small>
     </article>
   `;
   const taskCards = state.data.tasks.map((task) => {
@@ -676,7 +806,7 @@ function renderSummary(rows, winners) {
       </article>
     `;
   });
-  selectors.summary.innerHTML = datasetCard + taskCards.join("");
+  selectors.summary.innerHTML = datasetCard + validatorCard + taskCards.join("");
 }
 
 function scoreCell(record, taskId, winners, ranges) {
@@ -696,11 +826,11 @@ function scoreCell(record, taskId, winners, ranges) {
 function renderTable(rows, winners) {
   const ranges = taskRangesForRows(rows);
   const dataset = state.data.datasets.find((item) => item.id === selectors.datasetFilter.value);
-  const query = selectors.search.value.trim();
+  const queries = methodSearchQueries();
   selectors.tableStatus.innerHTML = `
     <span>${escapeHtml(dataset?.name ?? "Dataset")}</span>
     <strong>${rows.length} rows</strong>
-    <small>${query ? `filtered by "${escapeHtml(query)}"` : "click a row to inspect exact hyperparameters"}</small>
+    <small>${queries.length ? `filtered by ${queries.length} method ${queries.length === 1 ? "query" : "queries"}` : "click a row to inspect exact hyperparameters"}</small>
   `;
 
   selectors.body.innerHTML = rows.map((record, index) => `
@@ -711,6 +841,9 @@ function renderTable(rows, winners) {
           <strong>${record.method}</strong>
           <small class="mono">${record.methodId}</small>
         </span>
+      </td>
+      <td>
+        ${record.validator ? `<span class="validator-pill">${escapeHtml(record.validator)}</span>` : `<span class="score-missing">--</span>`}
       </td>
       <td>${bar(record.composite)}</td>
       <td>${scoreCell(record, "regression", winners, ranges)}</td>
@@ -735,6 +868,7 @@ function renderCharts(rows, winners) {
 }
 
 function renderGlobalCharts() {
+  if (!selectors.methodLandscape || !selectors.datasetHeatmap || !selectors.metricDistribution) return;
   const ranges = globalTaskRanges();
   renderMethodLandscape(ranges);
   renderDatasetHeatmap(ranges);
@@ -742,6 +876,7 @@ function renderGlobalCharts() {
 }
 
 function renderOverviewCharts() {
+  if (!selectors.overviewTaskFilter || !selectors.datasetDonut) return;
   const taskId = selectors.overviewTaskFilter.value;
   renderDatasetDonut();
   renderTaskAvailabilityDonut();
@@ -835,7 +970,14 @@ function renderDonut(element, entries, unit) {
   });
   element.querySelectorAll("[data-target-id]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelector(`#${button.dataset.targetId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const target = document.querySelector(`#${button.dataset.targetId}`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (button.dataset.targetId === "additional") {
+        window.location.href = "additional.html";
+      } else if (button.dataset.targetId === "coverage") {
+        window.location.href = "datasets.html";
+      }
     });
   });
 }
@@ -1103,20 +1245,179 @@ function renderMetricDistribution() {
 }
 
 function renderAdditionalSections() {
+  if (!selectors.additionalSummary) return;
   renderAdditionalSummary();
   renderNtpSection();
   renderArchiveChart();
   renderRawSheet();
 }
 
+function renderInsightsSections() {
+  if (!selectors.comparisonPies && !selectors.insightHeatmap && !selectors.optunaComparison && !selectors.featurePlans) return;
+  renderMethodComparisonInsights();
+  renderDataHeatmapInsights();
+  renderOptunaInsights();
+  renderFeaturePlans();
+}
+
+function pieGradient(entries, palette = chartPalette) {
+  const total = entries.reduce((sum, entry) => sum + Number(entry.value || 0), 0);
+  let cursor = 0;
+  if (!total) return "conic-gradient(rgba(17,17,17,0.08) 0deg 360deg)";
+  return `conic-gradient(${entries.map((entry, index) => {
+    const start = (cursor / total) * 360;
+    cursor += Number(entry.value || 0);
+    const end = (cursor / total) * 360;
+    return `${palette[index % palette.length]} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  }).join(", ")})`;
+}
+
+function renderMethodComparisonInsights() {
+  if (!selectors.comparisonPies) return;
+  const comparison = state.data.additional?.insights?.methodComparison ?? {};
+  const sections = comparison.sections ?? [];
+  if (selectors.comparisonSubtitle) {
+    selectors.comparisonSubtitle.textContent = comparison.subtitle || "Method share from the comparison summary.";
+  }
+  selectors.comparisonPies.innerHTML = sections.map((section) => {
+    const entries = section.entries ?? [];
+    return `
+      <article class="pie-card">
+        <div class="pie-orbit" style="--pie-bg: ${pieGradient(entries, comparisonPalette)}">
+          <div class="pie-center">
+            <strong>${escapeHtml(section.name)}</strong>
+            <span>${entries.length} methods</span>
+          </div>
+        </div>
+        <div class="pie-legend">
+          ${entries.map((entry, index) => `
+            <button type="button" data-method="${escapeHtml(entry.label)}">
+              <i style="--swatch: ${comparisonPalette[index % comparisonPalette.length]}"></i>
+              <span>${escapeHtml(entry.label)}</span>
+              <b class="mono">${format(entry.value, 1)}%</b>
+            </button>
+          `).join("")}
+        </div>
+      </article>
+    `;
+  }).join("");
+  selectors.comparisonPies.querySelectorAll("[data-method]").forEach((button) => {
+    button.addEventListener("click", () => applyMethodSearch(button.dataset.method));
+  });
+
+  if (selectors.comparisonTakeaways) {
+    selectors.comparisonTakeaways.innerHTML = (comparison.takeaways ?? []).map((item) => `
+      <article>
+        <span>Takeaway</span>
+        <p>${escapeHtml(item)}</p>
+      </article>
+    `).join("");
+  }
+}
+
+function renderDataHeatmapInsights() {
+  if (!selectors.insightHeatmap) return;
+  const heatmap = state.data.additional?.insights?.dataHeatmap ?? {};
+  const datasets = heatmap.datasets ?? [];
+  const records = heatmap.records ?? [];
+  selectors.insightHeatmap.innerHTML = `
+    <div class="insight-heatmap-grid" style="--dataset-count: ${datasets.length}">
+      <div class="heat-meta heat-head">Task / model</div>
+      ${datasets.map((dataset) => `<div class="heat-head">${escapeHtml(dataset)}</div>`).join("")}
+      ${records.map((record) => `
+        <div class="heat-meta">
+          <span>${escapeHtml(record.task)}</span>
+          <b>${escapeHtml(record.model)}</b>
+        </div>
+        ${datasets.map((dataset) => {
+          const value = record.values?.[dataset];
+          const empty = value === null || value === undefined;
+          const heat = empty ? 0 : Math.max(0, Math.min(1, Number(value)));
+          return `
+            <button
+              class="insight-heat-cell${empty ? " empty" : ""}"
+              type="button"
+              style="--heat: ${heat}"
+              title="${escapeHtml(record.task)} / ${escapeHtml(record.model)} / ${escapeHtml(dataset)}: ${empty ? "missing" : format(value, 2)}"
+            >
+              ${empty ? "" : format(value, 2)}
+            </button>
+          `;
+        }).join("")}
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderOptunaInsights() {
+  if (!selectors.optunaComparison) return;
+  const optuna = state.data.additional?.optuna ?? {};
+  if (selectors.optunaNotes) {
+    selectors.optunaNotes.innerHTML = (optuna.summary ?? []).map((record) => `
+      <article>
+        <span>${escapeHtml(record.Note || "Note")}</span>
+        <p>${escapeHtml(record.Text)}</p>
+      </article>
+    `).join("");
+  }
+
+  const renderSet = (title, rows = []) => `
+    <article class="optuna-card">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="optuna-row-list">
+        ${rows.map((row) => {
+          const values = ["LGBM", "MLP", "LOGREG"].map((name) => ({ name, value: Number(row[name] ?? 0) }));
+          const max = Math.max(...values.map((item) => Math.abs(item.value)), 1);
+          return `
+            <section>
+              <header>
+                <span>${escapeHtml(row.Metric)}</span>
+                <b>${escapeHtml(row["Type/Subtype"])}</b>
+              </header>
+              ${values.map((item, index) => `
+                <div class="mini-bar">
+                  <span>${escapeHtml(item.name)}</span>
+                  <i style="--fill: ${Math.max(2, Math.round((Math.abs(item.value) / max) * 100))}%; --swatch: ${chartPalette[index % chartPalette.length]}"></i>
+                  <b class="mono">${format(item.value, 3)}</b>
+                </div>
+              `).join("")}
+            </section>
+          `;
+        }).join("")}
+      </div>
+    </article>
+  `;
+
+  selectors.optunaComparison.innerHTML = [
+    renderSet("Top 10 Optuna trials", optuna.top10Trials ?? []),
+    renderSet("Last 10 Optuna trials", optuna.last10Trials ?? [])
+  ].join("");
+}
+
+function renderFeaturePlans() {
+  if (!selectors.featurePlans) return;
+  const plans = state.data.additional?.insights?.featurePlans ?? {};
+  selectors.featurePlans.innerHTML = (plans.items ?? []).map((item, index) => `
+    <article class="plan-card">
+      <span class="mono">${String(index + 1).padStart(2, "0")}</span>
+      <h3>${escapeHtml(item.title)}</h3>
+      <ul>
+        ${(item.notes ?? []).map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+      </ul>
+    </article>
+  `).join("");
+}
+
 function renderAdditionalSummary() {
   const meta = state.data.meta;
   const additional = state.data.additional;
+  const optunaRows = Object.values(additional.optuna ?? {}).flat().length;
   const cards = [
     ["Workbook sheets", meta.workbookSheets ?? state.data.rawSheets.length, `${meta.rawRows ?? 0} raw rows`],
     ["NTP_LGBM rows", additional.ntpLgbm.records.length, "classifier-level values"],
     ["Archive records", additional.wideResults.records.length, "wide result tables"],
     ["BERT_CORR trials", additional.validatorTrials.records.length, "validator trial rows"],
+    ["Optuna summaries", optunaRows, "validator summary rows"],
     ["Papers / notes", additional.papers.records.length + Object.values(additional.notes).flat().length, "reference rows"]
   ];
   selectors.additionalSummary.innerHTML = cards.map(([label, value, note]) => `
@@ -1343,7 +1644,17 @@ function scoreMap(record) {
 }
 
 function renderDetails(record, winners) {
-  if (!record) return;
+  if (!record) {
+    state.selected = null;
+    document.querySelector("#detail-method").textContent = "No visible rows";
+    document.querySelector("#detail-dataset").textContent = "--";
+    document.querySelector("#detail-best").textContent = "--";
+    document.querySelector("#detail-validator").textContent = "--";
+    document.querySelector("#detail-scores").textContent = "--";
+    document.querySelector("#detail-params").textContent = "--";
+    document.querySelector("#detail-masking").textContent = "--";
+    return;
+  }
   state.selected = record;
   const bestTasks = Object.entries(winners)
     .filter(([, method]) => method === record.method)
@@ -1352,6 +1663,7 @@ function renderDetails(record, winners) {
   document.querySelector("#detail-method").textContent = record.method;
   document.querySelector("#detail-dataset").textContent = record.dataset;
   document.querySelector("#detail-best").textContent = bestTasks || "not best on visible rows";
+  document.querySelector("#detail-validator").textContent = record.validator || "not specified";
   document.querySelector("#detail-scores").textContent = scoreMap(record);
   document.querySelector("#detail-params").textContent = detailMap(record, record.params);
   document.querySelector("#detail-masking").textContent = detailMap(record, record.masking);
@@ -1453,6 +1765,11 @@ function openDatasetModal(datasetId) {
       ${renderFeatureTable(features)}
     </section>
 
+    <section class="dataset-dialog-section">
+      <h4>Validator View</h4>
+      ${renderDatasetValidatorView(dataset.id)}
+    </section>
+
     <div class="dataset-dialog-columns">
       <section class="dataset-dialog-section">
         <h4>Targets</h4>
@@ -1493,6 +1810,7 @@ function setupDatasetDialog() {
 }
 
 function renderDatasetCards() {
+  if (!selectors.cards) return;
   selectors.cards.innerHTML = state.data.datasets.map((dataset) => {
     const info = datasetInfo[dataset.id];
     return `
@@ -1525,8 +1843,10 @@ function renderDatasetCards() {
 }
 
 function render() {
+  if (!selectors.body || !selectors.datasetFilter || !selectors.summary || !selectors.tableStatus) return;
   const rows = sortRows(withComposite(rowsForDataset()));
   const winners = taskWinners(rows);
+  renderMethodFilterChips();
   renderSummary(rows, winners);
   renderCharts(rows, winners);
   renderTable(rows, winners);
@@ -1548,6 +1868,7 @@ async function init() {
     renderOverviewCharts();
     renderGlobalCharts();
     renderAdditionalSections();
+    renderInsightsSections();
     render();
     setupInteractiveSurfaces();
   } catch (error) {

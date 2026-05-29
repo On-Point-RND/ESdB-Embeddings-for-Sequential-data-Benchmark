@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Method comparison, normalized heatmaps, Optuna validator summaries, and future plans."
+    >
+    <title>Benchmark Insights</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <nav aria-label="Site sections">
+        <a href="index.html#overview">Overview</a>
+        <a href="index.html#results">Results</a>
+        <a href="index.html#global-charts">Charts</a>
+        <a class="active" href="insights.html">Insights</a>
+        <a href="datasets.html">Datasets</a>
+        <a href="additional.html">Additional</a>
+        <a href="index.html#authors">Center</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="page-hero panel">
+        <div>
+          <p class="kicker">Benchmark insights</p>
+          <h1>Comparison charts, validator behavior, and next-step plans.</h1>
+          <p>
+            This page collects derived analysis files from the repository:
+            method comparison summaries, normalized task heatmaps, Optuna
+            validator aggregates, and the current feature plan.
+          </p>
+        </div>
+        <dl class="stat-grid" aria-label="Benchmark summary">
+          <div>
+            <dt>Datasets</dt>
+            <dd id="stat-datasets">--</dd>
+          </div>
+          <div>
+            <dt>Methods</dt>
+            <dd id="stat-methods">--</dd>
+          </div>
+          <div>
+            <dt>Main rows</dt>
+            <dd id="stat-records">--</dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd id="stat-updated">--</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel insights-panel" aria-labelledby="comparison-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Comparison</p>
+            <h2 id="comparison-title">Method share by task</h2>
+          </div>
+          <p id="comparison-subtitle" class="panel-note"></p>
+        </div>
+        <div id="comparison-pies" class="pie-grid"></div>
+        <div id="comparison-takeaways" class="insight-list"></div>
+      </section>
+
+      <section class="panel insights-panel" aria-labelledby="heatmap-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Normalized table</p>
+            <h2 id="heatmap-title">Task x method heatmap</h2>
+          </div>
+          <p class="panel-note">
+            Values are normalized per task and dataset, so each cell is useful
+            for visual comparison rather than absolute metric reading.
+          </p>
+        </div>
+        <div id="insight-heatmap" class="insight-heatmap"></div>
+      </section>
+
+      <section class="panel insights-panel" aria-labelledby="optuna-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Optuna validators</p>
+            <h2 id="optuna-title">Top vs latest trials</h2>
+          </div>
+          <p class="panel-note">
+            Validator aggregates are shown exactly as supplied in the CSV
+            summaries: winners, ranks, rank-stability, and regrets.
+          </p>
+        </div>
+        <div id="optuna-notes" class="insight-list"></div>
+        <div id="optuna-comparison" class="optuna-grid"></div>
+      </section>
+
+      <section class="panel insights-panel" aria-labelledby="plans-title">
+        <div class="panel-heading">
+          <div>
+            <p class="kicker">Roadmap</p>
+            <h2 id="plans-title">Feature and experiment plan</h2>
+          </div>
+          <p class="panel-note">
+            These notes are kept compact so they can be moved into paper text
+            or an experiment tracker later.
+          </p>
+        </div>
+        <div id="feature-plans" class="plan-grid"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

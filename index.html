@@ -12,12 +12,13 @@
   </head>
   <body>
     <header class="topbar">
-      <nav aria-label="Page sections">
+      <nav aria-label="Site sections">
         <a href="#overview">Overview</a>
         <a href="#results">Results</a>
         <a href="#global-charts">Charts</a>
-        <a href="#additional">Additional</a>
-        <a href="#coverage">Coverage</a>
+        <a href="insights.html">Insights</a>
+        <a href="datasets.html">Datasets</a>
+        <a href="additional.html">Additional</a>
         <a href="#authors">Center</a>
       </nav>
     </header>
@@ -144,9 +145,10 @@
               </select>
             </label>
             <label>
-              Search
-              <input id="method-search" type="search" placeholder="BERT, NTP, COLES">
+              Methods
+              <input id="method-search" type="search" placeholder="BERT, JEPA, COLES">
             </label>
+            <div id="method-filter-chips" class="method-filter-chips" aria-live="polite"></div>
           </div>
         </div>
 
@@ -177,6 +179,7 @@
                 <tr>
                   <th class="rank-col" scope="col">#</th>
                   <th class="method-col" scope="col">Method</th>
+                  <th scope="col">Validator</th>
                   <th scope="col">Composite</th>
                   <th scope="col">Regression</th>
                   <th scope="col">Classification</th>
@@ -199,6 +202,10 @@
               <div>
                 <dt>Best task</dt>
                 <dd id="detail-best">--</dd>
+              </div>
+              <div>
+                <dt>Validator</dt>
+                <dd id="detail-validator">--</dd>
               </div>
               <div>
                 <dt>Scores</dt>
@@ -253,112 +260,36 @@
         </div>
       </section>
 
-      <section id="additional" class="panel additional-panel" aria-labelledby="additional-title">
+      <section class="panel page-links-panel" aria-labelledby="pages-title">
         <div class="panel-heading">
           <div>
-            <p class="kicker">Additional sections</p>
-            <h2 id="additional-title">Other workbook tables</h2>
+            <p class="kicker">More views</p>
+            <h2 id="pages-title">Detailed pages</h2>
           </div>
           <p class="panel-note">
-            These sections are kept separate from the main leaderboard. They
-            expose raw validator runs, archive tables, progress, papers, and
-            exact sheet rows without merging their semantics.
+            Heavy dataset notes and workbook archive tables now live on
+            separate pages, so the main dashboard stays focused on the verified
+            leaderboard.
           </p>
         </div>
-
-        <div id="additional-summary" class="task-summary" aria-label="Additional data summary"></div>
-
-        <div class="global-chart-grid">
-          <section class="chart-card" aria-labelledby="ntp-chart-title">
-            <div class="chart-heading">
-              <h3 id="ntp-chart-title">NTP_LGBM classifier runs</h3>
-              <span>dataset / task / classifier</span>
-            </div>
-            <div class="controls compact-controls" aria-label="NTP filters">
-              <label>
-                Dataset
-                <select id="ntp-dataset-filter"></select>
-              </label>
-              <label>
-                Task
-                <select id="ntp-task-filter"></select>
-              </label>
-            </div>
-            <div id="ntp-chart" class="bar-chart extra-chart"></div>
-            <div class="table-shell compact-table-shell">
-              <table class="compact-table">
-                <thead>
-                  <tr>
-                    <th>Dataset</th>
-                    <th>Method</th>
-                    <th>Task</th>
-                    <th>Classifier</th>
-                    <th>Value</th>
-                  </tr>
-                </thead>
-                <tbody id="ntp-body"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="chart-card" aria-labelledby="archive-chart-title">
-            <div class="chart-heading">
-              <h3 id="archive-chart-title">Archive result coverage</h3>
-              <span>records by source sheet</span>
-            </div>
-            <div id="archive-chart" class="bar-chart extra-chart"></div>
-          </section>
+        <div class="page-link-grid">
+          <a class="page-link-card" href="datasets.html">
+            <span>Datasets</span>
+            <strong>Feature cards and validator view</strong>
+            <small>Domains, selected features, cardinalities, targets, and preprocessing.</small>
+          </a>
+          <a class="page-link-card" href="insights.html">
+            <span>Insights</span>
+            <strong>Comparison charts and next steps</strong>
+            <small>Method pies, normalized heatmaps, Optuna validator summaries, and feature plans.</small>
+          </a>
+          <a class="page-link-card" href="additional.html">
+            <span>Additional</span>
+            <strong>Workbook archive and raw sheets</strong>
+            <small>NTP_LGBM rows, validator trials, archive coverage, and exact sheet rows.</small>
+          </a>
         </div>
-
-        <section class="chart-card sheet-explorer" aria-labelledby="sheet-explorer-title">
-          <div class="chart-heading">
-            <h3 id="sheet-explorer-title">Raw sheet explorer</h3>
-            <span>exact rows preserved</span>
-          </div>
-          <div class="controls" aria-label="Raw sheet controls">
-            <label>
-              Sheet
-              <select id="sheet-filter"></select>
-            </label>
-            <label>
-              Search
-              <input id="sheet-search" type="search" placeholder="dataset, method, value">
-            </label>
-          </div>
-          <div id="sheet-summary" class="sheet-summary"></div>
-          <div id="sheet-chart" class="bar-chart extra-chart"></div>
-          <div class="table-shell raw-table-shell">
-            <table class="compact-table raw-table">
-              <thead id="sheet-head"></thead>
-              <tbody id="sheet-body"></tbody>
-            </table>
-          </div>
-        </section>
       </section>
-
-      <section id="coverage" class="panel coverage-panel" aria-labelledby="coverage-title">
-        <div class="panel-heading">
-          <div>
-            <p class="kicker">Coverage</p>
-            <h2 id="coverage-title">Datasets</h2>
-          </div>
-          <p class="panel-note">
-            Open a dataset card to inspect the selected features, feature types,
-            known cardinalities, targets, and preprocessing notes in a compact
-            paper-ready format.
-          </p>
-        </div>
-        <div id="dataset-cards" class="dataset-grid"></div>
-      </section>
-
-      <dialog id="dataset-modal" class="dataset-dialog" aria-labelledby="dataset-modal-title">
-        <div class="dataset-dialog-card">
-          <button id="dataset-modal-close" class="dataset-dialog-close" type="button" aria-label="Close dataset details">
-            Close
-          </button>
-          <div id="dataset-modal-content"></div>
-        </div>
-      </dialog>
 
       <section id="authors" class="panel authors-panel" aria-labelledby="authors-title">
         <div>
