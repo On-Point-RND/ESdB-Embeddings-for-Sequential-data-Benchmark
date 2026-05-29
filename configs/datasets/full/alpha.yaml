@@ -1,25 +1,38 @@
-log_dir: log/zvuk_full
-patience: 10
+log_dir: log/full/alpha
+patience: 3
 n_classes: 2
 main_metric: MulticlassAUROC
 main_loss: 
   name: nn.CrossEntropyLoss
 tasks:
-- target__clf__local__accuracy+f1_macro
-- target__anomaly__local__roc_auc
-- target__reg__local__r2
+- target__prod__global__accuracy+f1_macro
+- target__anomaly__global__roc_auc
+- target__reg_amount__local__r2
 - target__forecast__local__r2
 
 cc: 
-  cluster_id: 129
-  track_id: 20000
+  currency: 12
+  operation_kind: 8
+  card_type: 174
+  operation_type: 23
+  operation_type_group: 5
+  ecommerce_flag: 4
+  payment_system: 8
+  income_flag: 4
+  mcc: 109
+  country: 25
+  city: 164
+  mcc_category: 28
+  day_of_week: 8
+ee:  
 nn:
-  - play_duration
-ee:
+  - hour
+  - amnt
+  - hour_diff
 
 data:
   dataset:
-    parquet_path: "data/zvuk/preprocessed_full/train"
+    parquet_path: "data/alpha/preprocessed_full/train"
     random_split: true
     split_seed: 42
 
@@ -30,11 +43,11 @@ data:
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 512
-      time_name: datetime
+      time_name: time_from_first_trn
       index_name: client_id
-      target_name: _seq_len
-      cat_cardinalities: ${cc}
+      target_name: shard
       num_names: ${nn}
+      cat_cardinalities: ${cc}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
@@ -51,8 +64,8 @@ data:
         - ContrastiveTarget
         - RandomSlices:
             split_count: 5
-            cnt_min: 20
-            cnt_max: 100
+            cnt_min: 25
+            cnt_max: 150
             short_seq_crop_rate: 0.8
             seed: 0
     primenet_pipeline:
@@ -98,7 +111,7 @@ data:
 
 test_data:
   dataset:
-    parquet_path: "data/zvuk/preprocessed_full/test"
+    parquet_path: "data/alpha/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:

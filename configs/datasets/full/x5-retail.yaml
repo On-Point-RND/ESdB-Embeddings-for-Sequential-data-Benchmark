@@ -1,41 +1,39 @@
-log_dir: log/alpha_full
-patience: 3
-n_classes: 2
-main_metric: MulticlassAUROC
-main_loss: 
+log_dir: log/full/x5-retail
+patience: 5
+n_classes: 6
+main_metric: MulticlassAccuracy
+main_loss:
   name: nn.CrossEntropyLoss
 tasks:
-- target__prod__global__accuracy+f1_macro
-- target__anomaly__global__roc_auc
-- target__reg_amount__local__r2
+- target__clf__global__accuracy+f1_macro
+- target__anomaly__local__roc_auc
+- target__reg__local__r2
 - target__forecast__local__r2
 
-cc: 
-  currency: 12
-  operation_kind: 8
-  card_type: 174
-  operation_type: 23
-  operation_type_group: 5
-  ecommerce_flag: 4
-  payment_system: 8
-  income_flag: 4
-  mcc: 109
-  country: 25
-  city: 164
-  mcc_category: 28
-  day_of_week: 8
-ee:  
+cc:
+  is_own_trademark: 3
+  is_alcohol: 3
+  level_1: 4
+  level_2: 43
+  level_3: 202
+  level_4: 789
+  segment_id: 118
 nn:
-  - hour
-  - amnt
-  - hour_diff
-
+  - trn_sum_from_iss
+  - netto
+  - regular_points_received
+  - express_points_received
+  - product_quantity
+  - trn_sum_from_red # alot of missing, copyes iss
+  - regular_points_spent
+  - express_points_spent
+  - purchase_sum
+ee:
 data:
   dataset:
-    parquet_path: "data/alpha/preprocessed_full/train"
+    parquet_path: "data/x5-retail/preprocessed_full/train"
     random_split: true
     split_seed: 42
-
     split_sizes: 
       - 0.85   # train
       - 0.15  # train_val
@@ -43,15 +41,17 @@ data:
   preprocessing:
     common_pipeline: &common_pipeline
       max_seq_len: 512
-      time_name: time_from_first_trn
+      time_name: transaction_datetime
       index_name: client_id
-      target_name: shard
-      num_names: ${nn}
+      target_name: _seq_len
       cat_cardinalities: ${cc}
+      num_names: ${nn}
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
         - MaskValid
+        - FillNans:
+            fill_value: 0
     gen_pipeline:
       <<: *common_pipeline
       max_seq_len: 1000000
@@ -60,22 +60,15 @@ data:
       batch_transforms:
         - TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - MaskValid
+        - FillNans:
+            fill_value: 0
         - ContrastiveTarget
         - RandomSlices:
             split_count: 5
-            cnt_min: 25
-            cnt_max: 150
+            cnt_min: 30
+            cnt_max: 180
             short_seq_crop_rate: 0.8
             seed: 0
-    primenet_pipeline:
-      <<: *common_pipeline
-      batch_transforms:
-        - TimeToFeatures:
-            process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - PrimeNetSampler:
-            segment_num: 3
 
   loaders:
     train:
@@ -108,10 +101,9 @@ data:
       batch_size: 32
       num_workers: 4
 
-
 test_data:
   dataset:
-    parquet_path: "data/alpha/preprocessed_full/test"
+    parquet_path: "data/x5-retail/preprocessed_full/test"
     split_sizes: 
       - 1.0
   preprocessing:
