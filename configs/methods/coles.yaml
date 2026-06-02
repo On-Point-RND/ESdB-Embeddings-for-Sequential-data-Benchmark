@@ -113,7 +113,7 @@ optuna:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
 
-    data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [4, 8, 16]}] #[64, 128, 256, 512]
+    data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [64, 128, 256, 512]}] #[4, 8, 16]
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
