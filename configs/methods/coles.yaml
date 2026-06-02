@@ -34,9 +34,9 @@ unsupervised_loss:
     margin: 1
 unsupervised_metrics: null
 unsupervised_trainer:
-  ckpt_track_metric: epoch
+  ckpt_track_metric: loss
   metrics_on_train: true
-  patience: -1
+  patience: ${patience}
   total_iters: 100_000
 
 training_model:
