@@ -1,0 +1,16 @@
+seed: 0
+verbose: False
+task_names: []
+
+hpo:
+  enabled: False
+
+models: {}
+
+embedding_metrics:
+  enabled: true
+  metrics:
+    - effective_rank
+    - anisotropy
+  sample_size: 10000
+  sample_seed: 42
