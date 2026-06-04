@@ -28,6 +28,12 @@ def create_postproc_spark_session() -> SparkSession:
 def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
     for report in reports:
+        if "metrics" in report:
+            metrics.update(report["metrics"])
+            continue
+        if not report:
+            continue
+
         _, metric_names = report["task_name"].rsplit("__", 1)
         best_model = report.get("best_model")
         m = metric_names.split("+")[0]
@@ -53,6 +59,8 @@ def run_downstream_with_seed(
 ) -> dict[str, float]:
     seeded_config = deepcopy(downstream_config)
     seeded_config.pop("validator_seeds", None)
+    if "embedding_metrics" in seeded_config:
+        seeded_config["embedding_metrics"]["enabled"] = False
     set_validator_seed(seeded_config, seed)
     reports = run_with_paths(
         downstream_config=seeded_config,
@@ -127,6 +135,18 @@ def compute_downstreams(
             shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
             return downstream_metrics
 
+        if downstream_config.get("embedding_metrics", {}).get("enabled", False):
+            geometry_config = deepcopy(downstream_config)
+            geometry_config.pop("validator_seeds", None)
+            geometry_config["models"] = {}
+            geometry_config["task_names"] = []
+            reports = run_with_paths(
+                downstream_config=geometry_config,
+                train_path=str(embed_train_file) + "_postproc",
+                test_path=str(embed_test_file) + "_postproc",
+            )
+            downstream_metrics.update(extract_downstream_metrics(reports))
+
         metrics_by_seed = []
         run_dir = Path(config["log_dir"]) / config["run_name"]
         for seed in validator_seeds:
@@ -142,6 +162,6 @@ def compute_downstreams(
                     run_dir / f"downstream_validator_seed_{seed}.csv",
                     seed_metrics,
                 )
-        downstream_metrics = aggregate_seed_metrics(metrics_by_seed)
+        downstream_metrics.update(aggregate_seed_metrics(metrics_by_seed))
         shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
     return downstream_metrics
