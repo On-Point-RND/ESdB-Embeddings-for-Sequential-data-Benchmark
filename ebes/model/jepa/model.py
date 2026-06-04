@@ -584,8 +584,10 @@ class JEPA(BaseModel):
         batch = batch.tail_clamp(self.max_len)
         if self.downstream_embedding_source == "online":
             x = self._encode_online(batch)
+            x = self.projection_head(x)
         elif self.downstream_embedding_source == "target":
             x = self._encode_target(batch)
+            x = self.target_projection_head(x)
         else:
             raise ValueError(
                 f"Unknown downstream embedding source: "
