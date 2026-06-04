@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 
 def create_postproc_spark_session() -> SparkSession:
     return (
-        SparkSession.builder.appName("JoinEmbeddings")  # type: ignore
+        SparkSession.builder.appName("JoinEmbeddings").master("local[8]")  # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "4g")
-        .config("spark.driver.memoryOverhead", "1g")
-        .config("spark.executor.memory", "2g")
+        .config("spark.driver.memory", "24g")
+        .config("spark.driver.memoryOverhead", "4g")
+        .config("spark.executor.memory", "12g")
         .getOrCreate()
     )
 
