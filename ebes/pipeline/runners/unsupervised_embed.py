@@ -50,7 +50,18 @@ class UnsupervisedEmbedRunner(Runner):
         trainer.run()
         gc.collect()
         net.eval()
-        trainer.load_best_model()
+
+        ckpt_dir = Path(config["log_dir"]) / config["run_name"] / "pretrain" / "ckpt"
+        if any(ckpt_dir.glob("*.ckpt")):
+            ckpt_path = trainer.best_checkpoint()
+        else:
+            ckpt_path = config["unsupervised_trainer"].get("ckpt_resume")
+        if not ckpt_path:
+            raise ValueError(
+                "No checkpoint found and unsupervised_trainer.ckpt_resume is empty"
+            )
+        trainer.load_ckpt(ckpt_path)
+
         # metrics collection on training model
         ###############
         train_metrics = trainer.validate(loaders["unsupervised_train"])
@@ -62,7 +73,7 @@ class UnsupervisedEmbedRunner(Runner):
         ###############
         embed_net = build_model(config["model"])
         embed_net.load_state_dict(
-            torch.load(trainer.best_checkpoint(), map_location="cpu")["model"],
+            torch.load(ckpt_path, map_location="cpu")["model"],
             strict=False,
         )
         trainer._model = embed_net.eval().to(config["device"])

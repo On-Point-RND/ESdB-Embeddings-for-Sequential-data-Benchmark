@@ -1,4 +1,4 @@
-method_name: jepa_optuna
+method_name: jepa
 runner_name: BertRunner
 
 main_loss:
