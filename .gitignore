@@ -9,6 +9,7 @@ zhores/
 embeddings/
 notebooks/local/
 scripts/local/
+tests/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
