@@ -17,7 +17,7 @@ trainer:
   metrics_on_train: true
   ckpt_track_metric: epoch
   total_iters: null
-  total_epochs: ${oc.decode:${oc.env:EPOCHS,50}}
+  total_epochs: 100
   iters_per_epoch: null
   patience: 1
 
