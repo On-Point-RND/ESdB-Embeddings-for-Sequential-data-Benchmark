@@ -23,3 +23,15 @@ trainer:
   total_epochs: null
   iters_per_epoch: null
   ckpt_resume: "${oc.env:PTH,''}"
+
+pretrainer:
+  total_iters: 0 
+  total_epochs: null
+  iters_per_epoch: null
+  ckpt_resume: "${oc.env:PTH,''}"
+
+unsupervised_trainer:
+  total_iters: 0 
+  total_epochs: null
+  iters_per_epoch: null
+  ckpt_resume: "${oc.env:PTH,''}"
