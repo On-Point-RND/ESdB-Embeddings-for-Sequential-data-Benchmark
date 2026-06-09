@@ -59,7 +59,7 @@ model:
     downstream_embedding_source: target
     max_len: ${data.preprocessing.common_pipeline.max_seq_len}
     hidden_size: 128
-    embedding_size: 128
+    embedding_size: 256
     num_blocks: 2
     num_heads: 4
     num_passes_over_block: 1
@@ -97,6 +97,5 @@ optuna:
     model.params.num_passes_over_block: [suggest_int, {low: 1, high: 2, log: False}]
     model.params.cat_emb_dim: [suggest_int, {low: 32, high: 128, step: 16}]
     model.params.num_emb_dim: [suggest_int, {low: 32, high: 128, step: 16}]
-    model.params.embedding_size: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.params.masker.params.mask_prob: [suggest_float, {low: 0.1, high: 0.8, log: False}]

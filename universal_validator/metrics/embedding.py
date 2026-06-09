@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from universal_validator.pipeline.utils import EmbeddingMetricsConfig
+if TYPE_CHECKING:
+    from universal_validator.pipeline.utils import EmbeddingMetricsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,7 @@ def _parquet_columns(path: str) -> set[str]:
 
 
 def _effective_rank(x: np.ndarray) -> float:
+    """Effective rank of embeddings from the normalized covariance spectrum."""
     centered = x - x.mean(axis=0, keepdims=True)
     cov = centered.T @ centered / max(centered.shape[0] - 1, 1)
     eigvals = np.linalg.eigvalsh(cov)
@@ -86,6 +91,16 @@ def _effective_rank(x: np.ndarray) -> float:
         return 0.0
 
     probs = eigvals[eigvals > 0] / total
+    return float(np.exp(-(probs * np.log(probs)).sum()))
+
+
+def _rankme(x: np.ndarray) -> float:
+    singular_values = np.linalg.svd(x, compute_uv=False)
+    total = singular_values.sum()
+    if total <= 0:
+        return 0.0
+
+    probs = singular_values[singular_values > 0] / total
     return float(np.exp(-(probs * np.log(probs)).sum()))
 
 
@@ -116,6 +131,8 @@ def _compute_metrics(x: np.ndarray, metric_names: list[str]) -> dict[str, float]
     }
     if "effective_rank" in metric_names:
         metrics["effective_rank"] = _effective_rank(x)
+    if "rankme" in metric_names:
+        metrics["rankme"] = _rankme(x)
     if "stable_rank" in metric_names:
         metrics["stable_rank"] = _stable_rank(x)
     if "anisotropy" in metric_names:
