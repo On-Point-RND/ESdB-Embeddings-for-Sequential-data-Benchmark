@@ -5,9 +5,10 @@ verbose: False
 embedding_metrics:
   enabled: true
   metrics:
+    - rankme
     - effective_rank
     - anisotropy
-  sample_size: 10000
+  sample_size: 30_000
   sample_seed: 42
 
 hpo:
