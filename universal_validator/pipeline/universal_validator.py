@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 
+from universal_validator.metrics.embedding import compute_embedding_metrics
 from universal_validator.pipeline.utils import ValidatorConfig
 
 from ..data.dataset import ValidatorDataset
@@ -32,6 +33,25 @@ class UniversalValidator:
         results = self.task.execute(task_data)
         report = self._generate_report(results)
         return report
+
+    def run_embedding_metrics(self) -> dict[str, Any]:
+        if not self.config.embedding_metrics.enabled:
+            return {}
+
+        metrics = compute_embedding_metrics(
+            train_path=self.config.data_conf.train_path,
+            test_path=self.config.data_conf.test_path,
+            config=self.config.embedding_metrics,
+        )
+        if not metrics:
+            return {}
+
+        return {
+            "dataset": self.config.data_conf.dataset_name,
+            "task_name": "embedding__metrics",
+            "metrics": metrics,
+            "timestamp": pd.Timestamp.now().isoformat(),
+        }
 
     def _generate_report(self, results):
         if not results:

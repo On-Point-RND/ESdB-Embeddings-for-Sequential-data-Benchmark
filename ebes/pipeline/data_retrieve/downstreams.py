@@ -1,7 +1,6 @@
 import csv
 import logging
 from copy import deepcopy
-from numbers import Number
 import shutil
 from multiprocessing import current_process
 from pathlib import Path
@@ -21,12 +20,11 @@ def create_postproc_spark_session() -> SparkSession:
     # multiple seeds run in parallel. Disable UI to eliminate that port entirely.
     proc_name = current_process().name
     return (
-        SparkSession.builder.appName(f"JoinEmbeddings_{proc_name}") # type: ignore
+        SparkSession.builder.appName("JoinEmbeddings").master("local[8]")  # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "4g")
-        .config("spark.driver.memoryOverhead", "1g")
-        .config("spark.executor.memory", "4g")
-        .config("spark.sql.parquet.enableVectorizedReader", "false")
+        .config("spark.driver.memory", "24g")
+        .config("spark.driver.memoryOverhead", "4g")
+        .config("spark.executor.memory", "12g")
         .getOrCreate()
     )
 
@@ -34,6 +32,12 @@ def create_postproc_spark_session() -> SparkSession:
 def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
     for report in reports:
+        if "metrics" in report:
+            metrics.update(report["metrics"])
+            continue
+        if not report:
+            continue
+
         _, metric_names = report["task_name"].rsplit("__", 1)
         best_model = report.get("best_model")
         m = metric_names.split("+")[0]
@@ -41,20 +45,6 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
             m = "neg_mean_squared_error"
         all_results = report["all_results"]
         metrics[report["task_name"]] = float(all_results[best_model][m])
-
-        for model_name, model_results in all_results.items():
-            for metric_name, value in model_results.items():
-                if metric_name in {
-                    "main_metric",
-                    "predictions",
-                    "model",
-                    "cv_results",
-                }:
-                    continue
-                if not isinstance(value, Number):
-                    continue
-                key = f"{report['task_name']}__{model_name}__{metric_name}"
-                metrics[key] = float(value)
     return metrics
 
 
@@ -73,6 +63,8 @@ def run_downstream_with_seed(
 ) -> dict[str, float]:
     seeded_config = deepcopy(downstream_config)
     seeded_config.pop("validator_seeds", None)
+    if "embedding_metrics" in seeded_config:
+        seeded_config["embedding_metrics"]["enabled"] = False
     set_validator_seed(seeded_config, seed)
     reports = run_with_paths(
         downstream_config=seeded_config,
@@ -147,6 +139,18 @@ def compute_downstreams(
             shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
             return downstream_metrics
 
+        if downstream_config.get("embedding_metrics", {}).get("enabled", False):
+            geometry_config = deepcopy(downstream_config)
+            geometry_config.pop("validator_seeds", None)
+            geometry_config["models"] = {}
+            geometry_config["task_names"] = []
+            reports = run_with_paths(
+                downstream_config=geometry_config,
+                train_path=str(embed_train_file) + "_postproc",
+                test_path=str(embed_test_file) + "_postproc",
+            )
+            downstream_metrics.update(extract_downstream_metrics(reports))
+
         metrics_by_seed = []
         run_dir = Path(config["log_dir"]) / config["run_name"]
         for seed in validator_seeds:
@@ -162,6 +166,6 @@ def compute_downstreams(
                     run_dir / f"downstream_validator_seed_{seed}.csv",
                     seed_metrics,
                 )
-        downstream_metrics = aggregate_seed_metrics(metrics_by_seed)
+        downstream_metrics.update(aggregate_seed_metrics(metrics_by_seed))
         shutil.rmtree(Path(config["log_dir"]) / config["run_name"] / "embeddings")
     return downstream_metrics

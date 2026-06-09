@@ -1,4 +1,4 @@
-method_name: jepa
+method_name: jepa_effrank
 runner_name: BertRunner
 
 main_loss:
@@ -17,7 +17,7 @@ trainer:
   metrics_on_train: true
   ckpt_track_metric: epoch
   total_iters: null
-  total_epochs: 100
+  total_epochs: ${oc.decode:${oc.env:EPOCHS,50}}
   iters_per_epoch: null
   patience: 1
 

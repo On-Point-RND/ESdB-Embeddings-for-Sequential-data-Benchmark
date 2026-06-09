@@ -1,0 +1,28 @@
+run_name: "${method_name}/tests/${oc.env:TASK_NAME,train_best_fixed_epoch}"
+common_seed: 0
+device: "cuda:0"
+
+runner:
+  name: ${runner_name}
+  run_type: simple
+  seed_keys:
+    - "common_seed"
+    - "data.loaders.train.random_seed"
+    - "data.dataset.split_seed"
+  params:
+    n_runs: 1
+    n_workers: 3
+  # device_list: ["cuda:0", "cuda:1", "cuda:2"]
+
+logging:
+  file_lvl: info
+  cons_lvl: info
+
+trainer:
+  metrics_on_train: true
+  ckpt_track_metric: epoch
+  ckpt_replace: false
+  total_iters: null
+  total_epochs: ${oc.decode:${oc.env:EPOCHS,300}}
+  iters_per_epoch: null
+  patience: 1

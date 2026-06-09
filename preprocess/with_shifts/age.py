@@ -7,12 +7,13 @@ import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 from pyspark.sql.types import FloatType, LongType
 
-from ..common import cat_freq, collect_lists
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
 from .common_pandas import (
     add_shift_columns,
     add_debug_f,
     global_time_split,
     save_partitioned_parquet,
+    sample_users,
     filter_short,
     split_num_shifts,
     global_train_column,
@@ -132,6 +133,12 @@ def main():
         help="Whether to use splitting for NTP",
         action="store_true",
     )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.5,
+    )
     args = parser.parse_args()
     mode = "overwrite" if args.overwrite else "error"
 
@@ -145,6 +152,8 @@ def main():
         parser.error("time_train_split must be in range (0, 1)")
     if not (0.0 < USER_TRAIN_SPLIT < 1.0):
         parser.error("user_train_split must be in range (0, 1)")
+    if not (0.0 < args.user_sample_frac <= 1.0):
+        parser.error("user_sample_frac must be in range (0, 1]")
     time_test_split = 1 - TIME_TRAIN_SPLIT
 
     spark = (
@@ -163,11 +172,14 @@ def main():
         df_kag_train = spark.read.csv(
             (args.data_path / "transactions_train.csv").as_posix(), header=True
         )
+        df_kag_train = add_row_order(df_kag_train)
+
         df_kag_train = df_kag_train.select(
             F.col("client_id").cast(LongType()),
             F.col("trans_date").cast(LongType()),
             F.col("small_group").cast(LongType()),
             F.col("amount_rur").cast(FloatType()),
+            F.col(SORT_IDX_COL).cast(LongType()),
         )
 
         df_label = spark.read.csv(
@@ -228,34 +240,34 @@ def main():
         test_df = test_df.apply(trim_test, axis=1)
         test_df["_seq_len"] = test_df[TM].apply(len)
 
-    train_df, test_df = global_train_column(
-        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
-    )
     test_df["target__reg_amount__local__r2"] = test_df.apply(get_reg_target, axis=1)
     test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
-    test_df["target__forecast__local__r2"] = test_df.apply(
-        get_forecast_target, axis=1
-    )
-    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
-        test_df
-    )
+    test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
+    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(test_df)
 
-    train_df["target__reg_amount__local__r2"] = train_df.apply(
-        get_reg_target, axis=1
-    )
+    train_df["target__reg_amount__local__r2"] = train_df.apply(get_reg_target, axis=1)
     train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
     train_df["target__forecast__local__r2"] = train_df.apply(
         get_forecast_target, axis=1
     )
-    train_df["target__anomaly__global__roc_auc"] = get_anomaly_target(
-        train_df
-    )
+    train_df["target__anomaly__global__roc_auc"] = get_anomaly_target(train_df)
 
     train_df, test_df = transform_train_test_features(
         train_df=train_df,
         test_df=test_df,
         rescale_features=RESCALE_FEATURES,
         log_features=LOG_FEATURES,
+    )
+    train_df, test_df = sample_users(
+        train_df=train_df,
+        test_df=test_df,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="client_id",
+    )
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
     )
 
     test_df = add_debug_f(test_df, time_col=TM)

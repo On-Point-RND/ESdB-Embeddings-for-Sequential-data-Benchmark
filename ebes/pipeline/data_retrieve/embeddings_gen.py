@@ -60,6 +60,7 @@ class ResultsGetter:
     def df_get(self, loaders, trainer):
         model = trainer.model
         assert model is not None
+        model.eval()
 
         get_query_embeddings = getattr(model, "get_query_embeddings", None)
         df_list = []

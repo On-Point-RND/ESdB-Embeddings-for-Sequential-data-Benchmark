@@ -1,4 +1,4 @@
 data_conf:
   dataset_name: "AGE"
-  train_path: embeddings/age/SBER/age_embs_postproc.parquet
-  test_path: embeddings/age/SBER/age_embs_postproc.parquet
+  train_path: log/age/bert4rec/tests/age__bert4rec__regression__lgbm__trial22/seed_0/embeddings/train_postproc
+  test_path: log/age/bert4rec/tests/age__bert4rec__regression__lgbm__trial22/seed_0/embeddings/test_postproc

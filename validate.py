@@ -37,11 +37,15 @@ def main(cfg: ValidatorConfig):
         tasks = cfg.task_names
 
     reports = []
+    embedding_report = validator.run_embedding_metrics()
+    if embedding_report:
+        reports.append(embedding_report)
+
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
         report["task_name"] = task
         #print(report)
-        reports += [report]
+        reports.append(report)
     return reports
 
 
