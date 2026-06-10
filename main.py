@@ -32,7 +32,7 @@ def collect_config(
     configs = [data_config, method_config, exp_config]
 
     if specify is not None:
-        specify_path = Path(f"configs/specify/{dataset}/{specify}.yaml")
+        specify_path = Path(f"configs/specify/{dataset}/{method}/{specify}.yaml")
         if specify_path.exists():
             configs.append(OmegaConf.load(specify_path))
         else:
@@ -40,7 +40,7 @@ def collect_config(
 
     if extra_config is not None:
         extra_config_path = Path(
-            f"configs/specify/{dataset}/{method}/{extra_config}.yaml"
+            f"configs/specify/{dataset}/{extra_config}.yaml"
         )
         if extra_config_path.exists():
             configs.append(OmegaConf.load(extra_config_path))
