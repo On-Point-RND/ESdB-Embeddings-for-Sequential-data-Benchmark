@@ -182,7 +182,7 @@ cython_debug/
 **.code-workspace
 *locexp_*
 
-configs/specify/**/classification.yaml
-configs/specify/**/regression.yaml
-configs/specify/**/forecasting.yaml
-configs/specify/**/anomaly.yaml
+configs/specify/**/classification*.yaml
+configs/specify/**/regression*.yaml
+configs/specify/**/forecasting*.yaml
+configs/specify/**/anomaly*.yaml
