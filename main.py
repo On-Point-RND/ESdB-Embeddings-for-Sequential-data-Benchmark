@@ -24,6 +24,7 @@ def collect_config(
     specify=None,
     gpu=None,
     downstream_validator="universal_validator/config.yaml",
+    extra_config=None,
 ) -> dict[str, Any]:
     data_config = OmegaConf.load(Path(f"configs/datasets/{dataset}.yaml"))
     method_config = OmegaConf.load(Path(f"configs/methods/{method}.yaml"))
@@ -36,6 +37,15 @@ def collect_config(
             configs.append(OmegaConf.load(specify_path))
         else:
             raise ValueError(f"No specification {specify}")
+
+    if extra_config is not None:
+        extra_config_path = Path(
+            f"configs/specify/{dataset}/{method}/{extra_config}.yaml"
+        )
+        if extra_config_path.exists():
+            configs.append(OmegaConf.load(extra_config_path))
+        else:
+            raise ValueError(f"No extra config {extra_config}")
 
     config = OmegaConf.merge(*configs)
 
@@ -66,6 +76,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--specify", type=str, default=None)
     parser.add_argument("-dv", "--downstream_validator", type=str, default=None)
     parser.add_argument("-g", "--gpu", type=str, default=None)
+    parser.add_argument("--extra-config", type=str, default=None)
     parser.add_argument(
         "-a",
         "--ablation-type",
@@ -84,6 +95,7 @@ if __name__ == "__main__":
         args.specify,
         args.gpu,
         args.downstream_validator,
+        args.extra_config,
     )
     for k in ["trainer", "unsupervised_trainer"]:
         if k in config:
