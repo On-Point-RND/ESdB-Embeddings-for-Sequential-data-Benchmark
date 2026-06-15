@@ -5,7 +5,7 @@ shopt -s nullglob
 DATASET="${DATASET:-age}"
 METHOD="${METHOD:-jepa_optuna}"
 SPECIFY="${SPECIFY:-classification}"
-TASK="${TASK:-reeval_clf}"
+TASK="${TASK:-best_${SPECIFY}}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
 EXTRA_CONFIG="${EXTRA_CONFIG:-}"
