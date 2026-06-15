@@ -1,0 +1,43 @@
+config_factory: [datasets/age]
+seed: 0
+verbose: False
+
+embedding_metrics:
+  enabled: true
+  metrics:
+    - rankme
+    - effective_rank
+    - anisotropy
+  sample_size: 30_000
+  sample_seed: 42
+
+hpo:
+  enabled: False
+  n_trials: 100
+  cv: 3
+  n_jobs: 4
+  max_threads: 4
+  show_progress_bar: True
+
+models:
+
+  mlp_torch:
+    classifier: universal_validator.models.torch_mlp.TorchMLPClassifier
+    regressor: universal_validator.models.torch_mlp.TorchMLPRegressor
+    shared_params:
+      hidden_layer_sizes: []
+      random_state: 42
+      max_epoch: 200
+      early_stopping: true
+      validation_fraction: 0.1
+      verbose: false
+      device: cuda:0
+      batch_size: 512
+      num_workers: 4
+      learning_rate_init: 3e-4
+      weight_decay: 2.e-06
+    search_space:
+      weight_decay: { low: 1e-6, high: 1e-2, log: true }
+      learning_rate_init: { low: 1e-4, high: 1e-2, log: true }
+      batch_size: [128, 256, 512, 1024]
+    task_specific:

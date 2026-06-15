@@ -1,4 +1,4 @@
-log_dir: log/eyambda
+log_dir: log/exp/yambda_er
 patience: 10
 n_classes: 2
 main_metric: MulticlassAUROC

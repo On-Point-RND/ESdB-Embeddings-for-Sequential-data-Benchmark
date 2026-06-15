@@ -5,13 +5,14 @@ shopt -s nullglob
 DATASET="${DATASET:-age}"
 METHOD="${METHOD:-jepa_optuna}"
 SPECIFY="${SPECIFY:-classification}"
-TASK="${TASK:-reeval_clf}"
+TASK="${TASK:-best_${SPECIFY}}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
+EXTRA_CONFIG="${EXTRA_CONFIG:-}"
 SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
-REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
+REVAL_DIR="${TASK}/${REVAL_DIR:-revalidation}"
 KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -90,6 +91,8 @@ for epoch in ${EPOCHS}; do
 
   validator_args=()
   [[ -n "${VALIDATOR}" ]] && validator_args=(-dv "${VALIDATOR}")
+  extra_config_args=()
+  [[ -n "${EXTRA_CONFIG}" ]] && extra_config_args=(--extra-config "${EXTRA_CONFIG}")
 
   echo "run epoch ${ep}: ${ckpts[0]}"
   if PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
@@ -98,6 +101,7 @@ for epoch in ${EPOCHS}; do
     -e inference \
     -s "${SPECIFY}" \
     -g "${GPU}" \
+    "${extra_config_args[@]}" \
     "${validator_args[@]}"; then
     touch "${done_marker}"
     if [[ "${KEEP_RAW_EMBEDDINGS}" != "1" ]]; then
