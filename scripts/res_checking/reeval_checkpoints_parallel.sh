@@ -12,7 +12,7 @@ EXTRA_CONFIG="${EXTRA_CONFIG:-}"
 SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
-REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
+REVAL_DIR="${TASK}/${REVAL_DIR:-revalidation}"
 KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
