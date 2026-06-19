@@ -3,6 +3,7 @@ import os
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from omegaconf import OmegaConf, KeyValidationError
 import optuna
 import pandas as pd
 import torch
@@ -41,20 +42,26 @@ def set_start_method_as_fork(logger):
 def assign_by_name(config: dict | DictConfig, name: str, value: Any):
     field = config
     for k in name.split(".")[:-1]:
-        try:
+        if k in field:
             field = field[k]
-        except KeyError:
-            field = field[int(k)]
+        else:
+            try:
+                field = field[int(k)]
+            except (ValueError, IndexError):
+                raise KeyError(k)
     field[name.split(".")[-1]] = value
 
 
 def access_by_name(config: Mapping, name: str):
     field = config
     for k in name.split("."):
-        try:
+        if k in field:
             field = field[k]
-        except KeyError:
-            field = field[int(k)]
+        else:
+            try:
+                field = field[int(k)]
+            except (ValueError, IndexError):
+                raise KeyError(k)
     return field
 
 

@@ -243,7 +243,7 @@ def main():
     )
     df = filter_short(df)
     all_clusters = np.concatenate(df["cluster_id"].values)
-    no_future_class = int(all_clusters.max()) + 1 if len(all_clusters) else 0
+    no_future_class = int(all_clusters.max()) + 1
 
     df["shift_end"] = df[TM].map(compute_shift_end)
 

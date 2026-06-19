@@ -1,14 +1,12 @@
-method_name: SimCLR
+method_name: coles_masks
 runner_name: UnsupervisedEmbedRunner
+
 
 data:
   preprocessing:
     contrastive_pipeline:
       batch_transforms:
         AUG_slices:
-          RandomSlices:
-            split_count: 2
-        AUG_masking:
   loaders:
     unsupervised_train:
       split_idx: 0
@@ -25,13 +23,13 @@ data:
       num_workers: 4
       labeled: False
 
+
 unsupervised_loss:
-  name: InfoNCELoss
+  name: ContrastiveLoss
   params: 
     selector: HardNegativePairSelector
-    neg_count: 1
-    temperature: 1
-    angular_margin: 0.5
+    neg_count: 5
+    margin: 0.5
 unsupervised_metrics: null
 unsupervised_trainer:
   ckpt_track_metric: loss
@@ -39,25 +37,10 @@ unsupervised_trainer:
   patience: ${patience}
   total_iters: 100_000
 
-additional_params:
-  split_count: 2
 training_model:
   preprocess: ${model.preprocess}
   encoder: ${model.encoder}
   aggregation: ${model.aggregation}
-  head_1:
-    name: nn.Linear
-    params:
-      in_features: output_dim_from_prev
-      out_features: 64
-  relu:
-    name: nn.ReLU
-  head_2:
-    name: nn.Linear
-    params:
-      in_features: 64
-      out_features: 64
-  
 model:
   preprocess:
     name: Batch2Seq
@@ -65,7 +48,7 @@ model:
       cat_cardinalities: ${cc}
       num_features: ${nn}
       emb_dimensionalities: ${ee}
-      cat_emb_dim: 64
+      cat_emb_dim: 118
       num_emb_dim: 64
       time_process: "cat" # "diff" | "cat" | "none"
       num_norm: false
@@ -73,10 +56,15 @@ model:
     name: GRU
     params:
       input_size: output_dim_from_prev
-      hidden_size: 512
+      hidden_size: 64
       num_layers: 1
   aggregation:
-    name: TakeLastHidden
+    name: ValidHiddenMean
+  emb_head:
+    name: nn.Linear
+    params:
+      in_features: output_dim_from_prev
+      out_features: 128
 
 optimizer:
   name: Adam
@@ -91,32 +79,25 @@ optuna:
     request_list: 
       - 'optimizer.params.weight_decay': 1.e-08
         'optimizer.params.lr': 1.e-3
-
-        'unsupervised_loss.params.temperature': 1
-
-        'data.loaders.unsupervised_train.batch_size': 128 
-
         'model.encoder.params.num_layers': 1
-        'model.encoder.params.hidden_size': 512
-
-        'model.preprocess.params.time_process': 'cat'
-        'model.preprocess.params.num_norm': False
-        'model.preprocess.params.cat_emb_dim': 64
-        'model.preprocess.params.num_emb_dim': 64
-
-        'model.aggregation.name': "TakeLastHidden"
+        'model.encoder.params.dropout': 1.e-10
+        'model.preprocess.params.time_process': 'diff'
+        'model.preprocess.params.num_norm': True
     target_metric: ${tasks}
-
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
     optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
 
-    unsupervised_loss.params.temperature: [suggest_float, {low: 1.e-2, high: 1.e2, log: True}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.name: [suggest_categorical, {choices: ["MixedMasker", "SpanMasker", "PointMasker"]}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.number_of_instances: [suggest_int, {low: 2, high: 5, log: False}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.add_initial: [suggest_categorical, {choices: [True, False]}]
+    data.preprocessing.contrastive_pipeline.method_specific_batch_transforms.1.AugmentationMasker.params.mask_prob: [suggest_float, {low: 0.05, high: 0.9, log: True}]
 
     data.loaders.unsupervised_train.batch_size: [suggest_categorical, {choices: [64, 128, 256, 512]}]
 
     model.encoder.params.num_layers: [suggest_int, {low: 1, high: 5, log: False}]
     model.encoder.params.hidden_size: [suggest_int, {low: 64, high: 1024, log: True}]
+    model.emb_head.params.out_features: [suggest_categorical, {choices: [64, 256, 1024]}]
 
     model.preprocess.params.time_process: [suggest_categorical, {choices: ["diff", "cat"]}]
     model.preprocess.params.num_norm: [suggest_categorical, {choices: [true, false]}]
