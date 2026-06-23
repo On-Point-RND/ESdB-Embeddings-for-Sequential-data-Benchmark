@@ -2,6 +2,7 @@ import math
 
 from torch.utils.data import IterableDataset, get_worker_info
 import pandas as pd
+import numpy as np
 
 from ..utils.reproduce import spawn_generator
 
@@ -35,9 +36,7 @@ class SeriesDataset(IterableDataset):
         still can occur in such case.
 
         The SeriesDataset can be safely used with PyTorch multiprocessing. Shuffling
-        derives its randomness from the global PyTorch RNG (see `spawn_generator`), so
-        the shuffle order varies across epochs and workers while staying reproducible
-        when the global seed is fixed via `seed_everything`. Pass
+        uses a shared per-epoch seed across workers (see `spawn_generator`). Pass
         `persistent_workers=True` to preserve progress through a looped dataset.
 
         Args:
@@ -71,7 +70,12 @@ class SeriesDataset(IterableDataset):
             worker_num = worker_info.id
 
         if self._shuffle:
-            self._data = self._data.sample(frac=1, random_state=spawn_generator())
+            gen = (
+                spawn_generator()
+                if worker_info is None
+                else np.random.default_rng(worker_info.seed - worker_num)
+            )
+            self._data = self._data.sample(frac=1, random_state=gen)
 
         to = len(self._data)
         if self._drop_last:
