@@ -2,7 +2,8 @@ import math
 
 from torch.utils.data import IterableDataset, get_worker_info
 import pandas as pd
-import numpy as np
+
+from ..utils.reproduce import spawn_generator
 
 
 def series(df: pd.DataFrame) -> list[pd.Series]:
@@ -33,10 +34,11 @@ class SeriesDataset(IterableDataset):
         without raising StopIteration, so the dataset becomes infinite. Incomplete batch
         still can occur in such case.
 
-        The SeriesDataset can be safely used with PyTorch multiprocessing. To preserve
-        the internal state (progress through the data in case of looped dataset or
-        the state of the random generator) pass `persistent_workers=True` to the
-        DataLoader.
+        The SeriesDataset can be safely used with PyTorch multiprocessing. Shuffling
+        derives its randomness from the global PyTorch RNG (see `spawn_generator`), so
+        the shuffle order varies across epochs and workers while staying reproducible
+        when the global seed is fixed via `seed_everything`. Pass
+        `persistent_workers=True` to preserve progress through a looped dataset.
 
         Args:
             data: a pandas DataFrame to iterate over.
@@ -45,7 +47,7 @@ class SeriesDataset(IterableDataset):
             drop_incomplete: whether to drop or keep the last incomplete batch.
             shuffle: if True, the DataFrame is shuffled.
             loop: whether to loop the dataset.
-            random_seed: seed to initialize the random generator for shuffling.
+            random_seed: deprecated and ignored; shuffling now uses the global RNG.
         """
         if batch_size < 1:
             raise ValueError("Batch size must be positive")
@@ -57,7 +59,6 @@ class SeriesDataset(IterableDataset):
         self._drop_last = drop_incomplete
         self._shuffle = shuffle
         self._loop = loop
-        self._gen = np.random.default_rng(random_seed)
 
         self._exhausted = True
 
@@ -70,7 +71,7 @@ class SeriesDataset(IterableDataset):
             worker_num = worker_info.id
 
         if self._shuffle:
-            self._data = self._data.sample(frac=1, random_state=self._gen)
+            self._data = self._data.sample(frac=1, random_state=spawn_generator())
 
         to = len(self._data)
         if self._drop_last:

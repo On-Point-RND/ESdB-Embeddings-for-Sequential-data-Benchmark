@@ -123,7 +123,7 @@ def get_loader(
         batch_size=None,
         collate_fn=collators[preprocessing],
         num_workers=num_workers,
-        persistent_workers=num_workers > 0,
+        persistent_workers=num_workers > 0 and loop,
     )
 
 
