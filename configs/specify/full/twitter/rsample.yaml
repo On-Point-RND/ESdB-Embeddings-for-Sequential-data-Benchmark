@@ -1,7 +1,0 @@
-data:
-  dataset:
-    random_split: true
-    split_seed: 42
-    split_sizes:
-      - 0.07
-      - 0.005
