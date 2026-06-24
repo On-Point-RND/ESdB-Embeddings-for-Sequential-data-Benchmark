@@ -38,7 +38,7 @@ data:
         - MaskValid
     gen_pipeline:
       <<: *common_pipeline
-      max_seq_len: 1000000
+      max_seq_len: 10000
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
@@ -90,12 +90,12 @@ data:
     gen_train:
       split_idx: 0
       preprocessing: gen_pipeline
-      batch_size: 32
+      batch_size: 16
       num_workers: 4
     gen_train_val:
       split_idx: 1
       preprocessing: gen_pipeline
-      batch_size: 32
+      batch_size: 16
       num_workers: 4
 
 
@@ -108,7 +108,7 @@ test_data:
     common_pipeline: *common_pipeline
     gen_pipeline:
       <<: *common_pipeline
-      max_seq_len: 1000000
+      max_seq_len: 10000
   loaders:
     test:
       split_idx: 0
@@ -118,7 +118,7 @@ test_data:
     gen_test:
       split_idx: 0
       preprocessing: gen_pipeline
-      batch_size: 32
+      batch_size: 16
       num_workers: 4
 
 metrics:
