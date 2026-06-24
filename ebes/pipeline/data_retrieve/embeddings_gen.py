@@ -134,16 +134,12 @@ class ResultsGetter:
         shifts = self.shifts_by_index[old_index]
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
-
-        # debug_f = self.debug_f_by_index[old_index]
-        # if isinstance(debug_f, list):
-        #    debug_f = np.asarray(debug_f)
-
-        # assert isinstance(debug_f, np.ndarray) and isinstance(
-        #    shifts, np.ndarray
-        # ), "Provide correct types for sequential data in Dataframe."
-        # debug_f = debug_f[shifts_mask]
-        # return shifts, debug_f
+        # If the loader truncated the head (orig_len > full_len), drop shifts
+        # that fell into the discarded prefix instead of crashing.
+        orig_len = int(self.orig_len_by_index[old_index])
+        cutoff = max(0, orig_len - int(full_len))
+        if cutoff > 0:
+            shifts = shifts[shifts >= cutoff]
         return np.append(shifts, int(full_len))
 
     def shift_transform(self, batch):
@@ -172,7 +168,6 @@ class ResultsGetter:
             old_index = batch.index[b]
             orig_len = int(self.orig_len_by_index[old_index])
             shifts = self.get_shifts(old_index, batch.lengths[b])
-            assert (shifts >= (orig_len - old_len)).all(), "Shifts out of seq_len"
 
             for i, s in enumerate(shifts):
                 s = int(s)
