@@ -57,6 +57,22 @@ class ValidatorDataset:
             columns = ["shift_emb", target_name]
             train = pd.read_parquet(self.data_conf.train_path, columns=columns)
             test = pd.read_parquet(self.data_conf.test_path, columns=columns)
+            # The embedding pipeline may drop shifts that fell into truncated
+            # heads, so per-row shift_emb can be shorter than the target list.
+            # Surviving shifts always correspond to the tail of the original
+            # shifts list, so align by trimming target to the last len(shift_emb)
+            # values (and clamp shift_emb in the unlikely opposite case).
+            def _align(df):
+                df = df.copy()
+                n_emb = df["shift_emb"].map(len)
+                n_tgt = df[target_name].map(len)
+                n = np.minimum(n_emb, n_tgt)
+                df["shift_emb"] = [s[-k:] for s, k in zip(df["shift_emb"], n)]
+                df[target_name] = [t[-k:] for t, k in zip(df[target_name], n)]
+                df = df[n > 0].reset_index(drop=True)
+                return df
+            train = _align(train)
+            test = _align(test)
             train, test = train.explode(columns), test.explode(columns)
 
             X_train = np.stack(train["shift_emb"].values).astype(np.float32)
