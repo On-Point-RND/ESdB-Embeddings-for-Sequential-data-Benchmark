@@ -16,11 +16,19 @@ logger = logging.getLogger(__name__)
 
 def create_postproc_spark_session() -> SparkSession:
     return (
-        SparkSession.builder.appName("JoinEmbeddings").master("local[8]")  # type: ignore
+        SparkSession.builder.appName("JoinEmbeddings").master("local[4]")
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "24g")
-        .config("spark.driver.memoryOverhead", "4g")
-        .config("spark.executor.memory", "12g")
+        .config("spark.driver.memory", "80g")
+        .config("spark.driver.memoryOverhead", "20g")
+        .config("spark.executor.memory", "80g")
+        .config("spark.executor.memoryOverhead", "20g")
+        .config("spark.sql.shuffle.partitions", "500")
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "false")   # отключаем автоматическое слияние
+        .config("spark.sql.adaptive.skewJoin.enabled", "false")
+        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        .config("spark.kryoserializer.buffer.max", "1024m")
+        .config("spark.sql.parquet.enableVectorizedReader", "false")   # отключаем векторизованное чтение
         .getOrCreate()
     )
 

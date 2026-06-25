@@ -93,7 +93,8 @@ class ResultsGetter:
                         if callable(get_query_embeddings):
                             emb = get_query_embeddings(batch)
                         else:
-                            emb = model(batch)
+                            with torch.backends.cudnn.flags(enabled=False):
+                                emb = model(batch)
                     emb_np = emb.detach().cpu().numpy()
 
                     del emb
