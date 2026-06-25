@@ -135,12 +135,17 @@ class ResultsGetter:
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
         # If the loader truncated the head (orig_len > full_len), drop shifts
-        # that fell into the discarded prefix instead of crashing.
+        # that fell into the discarded prefix and translate the rest into the
+        # new coordinate frame so they index into the kept tail.
         orig_len = int(self.orig_len_by_index[old_index])
-        cutoff = max(0, orig_len - int(full_len))
+        full_len_i = int(full_len)
+        cutoff = max(0, orig_len - full_len_i)
         if cutoff > 0:
-            shifts = shifts[shifts >= cutoff]
-        return np.append(shifts, int(full_len))
+            shifts = shifts[shifts >= cutoff] - cutoff
+        # Final safety: clamp into [0, full_len] so the downstream length
+        # invariants always hold even on unusual inputs.
+        shifts = np.clip(shifts, 0, full_len_i)
+        return np.append(shifts, full_len_i)
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
