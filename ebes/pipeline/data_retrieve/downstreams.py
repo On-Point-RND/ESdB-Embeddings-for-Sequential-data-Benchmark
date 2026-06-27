@@ -22,9 +22,9 @@ def create_postproc_spark_session() -> SparkSession:
     return (
         SparkSession.builder.appName("JoinEmbeddings").master("local[8]")  # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "24g")
-        .config("spark.driver.memoryOverhead", "4g")
-        .config("spark.executor.memory", "12g")
+        .config("spark.driver.memory", "48g")
+        .config("spark.driver.memoryOverhead", "8g")
+        .config("spark.executor.memory", "20g")
         .getOrCreate()
     )
 
