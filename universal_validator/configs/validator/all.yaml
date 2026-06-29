@@ -60,6 +60,7 @@ models:
     classifier: lightgbm.LGBMClassifier
     regressor: lightgbm.LGBMRegressor
     shared_params:
+      verbose: -1
       n_estimators: 1000
       boosting_type: gbdt
       learning_rate: 0.02
