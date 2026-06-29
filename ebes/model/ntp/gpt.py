@@ -186,21 +186,38 @@ class GPT(BaseSeq2Seq):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, seq: Seq) -> Seq:
-        tokens = seq.tokens.transpose(0, 1) # B, L, D
-        device = tokens.device
-        _, t, _ = tokens.size()
-        assert (
-            t <= self.config.max_len
-        ), f"Cannot forward sequence of length {t}, block size is only {self.config.max_len}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
+        output, _ = self.forward_with_representations(seq)
+        return output
 
-        # forward the GPT model itself
-        tok_emb = self.transformer.wte(tokens)  # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
-        for block in self.transformer.h:
+    def forward_with_representations(
+        self,
+        seq: Seq,
+    ) -> tuple[Seq, dict[str, Seq]]:
+        tokens = seq.tokens.transpose(0, 1)
+        _, seq_len, _ = tokens.size()
+        if seq_len > self.config.max_len:
+            raise ValueError(
+                f"Sequence length {seq_len} exceeds max_len={self.config.max_len}"
+            )
+        positions = torch.arange(seq_len, dtype=torch.long, device=tokens.device)
+
+        token_embeddings = self.transformer.wte(tokens)
+        position_embeddings = self.transformer.wpe(positions)
+        x = self.transformer.drop(token_embeddings + position_embeddings)
+
+        representations = {}
+        for index, block in enumerate(self.transformer.h, start=1):
             x = block(x)
-        x = self.transformer.ln_f(x) # B, L, n_embd
-        new_tokens = x.transpose(0, 1) # L, B, n_embd
-        return Seq(tokens=new_tokens, lengths=seq.lengths, time=seq.time)
+            representations[f"layer_{index}"] = Seq(
+                tokens=x.transpose(0, 1),
+                lengths=seq.lengths,
+                time=seq.time,
+            )
 
+        x = self.transformer.ln_f(x)
+        output = Seq(
+            tokens=x.transpose(0, 1),
+            lengths=seq.lengths,
+            time=seq.time,
+        )
+        return output, representations

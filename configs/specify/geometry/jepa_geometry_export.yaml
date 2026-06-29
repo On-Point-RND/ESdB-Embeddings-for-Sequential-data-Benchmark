@@ -1,0 +1,24 @@
+representation_export:
+  enabled: true
+  extractor: default
+  primary: target_projected
+  branches:
+    - target
+    - online
+  include_layers: true
+  include_hidden: true
+  include_projected: true
+  lidar:
+    enabled: true
+    source: target_projected
+    groups:
+      - name: jepa_mask
+        perturbation: model_mask
+        views: 4
+        seed: 42
+        representation:
+          branches:
+            - target
+          include_layers: false
+          include_hidden: false
+          include_projected: true

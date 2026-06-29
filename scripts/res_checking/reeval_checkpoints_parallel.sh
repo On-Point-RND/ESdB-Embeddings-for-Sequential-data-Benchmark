@@ -8,7 +8,7 @@ SPECIFY="${SPECIFY:-classification}"
 TASK="${TASK:-best_${SPECIFY}}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
-EXTRA_CONFIG="${EXTRA_CONFIG:-}"
+EXTRA_CONFIGS="${EXTRA_CONFIGS:-${EXTRA_CONFIG:-}}"
 SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
@@ -92,7 +92,10 @@ for epoch in ${EPOCHS}; do
   validator_args=()
   [[ -n "${VALIDATOR}" ]] && validator_args=(-dv "${VALIDATOR}")
   extra_config_args=()
-  [[ -n "${EXTRA_CONFIG}" ]] && extra_config_args=(--extra-config "${EXTRA_CONFIG}")
+  if [[ -n "${EXTRA_CONFIGS}" ]]; then
+    read -r -a extra_configs <<< "${EXTRA_CONFIGS}"
+    extra_config_args=(--extra-config "${extra_configs[@]}")
+  fi
 
   echo "run epoch ${ep}: ${ckpts[0]}"
   if PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \

@@ -39,13 +39,19 @@ def collect_config(
             raise ValueError(f"No specification {specify}")
 
     if extra_config is not None:
-        extra_config_path = Path(
-            f"configs/specify/{dataset}/{extra_config}.yaml"
+        extra_configs = (
+            [extra_config] if isinstance(extra_config, str) else extra_config
         )
-        if extra_config_path.exists():
-            configs.append(OmegaConf.load(extra_config_path))
-        else:
-            raise ValueError(f"No extra config {extra_config}")
+        for extra in extra_configs:
+            explicit_path = Path(extra)
+            dataset_path = Path(f"configs/specify/{dataset}/{extra}.yaml")
+            shared_path = Path(f"configs/specify/geometry/{extra}.yaml")
+            for extra_config_path in (explicit_path, dataset_path, shared_path):
+                if extra_config_path.is_file():
+                    configs.append(OmegaConf.load(extra_config_path))
+                    break
+            else:
+                raise ValueError(f"No extra config {extra}")
 
     config = OmegaConf.merge(*configs)
 
@@ -76,7 +82,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--specify", type=str, default=None)
     parser.add_argument("-dv", "--downstream_validator", type=str, default=None)
     parser.add_argument("-g", "--gpu", type=str, default=None)
-    parser.add_argument("--extra-config", type=str, default=None)
+    parser.add_argument("--extra-config", type=str, nargs="+", default=None)
     parser.add_argument(
         "-a",
         "--ablation-type",

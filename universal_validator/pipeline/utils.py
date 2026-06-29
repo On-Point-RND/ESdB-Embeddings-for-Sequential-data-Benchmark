@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from universal_validator.data.dataset import DataConfig
 from universal_validator.tasks.hpo_optimizer import HPOConfig
@@ -17,11 +17,14 @@ from universal_validator.tasks.hpo_optimizer import HPOConfig
 @dataclass
 class EmbeddingMetricsConfig:
     enabled: bool = False
-    metrics: list[str] = field(
-        default_factory=lambda: ["effective_rank", "anisotropy"]
-    )
+    metrics: list[str] = field(default_factory=lambda: ["effective_rank", "anisotropy"])
+    sources: Optional[list[str]] = None
+    splits: Optional[list[str]] = None
     sample_size: Optional[int] = None
     sample_seed: int = 42
+    asmi: dict[str, Any] = field(default_factory=dict)
+    total_compression: dict[str, Any] = field(default_factory=dict)
+    lidar: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

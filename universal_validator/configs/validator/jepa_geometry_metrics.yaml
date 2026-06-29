@@ -1,0 +1,87 @@
+seed: 0
+verbose: false
+validator_seeds: [0]
+
+embedding_metrics:
+  enabled: true
+  metrics:
+    - rankme
+    - effective_rank
+    - anisotropy
+    - effdim
+    - asmi
+  sources:
+    - global_emb
+    - target_layer_1_global_emb
+    - target_layer_2_global_emb
+    - target_hidden_global_emb
+    - target_projected_global_emb
+    - online_layer_1_global_emb
+    - online_layer_2_global_emb
+    - online_hidden_global_emb
+    - online_projected_global_emb
+  splits: [test]
+  sample_size: 512
+  sample_seed: 42
+  asmi:
+    sigmas: [0.01, 0.1, 1.0]
+    projection_dims: [2, 4]
+    n_projections: [50]
+    ksg_ks: [1, 3]
+  total_compression:
+    chain:
+      - target_layer_1_global_emb
+      - target_layer_2_global_emb
+      - target_projected_global_emb
+  lidar:
+    groups:
+      - name: jepa_mask_v2_n512
+        views:
+          - lidar_jepa_mask_view_0_global_emb
+          - lidar_jepa_mask_view_1_global_emb
+        sample_size: 512
+        reg: [1e-5, 1e-4, 1e-3]
+      - name: jepa_mask_v4_n512
+        views_regex: "lidar_jepa_mask_view_.*_global_emb"
+        sample_size: 512
+        reg: [1e-5, 1e-4, 1e-3]
+      - name: jepa_mask_v2_n1024
+        views:
+          - lidar_jepa_mask_view_0_global_emb
+          - lidar_jepa_mask_view_1_global_emb
+        sample_size: 1024
+        reg: [1e-5, 1e-4, 1e-3]
+      - name: jepa_mask_v4_n1024
+        views_regex: "lidar_jepa_mask_view_.*_global_emb"
+        sample_size: 1024
+        reg: [1e-5, 1e-4, 1e-3]
+
+hpo:
+  enabled: false
+  n_trials: 100
+  cv: 3
+  n_jobs: 4
+  max_threads: 4
+  show_progress_bar: true
+
+models:
+  mlp_torch:
+    classifier: universal_validator.models.torch_mlp.TorchMLPClassifier
+    regressor: universal_validator.models.torch_mlp.TorchMLPRegressor
+    shared_params:
+      hidden_layer_sizes: []
+      random_state: 42
+      max_epoch: 200
+      early_stopping: true
+      validation_fraction: 0.1
+      verbose: false
+      device: cuda:0
+      batch_size: 512
+      num_workers: 4
+      learning_rate_init: 3e-4
+      weight_decay: 2.e-06
+    search_space:
+      weight_decay: {low: 1e-6, high: 1e-2, log: true}
+      learning_rate_init: {low: 1e-4, high: 1e-2, log: true}
+      batch_size: [128, 256, 512, 1024]
+    task_specific:

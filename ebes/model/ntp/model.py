@@ -106,6 +106,35 @@ class NTPModel(BaseModel):
         all_hid = self.encoder(x)
         return all_hid
 
+    def encode_with_representations(
+        self,
+        batch: Batch,
+    ) -> tuple[Seq, dict[str, Seq]]:
+        input_sequence = self.processor(batch)
+        encoder = self.encoder[0]
+        forward_with_representations = getattr(
+            encoder, "forward_with_representations", None
+        )
+        if callable(forward_with_representations):
+            encoded, encoder_representations = forward_with_representations(
+                input_sequence
+            )
+        else:
+            encoded = encoder(input_sequence)
+            encoder_representations = {}
+
+        projected = self.encoder[1](encoded)
+        representations = {
+            "input": input_sequence,
+            **{
+                f"encoder_{name}": value
+                for name, value in encoder_representations.items()
+            },
+            "encoder": encoded,
+            "projected": projected,
+        }
+        return projected, representations
+
     def reconstruct(self, batch: Batch):
         global_hidden = self.encode(batch)
 
@@ -145,9 +174,14 @@ class NTPPretrainer(NTPModel):
 class NTPEncoder(NTPPretrainer):
     @property
     def output_dim(self):
-        return self.encoder.output_dim
+        return self.encoder[-1].output_dim
 
     def forward(self, batch: Batch):
         if self.use_transformer:
             batch = batch.tail_clamp(self.encoder[0].config.max_len)
         return self.encode(batch)
+
+    def forward_with_representations(self, batch: Batch) -> tuple[Seq, dict[str, Seq]]:
+        if self.use_transformer:
+            batch = batch.tail_clamp(self.encoder[0].config.max_len)
+        return self.encode_with_representations(batch)

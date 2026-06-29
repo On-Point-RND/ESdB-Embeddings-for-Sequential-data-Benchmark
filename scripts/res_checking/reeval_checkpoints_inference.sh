@@ -4,10 +4,11 @@ shopt -s nullglob
 
 DATASET="${DATASET:-age}"
 METHOD="${METHOD:-jepa_optuna}"
-SPECIFY="${SPECIFY:-classification}"
+SPECIFY="${SPECIFY-classification}"
 TASK="${TASK:-reeval_clf}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
+EXTRA_CONFIGS="${EXTRA_CONFIGS:-${EXTRA_CONFIG:-}}"
 SEED_DIR="${SEED_DIR:-seed_0}"
 EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
 FORCE="${FORCE:-0}"
@@ -60,13 +61,21 @@ for epoch in ${EPOCHS}; do
 
   validator_args=()
   [[ -n "${VALIDATOR}" ]] && validator_args=(-dv "${VALIDATOR}")
+  specify_args=()
+  [[ -n "${SPECIFY}" ]] && specify_args=(-s "${SPECIFY}")
+  extra_config_args=()
+  if [[ -n "${EXTRA_CONFIGS}" ]]; then
+    read -r -a extra_configs <<< "${EXTRA_CONFIGS}"
+    extra_config_args=(--extra-config "${extra_configs[@]}")
+  fi
 
   PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
     -d "${DATASET}" \
     -m "${METHOD}" \
     -e inference \
-    -s "${SPECIFY}" \
+    "${specify_args[@]}" \
     -g "${GPU}" \
+    "${extra_config_args[@]}" \
     "${validator_args[@]}"
 
   if [[ "${KEEP_RAW_EMBEDDINGS}" != "1" ]]; then

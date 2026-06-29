@@ -459,11 +459,26 @@ class JEPA(BaseModel):
         lengths: torch.Tensor,
         transformer_blocks: nn.ModuleList,
     ) -> torch.Tensor:
+        _, x = self._apply_transformer_blocks_with_layers(
+            x=x,
+            lengths=lengths,
+            transformer_blocks=transformer_blocks,
+        )
+        return x
+
+    def _apply_transformer_blocks_with_layers(
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor,
+        transformer_blocks: nn.ModuleList,
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         pad_mask = self._get_pad_mask_from_lengths(lengths, x.shape[1])
+        layers = []
         for transformer in transformer_blocks:
             for _ in range(self.num_passes_over_block):
                 x = transformer(x, pad_mask)
-        return x
+            layers.append(x)
+        return layers, x
 
     @staticmethod
     def _gather_indices_by_mask(
@@ -579,6 +594,84 @@ class JEPA(BaseModel):
             if "weight" in obj_cfg:
                 cfg[name]["weight"] = float(obj_cfg["weight"])
         return cfg
+
+    def _encode_branch_with_layers(
+        self,
+        batch: Batch,
+        branch: DownstreamEmbeddingSource,
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
+        if branch == "online":
+            x = self.item_embedder(batch)
+            position = self.encoder_position
+            transformer_blocks = self.transformer_blocks
+        elif branch == "target":
+            x = self.target_item_embedder(batch)
+            position = self.target_encoder_position
+            transformer_blocks = self.target_transformer_blocks
+        else:
+            raise ValueError(f"Unknown representation branch: {branch}")
+
+        if self.context_position_mode in {"encoder", "both"}:
+            positions = torch.arange(x.shape[1], device=x.device)[None, :]
+            x = x + position(positions.expand(x.shape[:2]))
+        elif self.context_position_mode != "predictor":
+            raise ValueError(
+                f"Unknown context_position_mode: {self.context_position_mode}"
+            )
+
+        return self._apply_transformer_blocks_with_layers(
+            x=x,
+            lengths=batch.lengths,
+            transformer_blocks=transformer_blocks,
+        )
+
+    def get_representations(
+        self,
+        batch: Batch,
+        branches: list[DownstreamEmbeddingSource] | None = None,
+        include_layers: bool = True,
+        include_hidden: bool = True,
+        include_projected: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        batch = batch.tail_clamp(self.max_len)
+        mode = cast(AggregationMode, self.query_aggregation)
+        branches = ["target", "online"] if branches is None else branches
+
+        representations = {}
+        for branch in branches:
+            layers, hidden = self._encode_branch_with_layers(batch, branch)
+            if include_layers:
+                for idx, layer_output in enumerate(layers, start=1):
+                    representations[f"{branch}_layer_{idx}"] = (
+                        self._aggregate_embeddings(
+                            layer_output,
+                            batch.lengths,
+                            mode,
+                            self.query_aggregation_k,
+                        )
+                    )
+            if include_hidden:
+                representations[f"{branch}_hidden"] = self._aggregate_embeddings(
+                    hidden,
+                    batch.lengths,
+                    mode,
+                    self.query_aggregation_k,
+                )
+            if include_projected:
+                projection_head = (
+                    self.projection_head
+                    if branch == "online"
+                    else self.target_projection_head
+                )
+                projected = projection_head(hidden)
+                representations[f"{branch}_projected"] = self._aggregate_embeddings(
+                    projected,
+                    batch.lengths,
+                    mode,
+                    self.query_aggregation_k,
+                )
+
+        return representations
 
     def get_query_embeddings(self, batch: Batch) -> torch.Tensor:
         batch = batch.tail_clamp(self.max_len)
