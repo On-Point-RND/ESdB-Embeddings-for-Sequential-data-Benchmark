@@ -1,0 +1,16 @@
+optimizer:
+  params:
+    weight_decay: 3.8100472154969464e-05
+    lr: 0.0003542078107444346
+model:
+  preprocess:
+    params:
+      num_norm: true
+      cat_emb_dim: 80
+      num_emb_dim: 112
+      enc_hidden_size: 768
+      emb_size: 1024
+      enc_num_layers: 1
+      n_head: 2
+  aggregation:
+    name: TakeLastHidden
