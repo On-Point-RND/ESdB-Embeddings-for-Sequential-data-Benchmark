@@ -15,7 +15,6 @@ embedding_metrics:
     - target_layer_1_global_emb
     - target_layer_2_global_emb
     - target_hidden_global_emb
-    - target_projected_global_emb
     - online_layer_1_global_emb
     - online_layer_2_global_emb
     - online_hidden_global_emb

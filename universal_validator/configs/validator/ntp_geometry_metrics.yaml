@@ -16,7 +16,6 @@ embedding_metrics:
     - ntp_encoder_layer_1_global_emb
     - ntp_encoder_layer_2_global_emb
     - ntp_encoder_global_emb
-    - ntp_projected_global_emb
   sample_size: 10000
   sample_seed: 42
   asmi:
