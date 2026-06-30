@@ -1,0 +1,14 @@
+data:
+  dataset:
+    random_split: true
+    split_seed: 42
+    split_sizes:
+      - 0.1
+      - 0.03
+
+test_data:
+  dataset:
+    random_split: true
+    split_seed: 42
+    split_sizes:
+      - 0.1
