@@ -1,63 +1,247 @@
-"""Main execution script with OmegaConf support"""
+#!/usr/bin/env python3
+"""Unified script: generate embeddings, fuse with rank sweep, run downstream validation."""
 
+import argparse
 import logging
+import subprocess
+import csv
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, cast
 from copy import deepcopy
 from pathlib import Path
-import csv
+import numpy as np
 import pandas as pd
-import re
+from glob import glob
 from omegaconf import OmegaConf
+from sklearn.decomposition import PCA
+from cca_zoo.linear import CCA
+from scipy.sparse.linalg import eigsh
+from joblib import Parallel, delayed
 
-from universal_validator.pipeline.universal_validator import UniversalValidator
-from universal_validator.pipeline.utils import ValidatorConfig
-from universal_validator.utils import ensure_validator_logging, run_with_config
-
-
+# ------------------------------------------------------------------
+# Suppress noisy logs
+# ------------------------------------------------------------------
 def _suppress_noisy_py4j_logs() -> None:
     logging.getLogger("py4j.clientserver").setLevel(logging.ERROR)
     logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
     logging.getLogger("py4j").setLevel(logging.ERROR)
 
+# ------------------------------------------------------------------
+# Generate embeddings by calling the shell script, two variants
+# ------------------------------------------------------------------
+def run_embedding_generation_0(root: str, d: str, m: str, s: str, gpu: int = 0) -> None:
+    cmd = f"./inf.sh {d} {gpu} {m} {s}"
+    print(f"Running: {cmd}")
+    subprocess.run(cmd, shell=True, check=True)
+
+def run_embedding_generation(root: str, d: str, m: str, s: str, gpu: int = 0) -> None:
+    # Fix case for models stored in uppercase directories
+    m_upper = m.upper() if m.lower() in {'ntp_gru', 'ntp_gpt'} else m
+
+    # Locate the latest checkpoint
+    ckpt_pattern = f"{root}/{d}/{m_upper}/tests/{s}/seed_0/pretrain/ckpt/*.ckpt"
+    ckpt_files = sorted(glob.glob(ckpt_pattern))
+    if not ckpt_files:
+        raise FileNotFoundError(f"No checkpoint found: {ckpt_pattern}")
+    checkpoint = ckpt_files[0]
+
+    # Set environment variables
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    env["TASK_NAME"] = s
+    env["ec"] = "rsample"
+    env["PTH"] = checkpoint
+
+    # Run the inference command
+    cmd = [
+        "python", "main.py",
+        "-d", f"full/{d}",
+        "-m", m,               # original model name (lowercase), as expected by main.py
+        "-e", "inference",
+        "-s", s,
+        "-dv", "universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml"
+    ]
+    print(f"Running: {' '.join(cmd)} (GPU {gpu}, checkpoint {checkpoint})")
+    subprocess.run(cmd, env=env, check=True)
+    
+# ------------------------------------------------------------------
+# Robust parquet loading
+# ------------------------------------------------------------------
+def safe_stack(series: pd.Series) -> np.ndarray:
+    vals = []
+    for x in series.values:
+        if isinstance(x, tuple):
+            x = x[0]
+        arr = np.asarray(x.tolist() if hasattr(x, 'tolist') else x, dtype=np.float64)
+        vals.append(arr)
+    shapes = {a.shape for a in vals}
+    if len(shapes) > 1:
+        raise ValueError(f"Inconsistent shapes in column '{series.name}': {shapes}")
+    return np.stack(vals)
+
+def load_embeddings(root: str, d: str, m: str, s: str):
+    train_path = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/"
+    test_path  = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/test_postproc/"
+    X_train = pd.read_parquet(Path(glob(train_path + "*")[0]))
+    X_test  = pd.read_parquet(Path(glob(test_path + "*")[0]))
+    return (safe_stack(X_train['global_emb']),
+            safe_stack(X_train['shift_emb']),
+            safe_stack(X_test['global_emb']),
+            safe_stack(X_test['shift_emb']))
+
+# ------------------------------------------------------------------
+# Fusion functions
+# ------------------------------------------------------------------
+def _get_latent_dim(d1, d2, n_samples, user_dim):
+    max_possible = min(d1, d2, n_samples)
+    if user_dim is not None:
+        return min(user_dim, max_possible)
+    return max_possible
+
+def concat_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+    return np.concatenate([v1_train, v2_train], axis=1), np.concatenate([v1_test, v2_test], axis=1)
+
+def pca_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+    concat_train = np.concatenate([v1_train, v2_train], axis=1)
+    concat_test  = np.concatenate([v1_test, v2_test], axis=1)
+    d = _get_latent_dim(v1_train.shape[1], v2_train.shape[1], v1_train.shape[0], rank)
+    pca = PCA(n_components=d)
+    return pca.fit_transform(concat_train), pca.transform(concat_test)
+
+def cca_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+    ld = _get_latent_dim(v1_train.shape[1], v2_train.shape[1], v1_train.shape[0], rank)
+    cca = CCA(latent_dimensions=ld).fit([v1_train, v2_train])
+    tv = cca.transform([v1_train, v2_train])
+    tev = cca.transform([v1_test, v2_test])
+    return (tv[0] + tv[1]) / 2, (tev[0] + tev[1]) / 2
+
+class EfficientTucker:
+    def __init__(self, rank=None, batch_size=512, n_jobs=-1):
+        self.rank = rank
+        self.batch_size = batch_size
+        self.n_jobs = n_jobs
+        self.B_ = None
+        self.C_ = None
+
+    def fit(self, v1_train, v2_train):
+        F1, F2 = v1_train.shape[1], v2_train.shape[1]
+        max_rank = min(F1, F2)
+        if self.rank is None:
+            r = max_rank
+        else:
+            r = min(self.rank[0] if isinstance(self.rank, tuple) else self.rank, max_rank)
+        N = len(v1_train)
+        batches = [(v1_train[i:i+self.batch_size], v2_train[i:i+self.batch_size])
+                   for i in range(0, N, self.batch_size)]
+        def process_batch(bv1, bv2):
+            G1 = np.zeros((F1, F1))
+            G2 = np.zeros((F2, F2))
+            for x, y in zip(bv1, bv2):
+                G1 += np.outer(x, x) * (y @ y)
+                G2 += np.outer(y, y) * (x @ x)
+            return G1, G2
+        gram_parts = Parallel(n_jobs=self.n_jobs, backend='threading')(
+            delayed(process_batch)(bv1, bv2) for bv1, bv2 in batches)
+        G1 = np.sum(np.array([g[0] for g in gram_parts]), axis=0)
+        G2 = np.sum(np.array([g[1] for g in gram_parts]), axis=0)
+        _, B = eigsh(G1, k=r, which='LM')
+        _, C = eigsh(G2, k=r, which='LM')
+        self.B_ = B[:, ::-1]
+        self.C_ = C[:, ::-1]
+        self.r_ = r
+        return self
+
+    def transform(self, v1, v2):
+        if self.B_ is None or self.C_ is None:
+            raise RuntimeError("Fit the model first.")
+        proj1 = v1 @ self.B_
+        proj2 = v2 @ self.C_
+        return np.concatenate([proj1, proj2], axis=1)
+
+    def fit_transform(self, v1_train, v2_train, v1_test, v2_test):
+        self.fit(v1_train, v2_train)
+        return self.transform(v1_train, v2_train), self.transform(v1_test, v2_test)
+
+def tucker_fusion_efficient(v1_train, v2_train, v1_test, v2_test, rank=None):
+    return EfficientTucker(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
+
+def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
+    B_tr, T_tr, F1 = v1_train.shape
+    B_te, T_te, _ = v1_test.shape
+    flat1_tr = v1_train.reshape(-1, F1)
+    flat2_tr = v2_train.reshape(-1, v2_train.shape[2])
+    flat1_te = v1_test.reshape(-1, F1)
+    flat2_te = v2_test.reshape(-1, v2_test.shape[2])
+    print(f"    [{name}] Flattened train: {flat1_tr.shape[0]} samples")
+    fused_flat_tr, fused_flat_te = fusion_func(flat1_tr, flat2_tr, flat1_te, flat2_te)
+    fused_dim = fused_flat_tr.shape[1]
+    print(f"    [{name}] Fused dimension: {fused_dim}")
+    return fused_flat_tr.reshape(B_tr, T_tr, fused_dim), fused_flat_te.reshape(B_te, T_te, fused_dim)
+
+# ------------------------------------------------------------------
+# Fusion + save
+# ------------------------------------------------------------------
+def fuse_and_save(method_name, global_fn, shift_fn, rank,
+                  g1_tr, g2_tr, g1_te, g2_te,
+                  s1_tr, s2_tr, s1_te, s2_te,
+                  X1_train_template, X1_test_template, output_root, d, m2, s2):
+    rank_str = f"_rank{rank}" if rank is not None else ""
+    full_name = f"{method_name}{rank_str}"
+    print(f"\n=== {full_name} ===")
+    try:
+        g_tr, g_te = global_fn(g1_tr, g2_tr, g1_te, g2_te)
+        s_tr, s_te = fuse_3d(shift_fn, s1_tr, s2_tr, s1_te, s2_te, name="shift_emb")
+        out_train = deepcopy(X1_train_template)
+        out_test  = deepcopy(X1_test_template)
+        out_train['global_emb'] = [x.tolist() for x in g_tr]
+        out_test['global_emb']  = [x.tolist() for x in g_te]
+        out_train['shift_emb']  = [x.tolist() for x in s_tr]
+        out_test['shift_emb']   = [x.tolist() for x in s_te]
+        out_dir = Path(output_root) / d / m2 / 'tests' / s2 / 'seed_0' / f'embeddings_{full_name}'
+        (out_dir / 'train_postproc').mkdir(parents=True, exist_ok=True)
+        (out_dir / 'test_postproc').mkdir(parents=True, exist_ok=True)
+        out_train.to_parquet(out_dir / 'train_postproc' / 'data.parquet')
+        out_test.to_parquet(out_dir / 'test_postproc' / 'data.parquet')
+        print(f"  Saved to {out_dir}")
+        return str(out_dir)
+    except Exception as e:
+        print(f"  SKIPPED: {e}")
+        return None
+
+# ------------------------------------------------------------------
+# Downstream validation functions
+# ------------------------------------------------------------------
+from universal_validator.pipeline.universal_validator import UniversalValidator
+from universal_validator.pipeline.utils import ValidatorConfig
+from universal_validator.utils import ensure_validator_logging, run_with_config
 
 def main(cfg: ValidatorConfig):
     ensure_validator_logging()
     _suppress_noisy_py4j_logs()
     validator = UniversalValidator(cfg)
-
     all_tasks = validator.get_available_tasks(verbose=True)
     if cfg.list_configs:
         return
-
     if cfg.task_names is None:
         tasks = all_tasks
     else:
         assert set(cfg.task_names) <= set(all_tasks)
         tasks = cfg.task_names
-
     reports = []
     embedding_report = validator.run_embedding_metrics()
     if embedding_report:
         reports.append(embedding_report)
-
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
         report["task_name"] = task
         reports.append(report)
     return reports
 
-
-def run_with_paths(
-    downstream_config: Mapping[str, Any],
-    train_path: str,
-    test_path: str,
-):
+def run_with_paths(downstream_config: Mapping[str, Any], train_path: str, test_path: str):
     raw_config = dict(downstream_config)
     data_conf_overrides = dict(raw_config.pop("data_conf", {}))
-
     cfg = cast(
         ValidatorConfig,
         OmegaConf.to_object(
@@ -67,19 +251,12 @@ def run_with_paths(
             )
         ),
     )
-
     cfg = replace(
         cfg,
-        data_conf=replace(
-            cfg.data_conf,
-            **data_conf_overrides,
-            train_path=train_path,
-            test_path=test_path,
-        ),
+        data_conf=replace(cfg.data_conf, **data_conf_overrides,
+                          train_path=train_path, test_path=test_path),
     )
-
     return main(cfg)
-
 
 def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
@@ -89,7 +266,6 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
             continue
         if not report:
             continue
-
         _, metric_names = report["task_name"].rsplit("__", 1)
         best_model = report.get("best_model")
         m = metric_names.split("+")[0]
@@ -99,33 +275,21 @@ def extract_downstream_metrics(reports) -> dict[str, float]:
         metrics[report["task_name"]] = float(all_results[best_model][m])
     return metrics
 
-
 def set_validator_seed(downstream_config: dict, seed: int) -> None:
     for model_config in downstream_config.get("models", {}).values():
         shared_params = model_config.get("shared_params", {})
         if "random_state" in shared_params:
             shared_params["random_state"] = seed
 
-
-def run_downstream_with_seed(
-    downstream_config: dict,
-    train_path: str,
-    test_path: str,
-    seed: int,
-) -> tuple[list[dict], dict[str, float]]:
+def run_downstream_with_seed(downstream_config: dict, train_path: str, test_path: str, seed: int):
     seeded_config = deepcopy(downstream_config)
     seeded_config.pop("validator_seeds", None)
     if "embedding_metrics" in seeded_config:
         seeded_config["embedding_metrics"]["enabled"] = False
     set_validator_seed(seeded_config, seed)
-    reports = run_with_paths(
-        downstream_config=seeded_config,
-        train_path=train_path,
-        test_path=test_path,
-    )
+    reports = run_with_paths(downstream_config=seeded_config, train_path=train_path, test_path=test_path)
     metrics = extract_downstream_metrics(reports)
     return reports, metrics
-
 
 def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,34 +299,78 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
         for key, value in metrics.items():
             writer.writerow([key, value])
 
-
-def get_embedding_postfix(path: str) -> str:
-    """Extract the folder name starting with 'embeddings_' from the given path."""
-    parts = Path(path).parts
-    for part in parts:
-        if part.startswith("embeddings_"):
-            return part
-    return "embeddings_unknown"
-
-
+# ------------------------------------------------------------------
+# Main execution
+# ------------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        root_dir = './log/full/age/NTP_GRU/tests/forecast/seed_0/'
-        all_postfixs = all_postfixs = sorted(set(
-            re.search(r'embeddings_(.+)', d.name).group(1)
-            for d in Path(root_dir).iterdir()
-            if d.is_dir() and d.name.startswith('embeddings_')
-        ))
-        print(all_postfixs)
-        #input('...')
-        for postfix in all_postfixs:
-            config_path = f'./universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml'
-            train_path = f'{root_dir}/embeddings_{postfix}/train_postproc/'
-            test_path = f'{root_dir}/embeddings_{postfix}/test_postproc/'
+    parser = argparse.ArgumentParser(description="Fusion pipeline")
+    parser.add_argument("--root", default="./log/full", help="Root path for all models (default: ./log/full)")
+    parser.add_argument("--d", required=True, help="Dataset name (e.g., age)")
+    parser.add_argument("--m1", required=True, help="Model 1 (e.g., coles)")
+    parser.add_argument("--s1", required=True, help="Task 1 (e.g., regression)")
+    parser.add_argument("--m2", required=True, help="Model 2 (e.g., NTP_GRU)")
+    parser.add_argument("--s2", required=True, help="Task 2 (e.g., forecast)")
+    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml")
+    parser.add_argument("--rank-step", type=int, default=128)
+    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
+    parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
+    args = parser.parse_args()
 
-            config_dict = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
-            print(config_dict)
+    root = args.root
+    d, m1, s1, m2, s2 = args.d, args.m1, args.s1, args.m2, args.s2
 
+    # Generate embeddings if not present
+    for m, s in [(m1, s1), (m2, s2)]:
+        expected = Path(f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/")
+        if not expected.exists():
+            print(f"Generating embeddings for {m}/{s}...")
+            run_embedding_generation(root, d, m, s, gpu=args.gpu)
+
+    # Load all embeddings
+    g1_tr, s1_tr, g1_te, s1_te = load_embeddings(root, d, m1, s1)
+    g2_tr, s2_tr, g2_te, s2_te = load_embeddings(root, d, m2, s2)
+
+    # Template DataFrames for saving
+    X1_train = pd.read_parquet(Path(glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/train_postproc/*")[0]))
+    X1_test  = pd.read_parquet(Path(glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/test_postproc/*")[0]))
+
+    # Determine ranks
+    min_dim = min(g1_tr.shape[1], g2_tr.shape[1])
+    ranks = list(range(args.rank_step, min_dim + 1, args.rank_step))
+    if min_dim % args.rank_step != 0 and min_dim not in ranks:
+        ranks.append(min_dim)
+    ranks = sorted(ranks)
+
+    # Fusion methods
+    methods = [
+        ('concatenation', concat_fusion, None),
+        ('PCA', pca_fusion, None),
+        ('CCA', cca_fusion, None),
+        ('Tucker', tucker_fusion_efficient, None),
+    ]
+
+    for method_name, global_fn, shift_fn in methods:
+        if shift_fn is None:
+            shift_fn = global_fn
+
+        if method_name == 'concatenation':
+            rank_list = [None]
+        else:
+            rank_list = ranks
+
+        for rank in rank_list:
+            out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
+                                    g1_tr, g2_tr, g1_te, g2_te,
+                                    s1_tr, s2_tr, s1_te, s2_te,
+                                    X1_train, X1_test, output_root=root,
+                                    d=d, m2=m2, s2=s2)
+            if out_dir is None:
+                continue
+
+            train_path = f"{out_dir}/train_postproc/"
+            test_path  = f"{out_dir}/test_postproc/"
+
+            config_dict = OmegaConf.to_container(OmegaConf.load(args.config), resolve=True)
             seeds = config_dict.get("validator_seeds")
             if seeds is None:
                 seeds = [None]
@@ -171,9 +379,7 @@ if __name__ == "__main__":
             else:
                 seeds = list(seeds)
 
-            # Extract embedding postfix from the train path
-            postfix = get_embedding_postfix(train_path)
-
+            postfix = Path(out_dir).name
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             run_dir = Path.cwd() / f"validator_output_{timestamp}_{postfix}"
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -197,18 +403,16 @@ if __name__ == "__main__":
                     seed_metrics = extract_downstream_metrics(seed_reports)
                     label = "no_seed"
 
-                save_seed_metrics(
-                    run_dir / f"downstream_validator_{label}.csv",
-                    seed_metrics,
-                )
+                save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
                 pd.DataFrame(seed_reports).to_json(
                     run_dir / f"validator_output_{label}.json",
-                    orient='records',
-                    indent=4,
-                    date_format='iso'
+                    orient='records', indent=4, date_format='iso'
                 )
+                print(f"  Validation results saved to {run_dir}")
 
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+            if args.cleanup:
+                import shutil
+                shutil.rmtree(out_dir)
+                print(f"  Removed {out_dir}")
+
+    print("\nAll done.")
