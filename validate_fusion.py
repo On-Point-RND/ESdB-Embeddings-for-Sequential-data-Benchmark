@@ -2,6 +2,7 @@
 """Unified script: generate embeddings, fuse with rank sweep, run downstream validation."""
 import resource
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
 import argparse
 import logging
 import subprocess
@@ -24,6 +25,12 @@ from scipy.sparse.linalg import eigsh
 from joblib import Parallel, delayed
 
 # ------------------------------------------------------------------
+# Helper for model directory names (uppercase for NTP_GRU/NTP_GPT)
+# ------------------------------------------------------------------
+def model_dir_name(m: str) -> str:
+    return m.upper() if m.lower() in {'ntp_gru', 'ntp_gpt'} else m
+
+# ------------------------------------------------------------------
 # Suppress noisy logs
 # ------------------------------------------------------------------
 def _suppress_noisy_py4j_logs() -> None:
@@ -32,19 +39,28 @@ def _suppress_noisy_py4j_logs() -> None:
     logging.getLogger("py4j").setLevel(logging.ERROR)
 
 # ------------------------------------------------------------------
-# Generate embeddings (Python version that uses main.py directly)
+# Generate embeddings (output goes to original root, then moved to mirror)
 # ------------------------------------------------------------------
-def run_embedding_generation(root: str, d: str, m: str, s: str, dv_config: str, gpu: int = 0) -> None:
-    m_upper = m.upper() if m.lower() in {'ntp_gru', 'ntp_gpt'} else m
+def run_embedding_generation(root: str, mirror_root: str, d: str, m: str, s: str,
+                             dv_config: str, gpu: int = 0) -> None:
+    m_upper = model_dir_name(m)
+    # Checkpoint
     ckpt_pattern = f"{root}/{d}/{m_upper}/tests/{s}/seed_0/pretrain/ckpt/*.ckpt"
     ckpt_files = sorted(glob.glob(ckpt_pattern))
     if not ckpt_files:
         raise FileNotFoundError(f"No checkpoint found: {ckpt_pattern}")
     checkpoint = ckpt_files[0]
 
+    tmp_task = "fusion_tmp"
+    # Remove any leftover temporary folder from a previous run
+    tmp_dir = Path(f"{root}/{d}/{m_upper}/tests/{tmp_task}")
+    if tmp_dir.exists():
+        import shutil
+        shutil.rmtree(tmp_dir)
+
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    env["TASK_NAME"] = s
+    env["TASK_NAME"] = tmp_task          # <-- forces output folder to be "fusion_tmp"
     env["ec"] = "rsample"
     env["PTH"] = checkpoint
 
@@ -53,14 +69,32 @@ def run_embedding_generation(root: str, d: str, m: str, s: str, dv_config: str, 
         "-d", f"full/{d}",
         "-m", m.lower(),
         "-e", "inference",
-        "-s", s,
-        "-dv", dv_config
+        "-s", s,                         # <-- real task name (e.g., best_regression)
+        #s"-dv", dv_config,
+        "--extra-config", "rsample"
     ]
-    print(f"Running: {' '.join(cmd)} (GPU {gpu}, checkpoint {checkpoint})")
+    print(f"Running: {' '.join(cmd)} (GPU {gpu})")
     subprocess.run(cmd, env=env, check=True)
 
+    # The generated embeddings are now in .../tests/fusion_tmp/seed_0/embeddings
+    generated_emb = tmp_dir / "seed_0" / "embeddings"
+    if not generated_emb.exists():
+        raise RuntimeError(f"Generation completed but {generated_emb} not found")
+
+    # Move to mirror root with the correct task name
+    mirror_emb_dir = Path(mirror_root) / d / m_upper / 'tests' / s / 'seed_0' / 'embeddings'
+    mirror_emb_dir.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Moving {generated_emb} -> {mirror_emb_dir}")
+    os.rename(generated_emb, mirror_emb_dir)
+
+    # Clean up the temporary folder (it should be empty now)
+    try:
+        tmp_dir.rmdir()
+    except OSError:
+        pass
+
 # ------------------------------------------------------------------
-# Robust parquet loading
+# Robust parquet loading (from mirror root)
 # ------------------------------------------------------------------
 def safe_stack(series: pd.Series) -> np.ndarray:
     vals = []
@@ -74,11 +108,13 @@ def safe_stack(series: pd.Series) -> np.ndarray:
         raise ValueError(f"Inconsistent shapes in column '{series.name}': {shapes}")
     return np.stack(vals)
 
-def load_embeddings(root: str, d: str, m: str, s: str):
-    train_path = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/"
-    test_path  = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/test_postproc/"
-    X_train = pd.read_parquet(Path(glob.glob(train_path + "*")[0]))
-    X_test  = pd.read_parquet(Path(glob.glob(test_path + "*")[0]))
+def load_embeddings(mirror_root: str, d: str, m: str, s: str):
+    m_dir = model_dir_name(m)
+    train_path = f"{mirror_root}/{d}/{m_dir}/tests/{s}/seed_0/embeddings/train_postproc/"
+    test_path  = f"{mirror_root}/{d}/{m_dir}/tests/{s}/seed_0/embeddings/test_postproc/"
+    # Читаем всю папку, не отдельный файл
+    X_train = pd.read_parquet(train_path)
+    X_test  = pd.read_parquet(test_path)
     return (safe_stack(X_train['global_emb']),
             safe_stack(X_train['shift_emb']),
             safe_stack(X_test['global_emb']),
@@ -174,12 +210,13 @@ def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
     return fused_flat_tr.reshape(B_tr, T_tr, fused_dim), fused_flat_te.reshape(B_te, T_te, fused_dim)
 
 # ------------------------------------------------------------------
-# Fusion + save (with simple error catching)
+# Fusion + save (output goes to mirror_root)
 # ------------------------------------------------------------------
 def fuse_and_save(method_name, global_fn, shift_fn, rank,
                   g1_tr, g2_tr, g1_te, g2_te,
                   s1_tr, s2_tr, s1_te, s2_te,
-                  X1_train_template, X1_test_template, output_root, d, m2, s2):
+                  X1_train_template, X1_test_template, 
+                  mirror_root, d, m2, s2):
     rank_str = f"_rank{rank}" if rank is not None else ""
     full_name = f"{method_name}{rank_str}"
     print(f"\n=== {full_name} ===")
@@ -192,7 +229,7 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
         out_test['global_emb']  = [x.tolist() for x in g_te]
         out_train['shift_emb']  = [x.tolist() for x in s_tr]
         out_test['shift_emb']   = [x.tolist() for x in s_te]
-        out_dir = Path(output_root) / d / m2 / 'tests' / s2 / 'seed_0' / f'embeddings_{full_name}'
+        out_dir = Path(mirror_root) / d / model_dir_name(m2) / 'tests' / s2 / 'seed_0' / f'embeddings_{full_name}'
         (out_dir / 'train_postproc').mkdir(parents=True, exist_ok=True)
         (out_dir / 'test_postproc').mkdir(parents=True, exist_ok=True)
         out_train.to_parquet(out_dir / 'train_postproc' / 'data.parquet')
@@ -297,36 +334,38 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fusion pipeline")
-    parser.add_argument("--root", default="./log/full", help="Root path for all models")
+    parser.add_argument("--root", default="./log/full", help="Root path for checkpoints")
+    parser.add_argument("--mirror-root", default="./log_mirror/full", help="Root path for generated/fused embeddings")
     parser.add_argument("--d", default="age", help="Dataset name")
     parser.add_argument("--m1", default="coles", help="Model 1")
-    parser.add_argument("--s1", default="regression", help="Task 1")
+    parser.add_argument("--s1", default="best_regression", help="Task 1")
     parser.add_argument("--m2", default="ntp_gru", help="Model 2")
     parser.add_argument("--s2", default="forecast", help="Task 2")
     parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("--rank-step", type=int, default=128)
-    parser.add_argument("--gpu", type=int, default=3, help="GPU id for inference")
+    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
     parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
     parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
     args = parser.parse_args()
 
     root = args.root
+    mirror_root = args.mirror_root
     d, m1, s1, m2, s2 = args.d, args.m1, args.s1, args.m2, args.s2
 
-    # Generate embeddings if not present
+    # Generate embeddings if not present (in mirror root)
     for m, s in [(m1, s1), (m2, s2)]:
-        expected = Path(f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/")
-        if not expected.exists():
+        emb_dir = Path(f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/")
+        if not emb_dir.exists() or not list(emb_dir.glob("*.parquet")):
             print(f"Generating embeddings for {m}/{s}...")
-            run_embedding_generation(root, d, m, s, args.config, gpu=args.gpu)
+            run_embedding_generation(root, mirror_root, d, m, s, args.config, gpu=args.gpu)
 
-    # Load all embeddings
-    g1_tr, s1_tr, g1_te, s1_te = load_embeddings(root, d, m1, s1)
-    g2_tr, s2_tr, g2_te, s2_te = load_embeddings(root, d, m2, s2)
+    # Load all embeddings from mirror root
+    g1_tr, s1_tr, g1_te, s1_te = load_embeddings(mirror_root, d, m1, s1)
+    g2_tr, s2_tr, g2_te, s2_te = load_embeddings(mirror_root, d, m2, s2)
 
-    # Template DataFrames for saving
-    X1_train = pd.read_parquet(Path(glob.glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/train_postproc/*")[0]))
-    X1_test  = pd.read_parquet(Path(glob.glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/test_postproc/*")[0]))
+    # Template DataFrames for saving (from mirror root)
+    X1_train = pd.read_parquet(f"{mirror_root}/{d}/{model_dir_name(m1)}/tests/{s1}/seed_0/embeddings/train_postproc/")
+    X1_test  = pd.read_parquet(f"{mirror_root}/{d}/{model_dir_name(m1)}/tests/{s1}/seed_0/embeddings/test_postproc/")
     
     # ------------------------------------------------------------------
     # Validate original (non-fused) embeddings for each model
@@ -341,8 +380,8 @@ if __name__ == "__main__":
         seeds = list(seeds)
 
     for model_label, m, s in [("model1", m1, s1), ("model2", m2, s2)]:
-        train_path = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/"
-        test_path  = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/test_postproc/"
+        train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
+        test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_original_{model_label}"
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -371,15 +410,15 @@ if __name__ == "__main__":
             )
         print(f"Original model {model_label} validation results saved to {run_dir}")
 
-    # Determine ranks
+    # Determine ranks (based on the loaded embeddings)
     min_dim = min(g1_tr.shape[1], g2_tr.shape[1])
-    print('min_dim:',g1_tr.shape[1], g2_tr.shape[1], min_dim)
+    print('min_dim:', g1_tr.shape[1], g2_tr.shape[1], min_dim)
     ranks = list(range(args.rank_step, min_dim + 1, args.rank_step))
     if min_dim % args.rank_step != 0 and min_dim not in ranks:
         ranks.append(min_dim)
     ranks = sorted(ranks)
 
-    # Fusion methods (using partial for CCA variants)
+    # Fusion methods
     methods = [
         ('concatenation', concat_fusion, None),
         ('PCA', pca_fusion, None),
@@ -398,14 +437,14 @@ if __name__ == "__main__":
         if method_name == 'concatenation':
             rank_list = [None]
         else:
-            rank_list = max(ranks) if args.test else ranks
+            rank_list = [max(ranks)] if args.test else ranks
 
         for rank in rank_list:
             out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
                                     g1_tr, g2_tr, g1_te, g2_te,
                                     s1_tr, s2_tr, s1_te, s2_te,
-                                    X1_train, X1_test, output_root=root,
-                                    d=d, m2=m2, s2=s2)
+                                    X1_train, X1_test, 
+                                    mirror_root=mirror_root, d=d, m2=m2, s2=s2)
             if out_dir is None:
                 continue
 
