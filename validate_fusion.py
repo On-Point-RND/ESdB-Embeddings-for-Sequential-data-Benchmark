@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """Unified script: generate embeddings, fuse with rank sweep, run downstream validation."""
-
+import resource
+resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 import argparse
 import logging
 import subprocess
 import csv
+import os
+import glob
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, cast
 from copy import deepcopy
 from pathlib import Path
+from functools import partial
 import numpy as np
 import pandas as pd
-from glob import glob
 from omegaconf import OmegaConf
 from sklearn.decomposition import PCA
-from cca_zoo.linear import CCA
+from cca_zoo.linear import CCA, rCCA, PLS, SCCA_ADMM, PLS_ALS
 from scipy.sparse.linalg import eigsh
 from joblib import Parallel, delayed
 
@@ -29,43 +32,33 @@ def _suppress_noisy_py4j_logs() -> None:
     logging.getLogger("py4j").setLevel(logging.ERROR)
 
 # ------------------------------------------------------------------
-# Generate embeddings by calling the shell script, two variants
+# Generate embeddings (Python version that uses main.py directly)
 # ------------------------------------------------------------------
-def run_embedding_generation_0(root: str, d: str, m: str, s: str, gpu: int = 0) -> None:
-    cmd = f"./inf.sh {d} {gpu} {m} {s}"
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
-
-def run_embedding_generation(root: str, d: str, m: str, s: str, gpu: int = 0) -> None:
-    # Fix case for models stored in uppercase directories
+def run_embedding_generation(root: str, d: str, m: str, s: str, dv_config: str, gpu: int = 0) -> None:
     m_upper = m.upper() if m.lower() in {'ntp_gru', 'ntp_gpt'} else m
-
-    # Locate the latest checkpoint
     ckpt_pattern = f"{root}/{d}/{m_upper}/tests/{s}/seed_0/pretrain/ckpt/*.ckpt"
     ckpt_files = sorted(glob.glob(ckpt_pattern))
     if not ckpt_files:
         raise FileNotFoundError(f"No checkpoint found: {ckpt_pattern}")
     checkpoint = ckpt_files[0]
 
-    # Set environment variables
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     env["TASK_NAME"] = s
     env["ec"] = "rsample"
     env["PTH"] = checkpoint
 
-    # Run the inference command
     cmd = [
         "python", "main.py",
         "-d", f"full/{d}",
-        "-m", m,               # original model name (lowercase), as expected by main.py
+        "-m", m.lower(),
         "-e", "inference",
         "-s", s,
-        "-dv", "universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml"
+        "-dv", dv_config
     ]
     print(f"Running: {' '.join(cmd)} (GPU {gpu}, checkpoint {checkpoint})")
     subprocess.run(cmd, env=env, check=True)
-    
+
 # ------------------------------------------------------------------
 # Robust parquet loading
 # ------------------------------------------------------------------
@@ -84,8 +77,8 @@ def safe_stack(series: pd.Series) -> np.ndarray:
 def load_embeddings(root: str, d: str, m: str, s: str):
     train_path = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/"
     test_path  = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/test_postproc/"
-    X_train = pd.read_parquet(Path(glob(train_path + "*")[0]))
-    X_test  = pd.read_parquet(Path(glob(test_path + "*")[0]))
+    X_train = pd.read_parquet(Path(glob.glob(train_path + "*")[0]))
+    X_test  = pd.read_parquet(Path(glob.glob(test_path + "*")[0]))
     return (safe_stack(X_train['global_emb']),
             safe_stack(X_train['shift_emb']),
             safe_stack(X_test['global_emb']),
@@ -110,9 +103,9 @@ def pca_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
     pca = PCA(n_components=d)
     return pca.fit_transform(concat_train), pca.transform(concat_test)
 
-def cca_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+def cca_fusion(v1_train, v2_train, v1_test, v2_test, rank=None, model=CCA):
     ld = _get_latent_dim(v1_train.shape[1], v2_train.shape[1], v1_train.shape[0], rank)
-    cca = CCA(latent_dimensions=ld).fit([v1_train, v2_train])
+    cca = model(latent_dimensions=ld).fit([v1_train, v2_train])
     tv = cca.transform([v1_train, v2_train])
     tev = cca.transform([v1_test, v2_test])
     return (tv[0] + tv[1]) / 2, (tev[0] + tev[1]) / 2
@@ -181,7 +174,7 @@ def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
     return fused_flat_tr.reshape(B_tr, T_tr, fused_dim), fused_flat_te.reshape(B_te, T_te, fused_dim)
 
 # ------------------------------------------------------------------
-# Fusion + save
+# Fusion + save (with simple error catching)
 # ------------------------------------------------------------------
 def fuse_and_save(method_name, global_fn, shift_fn, rank,
                   g1_tr, g2_tr, g1_te, g2_te,
@@ -211,7 +204,7 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
         return None
 
 # ------------------------------------------------------------------
-# Downstream validation functions
+# Downstream validation functions (unchanged)
 # ------------------------------------------------------------------
 from universal_validator.pipeline.universal_validator import UniversalValidator
 from universal_validator.pipeline.utils import ValidatorConfig
@@ -304,16 +297,17 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fusion pipeline")
-    parser.add_argument("--root", default="./log/full", help="Root path for all models (default: ./log/full)")
-    parser.add_argument("--d", required=True, help="Dataset name (e.g., age)")
-    parser.add_argument("--m1", required=True, help="Model 1 (e.g., coles)")
-    parser.add_argument("--s1", required=True, help="Task 1 (e.g., regression)")
-    parser.add_argument("--m2", required=True, help="Model 2 (e.g., NTP_GRU)")
-    parser.add_argument("--s2", required=True, help="Task 2 (e.g., forecast)")
-    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml")
+    parser.add_argument("--root", default="./log/full", help="Root path for all models")
+    parser.add_argument("--d", default="age", help="Dataset name")
+    parser.add_argument("--m1", default="coles", help="Model 1")
+    parser.add_argument("--s1", default="regression", help="Task 1")
+    parser.add_argument("--m2", default="ntp_gru", help="Model 2")
+    parser.add_argument("--s2", default="forecast", help="Task 2")
+    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("--rank-step", type=int, default=128)
-    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
+    parser.add_argument("--gpu", type=int, default=3, help="GPU id for inference")
     parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
+    parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
     args = parser.parse_args()
 
     root = args.root
@@ -324,28 +318,76 @@ if __name__ == "__main__":
         expected = Path(f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/")
         if not expected.exists():
             print(f"Generating embeddings for {m}/{s}...")
-            run_embedding_generation(root, d, m, s, gpu=args.gpu)
+            run_embedding_generation(root, d, m, s, args.config, gpu=args.gpu)
 
     # Load all embeddings
     g1_tr, s1_tr, g1_te, s1_te = load_embeddings(root, d, m1, s1)
     g2_tr, s2_tr, g2_te, s2_te = load_embeddings(root, d, m2, s2)
 
     # Template DataFrames for saving
-    X1_train = pd.read_parquet(Path(glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/train_postproc/*")[0]))
-    X1_test  = pd.read_parquet(Path(glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/test_postproc/*")[0]))
+    X1_train = pd.read_parquet(Path(glob.glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/train_postproc/*")[0]))
+    X1_test  = pd.read_parquet(Path(glob.glob(f"{root}/{d}/{m1}/tests/{s1}/seed_0/embeddings/test_postproc/*")[0]))
+    
+    # ------------------------------------------------------------------
+    # Validate original (non-fused) embeddings for each model
+    # ------------------------------------------------------------------
+    config_dict = OmegaConf.to_container(OmegaConf.load(args.config), resolve=True)
+    seeds = config_dict.get("validator_seeds")
+    if seeds is None:
+        seeds = [None]
+    elif isinstance(seeds, (int, float)):
+        seeds = [int(seeds)]
+    else:
+        seeds = list(seeds)
+
+    for model_label, m, s in [("model1", m1, s1), ("model2", m2, s2)]:
+        train_path = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/train_postproc/"
+        test_path  = f"{root}/{d}/{m}/tests/{s}/seed_0/embeddings/test_postproc/"
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_original_{model_label}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for seed in seeds:
+            if seed is not None:
+                seed_reports, seed_metrics = run_downstream_with_seed(
+                    config_dict, train_path, test_path, seed
+                )
+                label = f"seed_{seed}"
+            else:
+                no_seed_config = deepcopy(config_dict)
+                no_seed_config.pop("validator_seeds", None)
+                if "embedding_metrics" in no_seed_config:
+                    no_seed_config["embedding_metrics"]["enabled"] = False
+                seed_reports = run_with_paths(
+                    downstream_config=no_seed_config,
+                    train_path=train_path,
+                    test_path=test_path,
+                )
+                seed_metrics = extract_downstream_metrics(seed_reports)
+                label = "no_seed"
+            save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
+            pd.DataFrame(seed_reports).to_json(
+                run_dir / f"validator_output_{label}.json",
+                orient='records', indent=4, date_format='iso'
+            )
+        print(f"Original model {model_label} validation results saved to {run_dir}")
 
     # Determine ranks
     min_dim = min(g1_tr.shape[1], g2_tr.shape[1])
+    print('min_dim:',g1_tr.shape[1], g2_tr.shape[1], min_dim)
     ranks = list(range(args.rank_step, min_dim + 1, args.rank_step))
     if min_dim % args.rank_step != 0 and min_dim not in ranks:
         ranks.append(min_dim)
     ranks = sorted(ranks)
 
-    # Fusion methods
+    # Fusion methods (using partial for CCA variants)
     methods = [
         ('concatenation', concat_fusion, None),
         ('PCA', pca_fusion, None),
         ('CCA', cca_fusion, None),
+        ('rCCA', partial(cca_fusion, model=rCCA), None),
+        ('PLS', partial(cca_fusion, model=PLS), None),
+        ('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
+        ('PLS_ALS', partial(cca_fusion, model=PLS_ALS), None),
         ('Tucker', tucker_fusion_efficient, None),
     ]
 
@@ -356,7 +398,7 @@ if __name__ == "__main__":
         if method_name == 'concatenation':
             rank_list = [None]
         else:
-            rank_list = ranks
+            rank_list = max(ranks) if args.test else ranks
 
         for rank in rank_list:
             out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
@@ -370,18 +412,9 @@ if __name__ == "__main__":
             train_path = f"{out_dir}/train_postproc/"
             test_path  = f"{out_dir}/test_postproc/"
 
-            config_dict = OmegaConf.to_container(OmegaConf.load(args.config), resolve=True)
-            seeds = config_dict.get("validator_seeds")
-            if seeds is None:
-                seeds = [None]
-            elif isinstance(seeds, (int, float)):
-                seeds = [int(seeds)]
-            else:
-                seeds = list(seeds)
-
             postfix = Path(out_dir).name
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            run_dir = Path.cwd() / f"validator_output_{timestamp}_{postfix}"
+            run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
             run_dir.mkdir(parents=True, exist_ok=True)
 
             for seed in seeds:
