@@ -42,7 +42,7 @@ def _suppress_noisy_py4j_logs() -> None:
 # Generate embeddings (output goes to original root, then moved to mirror)
 # ------------------------------------------------------------------
 def run_embedding_generation(root: str, mirror_root: str, d: str, m: str, s: str,
-                             dv_config: str, gpu: int = 0) -> None:
+                             dv_config: str, gpu: int = 0, resample: bool = False) -> None:
     m_upper = model_dir_name(m)
     # Checkpoint
     ckpt_pattern = f"{root}/{d}/{m_upper}/tests/{s}/seed_0/pretrain/ckpt/*.ckpt"
@@ -67,12 +67,14 @@ def run_embedding_generation(root: str, mirror_root: str, d: str, m: str, s: str
     cmd = [
         "python", "main.py",
         "-d", f"full/{d}",
-        "-m", m.lower(),
+        "-m", model_dir_name(m),
         "-e", "inference",
         "-s", s,                         # <-- real task name (e.g., best_regression)
         #s"-dv", dv_config,
-        "--extra-config", "rsample"
+        #"--extra-config", "rsample"
     ]
+    if args.resample:
+        cmd += ["--extra-config", "rsample"]
     print(f"Running: {' '.join(cmd)} (GPU {gpu})")
     subprocess.run(cmd, env=env, check=True)
 
@@ -335,19 +337,20 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fusion pipeline")
     parser.add_argument("--root", default="./log/full", help="Root path for checkpoints")
-    parser.add_argument("--mirror-root", default="./log_mirror/full", help="Root path for generated/fused embeddings")
+    parser.add_argument("--mirror-root", default="./mirror_log/full", help="Root path for generated/fused embeddings")
     parser.add_argument("--d", default="age", help="Dataset name")
-    parser.add_argument("--m1", default="coles", help="Model 1")
-    parser.add_argument("--s1", default="best_regression", help="Task 1")
+    parser.add_argument("--m1", default="SimCLR", help="Model 1")
+    parser.add_argument("--s1", default="best_classification", help="Task 1")
     parser.add_argument("--m2", default="ntp_gru", help="Model 2")
-    parser.add_argument("--s2", default="forecast", help="Task 2")
+    parser.add_argument("--s2", default="best_forecast", help="Task 2")
     parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("--rank-step", type=int, default=128)
     parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
     parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
     parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
+    parser.add_argument("--resample", action="store_true", help="Run only on the small dataset for quick testing")
     args = parser.parse_args()
-
+    start_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     root = args.root
     mirror_root = args.mirror_root
     d, m1, s1, m2, s2 = args.d, args.m1, args.s1, args.m2, args.s2
@@ -357,7 +360,7 @@ if __name__ == "__main__":
         emb_dir = Path(f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/")
         if not emb_dir.exists() or not list(emb_dir.glob("*.parquet")):
             print(f"Generating embeddings for {m}/{s}...")
-            run_embedding_generation(root, mirror_root, d, m, s, args.config, gpu=args.gpu)
+            run_embedding_generation(root, mirror_root, d, m, s, args.config, gpu=args.gpu, resample=args.resample)
 
     # Load all embeddings from mirror root
     g1_tr, s1_tr, g1_te, s1_te = load_embeddings(mirror_root, d, m1, s1)
@@ -379,11 +382,12 @@ if __name__ == "__main__":
     else:
         seeds = list(seeds)
 
-    for model_label, m, s in [("model1", m1, s1), ("model2", m2, s2)]:
+    for m, s in [(m1, s1), (m2, s2)]:
+        model_label = "{m}_{s}"
         train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
         test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_original_{model_label}"
+        run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
         run_dir.mkdir(parents=True, exist_ok=True)
         for seed in seeds:
             if seed is not None:
@@ -405,7 +409,7 @@ if __name__ == "__main__":
                 label = "no_seed"
             save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
             pd.DataFrame(seed_reports).to_json(
-                run_dir / f"validator_output_{label}.json",
+                run_dir / f"validator_outputs_{start_timestamp}" / f"validator_output_{label}.json",
                 orient='records', indent=4, date_format='iso'
             )
         print(f"Original model {model_label} validation results saved to {run_dir}")
@@ -425,7 +429,7 @@ if __name__ == "__main__":
         ('CCA', cca_fusion, None),
         ('rCCA', partial(cca_fusion, model=rCCA), None),
         ('PLS', partial(cca_fusion, model=PLS), None),
-        ('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
+        #('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
         ('PLS_ALS', partial(cca_fusion, model=PLS_ALS), None),
         ('Tucker', tucker_fusion_efficient, None),
     ]
@@ -453,7 +457,7 @@ if __name__ == "__main__":
 
             postfix = Path(out_dir).name
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
+            run_dir = Path.cwd() / f"validator_outputs_{start_timestamp}" / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
             run_dir.mkdir(parents=True, exist_ok=True)
 
             for seed in seeds:
