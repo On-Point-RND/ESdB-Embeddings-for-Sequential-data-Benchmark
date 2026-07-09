@@ -408,6 +408,16 @@ class RandomSlices(BatchTransform):
     """
     seed: int | None = None
     """Deprecated and ignored; sampling now uses the global RNG."""
+    temporal: bool = False
+    """
+    If True, augment ``batch.target`` with per-slice temporal information for the
+        temporal (asymmetric) contrastive loss. The target becomes a
+        ``(N, 3)`` LongTensor ``[client_label, start_pos, rank]`` where ``rank`` is
+        the order of the slice within its client's sampled set sorted by descending
+        ``start_pos`` (``rank == 0`` is the most future slice, larger rank is more
+        past). When False (default) the transform behaves exactly as before and the
+        target stays a 1-D tensor of client labels.
+    """
 
     def __call__(self, batch: Batch):
         gen = spawn_generator()
@@ -419,14 +429,18 @@ class RandomSlices(BatchTransform):
         embs = {k: [] for k in batch.emb_features} if batch.emb_features else None
         inds = []
         targets = []
+        starts = []
+        ranks = []
         max_len = 0
 
-        def add_slice(i, start, length):
+        def add_slice(i, start, length, rank):
             assert length > 0
             end = start + length
             lens.append(length)
             times.append(batch.time[start:end, i])
             inds.append(batch.index[i])
+            starts.append(int(start))
+            ranks.append(int(rank))
             if batch.num_features is not None:
                 nums.append(batch.num_features[start:end, i])
                 # Not (len_x, 1, all_features) but (len_x, all_features)
@@ -445,8 +459,9 @@ class RandomSlices(BatchTransform):
             c_len = batch.lengths[i].item()
             assert isinstance(c_len, int)
             if c_len < self.cnt_min and self.short_seq_crop_rate >= 1.0:
-                for _ in range(self.split_count):
-                    add_slice(i, 0, c_len)
+                for r in range(self.split_count):
+                    # identical slices; ranks are arbitrary but distinct
+                    add_slice(i, 0, c_len, r)
                 continue
 
             cnt_max = min(self.cnt_max, c_len)
@@ -469,8 +484,10 @@ class RandomSlices(BatchTransform):
                 * (available_start_pos + 1 - 1e-9)
             ).astype(int)
 
-            for sp, ln in zip(start_pos, new_len):
-                add_slice(i, sp, ln)
+            # rank 0 == most future (largest start_pos), larger rank == more past
+            ranks_arr = np.argsort(np.argsort(-start_pos))
+            for r_idx, (sp, ln) in enumerate(zip(start_pos, new_len)):
+                add_slice(i, sp, ln, ranks_arr[r_idx])
 
         def cat_pad(tensors, dtype):
             t0 = tensors[0]  # (len_x of the first small seq, features)
@@ -497,7 +514,14 @@ class RandomSlices(BatchTransform):
 
         batch.lengths = torch.tensor(lens)
         if batch.target is not None:
-            batch.target = torch.tensor(targets, dtype=batch.target.dtype)
+            if self.temporal:
+                tgt = torch.tensor(targets, dtype=torch.long)
+                sp = torch.tensor(starts, dtype=torch.long)
+                rk = torch.tensor(ranks, dtype=torch.long)
+                # (N, 3): [client_label, start_pos, rank]
+                batch.target = torch.stack([tgt, sp, rk], dim=1)
+            else:
+                batch.target = torch.tensor(targets, dtype=batch.target.dtype)
         if isinstance(batch.index, torch.Tensor):
             batch.index = torch.tensor(inds, dtype=batch.index.dtype)
         else:  # np.ndarray

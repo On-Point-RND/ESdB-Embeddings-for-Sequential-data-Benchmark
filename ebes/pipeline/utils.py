@@ -138,7 +138,7 @@ def get_loss(name: str, params: Mapping[str, Any] | None = None):
     params = {**params} if params else {}
     if name[:3] == "nn.":
         loss_fn = getattr(torch.nn, name[3:])(**params)
-    elif name in ["ContrastiveLoss", "InfoNCELoss"]:
+    elif name in ["ContrastiveLoss", "InfoNCELoss", "TemporalContrastiveLoss"]:
         selector = getattr(losses.contrastive, params.pop("selector"))(
             params.pop("neg_count")
         )

@@ -101,6 +101,61 @@ class HardNegativePairSelector(PairSelector):
         return positive_pairs, negative_pairs
 
 
+class TemporalHardNegativePairSelector(PairSelector):
+    """
+    Temporal variant of :class:`HardNegativePairSelector`.
+
+    Expects ``labels`` of shape ``(N, 3)`` = ``[client_label, start_pos, rank]``
+    produced by ``RandomSlices(temporal=True)``.
+
+    - Positive pairs are **ordered** ``(past, future)``: both slices belong to the
+      same client and ``rank[past] > rank[future]`` (larger rank == more past).
+      Column 0 is the past slice, column 1 is the future slice. The loss uses this
+      order to make the pull asymmetric (future is a detached anchor).
+    - Negative pairs use only ``client_label`` and are mined exactly like in
+      :class:`HardNegativePairSelector`.
+    """
+
+    def __init__(self, neg_count=1):
+        super().__init__()
+        self.neg_count = neg_count
+
+    def get_pairs(
+        self,
+        embeddings: torch.Tensor,
+        labels: torch.Tensor | np.ndarray,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if not isinstance(labels, torch.Tensor):
+            labels = torch.as_tensor(labels)
+        labels = labels.to(embeddings.device)
+        cls = labels[:, 0]
+        rank = labels[:, 2]
+        n = len(labels)
+
+        # ordered positive pairs: same client and past (larger rank) -> future
+        same = cls[:, None] == cls[None, :]
+        pos_mask = same & (rank[:, None] > rank[None, :])
+        positive_pairs = pos_mask.nonzero(as_tuple=False)  # (K, 2): [past, future]
+
+        # hard negative mining (by client label)
+        different = (cls[:, None] != cls[None, :]).type(embeddings.dtype)
+        mat_distances = outer_pairwise_distance(embeddings.detach())
+        upper_bound = int((2 * n) ** 0.5) + 1
+        mat_distances = (upper_bound - mat_distances) * different
+
+        _, indices = mat_distances.topk(k=self.neg_count, dim=0, largest=True)
+        negative_pairs = torch.stack(
+            [
+                torch.arange(0, n, dtype=indices.dtype, device=indices.device).repeat(
+                    self.neg_count
+                ),
+                torch.cat(indices.unbind(dim=0)),
+            ]
+        ).t()
+
+        return positive_pairs, negative_pairs
+
+
 ##### LOSSES #####
 
 
@@ -128,6 +183,49 @@ class ContrastiveLoss(nn.Module):
         positive_loss = F.pairwise_distance(
             embeddings[positive_pairs[:, 0]], embeddings[positive_pairs[:, 1]]
         ).pow(2)
+
+        negative_loss = F.relu(
+            self.margin
+            - F.pairwise_distance(
+                embeddings[negative_pairs[:, 0]],
+                embeddings[negative_pairs[:, 1]],
+            )
+        ).pow(2)
+        loss = torch.cat([positive_loss, negative_loss], dim=0)
+
+        return loss.mean()
+
+
+class TemporalContrastiveLoss(nn.Module):
+    """
+    Asymmetric temporal contrastive loss.
+
+    Uses ordered positive pairs ``(past, future)`` from
+    :class:`TemporalHardNegativePairSelector`. The positive term pulls the **past**
+    slice towards the **future** slice, but the future slice is a *detached* anchor:
+    it receives no extra gradient from this pair. This breaks the symmetry that would
+    otherwise cancel out a directional signal (past->future and future->past pulls
+    would sum to zero on the same pair). Negatives are pushed apart symmetrically,
+    exactly as in :class:`ContrastiveLoss`.
+    """
+
+    def __init__(
+        self,
+        margin: float,
+        pair_selector: PairSelector,
+    ):
+        super().__init__()
+        self.margin = margin
+        self.pair_selector = pair_selector
+
+    def forward(self, embeddings, target):
+        positive_pairs, negative_pairs = self.pair_selector.get_pairs(
+            embeddings, target
+        )
+        # positive_pairs[:, 0] == past (gets gradient), [:, 1] == future (anchor)
+        past = embeddings[positive_pairs[:, 0]]
+        future = embeddings[positive_pairs[:, 1]].detach()
+        positive_loss = F.pairwise_distance(past, future).pow(2)
 
         negative_loss = F.relu(
             self.margin

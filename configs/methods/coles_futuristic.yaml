@@ -6,8 +6,9 @@ data:
     contrastive_pipeline:
       batch_transforms:
         AUG_slices:
-          TemporalRandomSlices:
+          RandomSlices:
             split_count: 5
+            temporal: true
         AUG_masking:
   loaders:
     unsupervised_train:
