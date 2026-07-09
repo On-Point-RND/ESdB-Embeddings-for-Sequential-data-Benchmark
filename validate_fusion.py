@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument("--s2", default="best_forecast", help="Task 2")
     parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("--rank-step", type=int, default=128)
-    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
+    parser.add_argument("--gpu", type=str, default=0, help="GPU id for inference")
     parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
     parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
     parser.add_argument("--resample", action="store_true", help="Run only on the small dataset for quick testing")
