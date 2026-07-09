@@ -5,7 +5,7 @@ shopt -s nullglob
 DATASET="${DATASET:-age}"
 METHOD="${METHOD:-jepa_optuna}"
 SPECIFY="${SPECIFY:-classification}"
-TASK="${TASK:-best_${SPECIFY}}"
+TASK="${TASK:-${SPECIFY}}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
 EXTRA_CONFIG="${EXTRA_CONFIG:-}"
@@ -17,7 +17,7 @@ KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_ROOT="${RUN_ROOT:-${ROOT}/log/${DATASET}/${METHOD}/tests}"
-CKPT_DIR="${CKPT_DIR:-${RUN_ROOT}/${TASK}/${SEED_DIR}/ckpt}"
+CKPT_DIR="${CKPT_DIR:-${RUN_ROOT}/${TASK}/${SEED_DIR}/pretrain/ckpt}"
 
 cd "${ROOT}"
 
