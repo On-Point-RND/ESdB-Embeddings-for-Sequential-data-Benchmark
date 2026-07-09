@@ -3,6 +3,7 @@
 /dev
 esbench/data/x5-retail
 log/
+glog/
 INSPARATION_ARCHIVE/
 zhores/
 .idea
@@ -181,8 +182,3 @@ cython_debug/
 *.pth
 **.code-workspace
 *locexp_*
-
-configs/specify/**/classification*.yaml
-configs/specify/**/regression*.yaml
-configs/specify/**/forecasting*.yaml
-configs/specify/**/anomaly*.yaml

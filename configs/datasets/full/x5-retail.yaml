@@ -58,12 +58,16 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - FillNans:
+        FN:
+          FillNans:
             fill_value: 0
-        - ContrastiveTarget
-        - RandomSlices:
+        CT:
+          ContrastiveTarget
+        AUG_slices:
+          RandomSlices:
             split_count: 5
             cnt_min: 30
             cnt_max: 180

@@ -33,26 +33,47 @@ def get_collator(
     index_name: str | None = None,
     target_name: str | list[str] | None = None,
     max_seq_len: int = 0,
-    batch_transforms: list[Mapping[str, Any] | str] | None = None,
+    batch_transforms: list[Mapping[str, Any] | str] | Mapping[str, Any] | None = None,
     padding_type: str = "zeros",
 ) -> SequenceCollator:
+    def iter_transform_config(configs):
+        if configs is None:
+            return ()
+
+        if isinstance(configs, Mapping):
+            return configs.values()
+
+        return configs
+
+    def build_transform(config):
+        if config is None:
+            return None
+
+        if isinstance(config, str):
+            return getattr(batch_tfs, config)()
+
+        if not isinstance(config, Mapping):
+            raise TypeError("Batch transform config must be string or mapping")
+
+        for name, params in config.items():
+            klass = getattr(batch_tfs, name)
+            if params is None:
+                return klass()
+            if isinstance(params, Mapping):
+                return klass(**dict(params))
+            if isinstance(params, Sequence) and not isinstance(params, str):
+                return klass(*params)
+            return klass(params)
+
+        return None
+
     tfs = None
     if batch_transforms is not None:
         tfs = []
-        for bt in batch_transforms:
-            if isinstance(bt, str):
-                tfs.append(getattr(batch_tfs, bt)())
-                continue
-
-            for name, params in bt.items():  # has params
-                klass = getattr(batch_tfs, name)
-                if isinstance(params, Mapping):
-                    tfs.append(klass(**params))
-                elif isinstance(params, Sequence):
-                    tfs.append(klass(*params))
-                else:
-                    tfs.append(klass(params))
-                break
+        for config in iter_transform_config(batch_transforms):
+            tf = build_transform(config)
+            if tf is not None:
+                tfs.append(tf)
 
     return SequenceCollator(
         time_name=time_name,

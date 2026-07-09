@@ -368,10 +368,13 @@ data:
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - FillNans:
+        MV:
+          MaskValid
+        FN:
+          FillNans:
             fill_value: 0
     gen_pipeline:
       <<: *common_pipeline
@@ -379,17 +382,38 @@ data:
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - FillNans:
+        MV:
+          MaskValid
+        FN:
+          FillNans:
             fill_value: 0
-        - ContrastiveTarget
-        - RandomSlices:
+        CT:
+          ContrastiveTarget
+        AUG_slices:
+          RandomSlices:
             split_count: 5
             cnt_min: 100
             cnt_max: 500
             short_seq_crop_rate: 0.8
             seed: 0
+        AUG_masking:
+          AugmentationMasker:
+            name: MixedMasker
+            number_of_instances: 3
+            add_initial: True
+            params:
+              cat_cardinalities: ${cc}
+              mask_prob: 0.2
+              span_len: 10
+              span_share: 0.5
+              random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
+              keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
+              num_mask_fill: zero
+              partial_cat_feature_prob: 0.0
+              partial_num_feature_prob: 0.0
 
   loaders:
     train:

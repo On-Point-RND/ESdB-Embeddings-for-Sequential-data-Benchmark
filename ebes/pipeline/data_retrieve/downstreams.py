@@ -2,6 +2,7 @@ import csv
 import logging
 from copy import deepcopy
 import shutil
+from multiprocessing import current_process
 from pathlib import Path
 
 from pyspark.sql import SparkSession
@@ -15,12 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 def create_postproc_spark_session() -> SparkSession:
+    # Use dynamic ports (0 = OS picks a free port) to avoid conflicts when
+    # multiple seeds run in parallel. Disable UI to eliminate that port entirely.
+    proc_name = current_process().name
     return (
         SparkSession.builder.appName("JoinEmbeddings").master("local[8]")  # type: ignore
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-        .config("spark.driver.memory", "24g")
-        .config("spark.driver.memoryOverhead", "4g")
-        .config("spark.executor.memory", "12g")
+        .config("spark.driver.memory", "48g")
+        .config("spark.driver.memoryOverhead", "8g")
+        .config("spark.executor.memory", "20g")
         .getOrCreate()
     )
 
@@ -95,6 +99,7 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 def compute_downstreams(
     trainer, train_loaders, test_loaders, config, downstream_config
 ):
+    import gc
     train_embeddings_getter = ResultsGetter(config, "train")
     keys = {"gen_train", "gen_train_val"}
     subloaders = {k: train_loaders[k] for k in keys if k in train_loaders}
@@ -104,6 +109,7 @@ def compute_downstreams(
     )
     embed_train_file.parent.mkdir(parents=True, exist_ok=True)
     df_train.to_parquet(embed_train_file, index=False)
+    del df_train, train_embeddings_getter
 
     test_embeddings_getter = ResultsGetter(config, "test")
     keys = {"gen_test"}
@@ -114,6 +120,8 @@ def compute_downstreams(
     )
     embed_test_file.parent.mkdir(parents=True, exist_ok=True)
     df_test.to_parquet(embed_test_file, index=False)
+    del df_test, test_embeddings_getter, subloaders
+    gc.collect()
 
     spark = create_postproc_spark_session()
     try:

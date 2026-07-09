@@ -35,20 +35,26 @@ data:
       cat_cardinalities: ${cc}
       num_names: ${nn}
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - MaskValid
+        MV:
+          MaskValid
     gen_pipeline:
       <<: *common_pipeline
       max_seq_len: 1000000
     contrastive_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - ContrastiveTarget
-        - RandomSlices:
+        MV:
+          MaskValid
+        CT:
+          ContrastiveTarget
+        AUG_slices:
+          RandomSlices:
             split_count: ${oc.select:additional_params.split_count, 5}
             cnt_min: 25
             cnt_max: 200
@@ -57,10 +63,13 @@ data:
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
-        - TimeToFeatures:
+        TTF:
+          TimeToFeatures:
             process_type: ${model.preprocess.params.time_process}
-        - MaskValid
-        - PrimeNetSampler:
+        MV:
+          MaskValid
+        PNS:
+          PrimeNetSampler:
             segment_num: 3
 
   loaders:

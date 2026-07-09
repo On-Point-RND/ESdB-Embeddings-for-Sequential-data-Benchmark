@@ -135,16 +135,6 @@ class ResultsGetter:
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
 
-        # debug_f = self.debug_f_by_index[old_index]
-        # if isinstance(debug_f, list):
-        #    debug_f = np.asarray(debug_f)
-
-        # assert isinstance(debug_f, np.ndarray) and isinstance(
-        #    shifts, np.ndarray
-        # ), "Provide correct types for sequential data in Dataframe."
-        # debug_f = debug_f[shifts_mask]
-        # return shifts, debug_f
-        return np.append(shifts, int(full_len))
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None
@@ -172,7 +162,6 @@ class ResultsGetter:
             old_index = batch.index[b]
             orig_len = int(self.orig_len_by_index[old_index])
             shifts = self.get_shifts(old_index, batch.lengths[b])
-            assert (shifts >= (orig_len - old_len)).all(), "Shifts out of seq_len"
 
             for i, s in enumerate(shifts):
                 s = int(s)

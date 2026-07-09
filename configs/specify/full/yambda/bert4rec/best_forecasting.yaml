@@ -1,0 +1,24 @@
+optimizer:
+  params:
+    weight_decay: 0.009261907535622666
+    lr: 0.0006548570954039168
+model:
+  params:
+    hidden_size: 128
+    num_heads: 1
+    query_aggregation: mean
+    dropout: 0.25
+    num_blocks: 1
+    num_passes_over_block: 2
+    cat_emb_dim: 96
+    num_emb_dim: 32
+    embedding_size: 64
+    masker:
+      params:
+        mask_prob: 0.43173863132561296
+        span_len: 12
+        span_share: 0.7000000000000001
+        random_token_prob: 0.15000000000000002
+        keep_event_prob: 0.1
+        partial_cat_feature_prob: 0.25
+        partial_num_feature_prob: 0.35000000000000003

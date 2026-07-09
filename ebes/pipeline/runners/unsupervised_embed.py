@@ -78,6 +78,15 @@ class UnsupervisedEmbedRunner(Runner):
         )
         trainer._model = embed_net.eval().to(config["device"])
 
+        # Free training-time state (model with contrastive heads, Adam buffers,
+        # optional scheduler) before embedding generation to leave headroom for
+        # the gen-phase activations on the same GPU.
+        del net, opt
+        if lr_scheduler is not None:
+            del lr_scheduler
+        gc.collect()
+        torch.cuda.empty_cache()
+
         run_type = config["runner"]["run_type"]
         downstream_config = config.get("universal_validator", None)
         downstream_metrics = {}
