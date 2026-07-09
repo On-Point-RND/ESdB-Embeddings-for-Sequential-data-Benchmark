@@ -3,6 +3,7 @@
 /dev
 esbench/data/x5-retail
 log/
+glog/
 INSPARATION_ARCHIVE/
 zhores/
 .idea
