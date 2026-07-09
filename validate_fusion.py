@@ -2,12 +2,34 @@
 """Unified script: generate embeddings, fuse with rank sweep, run downstream validation."""
 import resource
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-
+import os
 import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fusion pipeline")
+    parser.add_argument("--root", default="./log/full", help="Root path for checkpoints")
+    parser.add_argument("--mirror-root", default="./mirror_log/full", help="Root path for generated/fused embeddings")
+    parser.add_argument("--d", default="age", help="Dataset name")
+    parser.add_argument("--m1", default="coles", help="Model 1")
+    parser.add_argument("--s1", default="best_regression", help="Task 1")
+    parser.add_argument("--m2", default="ntp_gru", help="Model 2")
+    parser.add_argument("--s2", default="best_forecast", help="Task 2")
+    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
+    parser.add_argument("--rank-step", type=int, default=128)
+    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
+    parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
+    parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
+    parser.add_argument("--resample", action="store_true", help="Run only on the small dataset for quick testing")
+    args = parser.parse_args()
+    return args
+
+args = parse_args()
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+
 import logging
 import subprocess
 import csv
-import os
 import glob
 from collections.abc import Mapping
 from dataclasses import replace
@@ -67,7 +89,7 @@ def run_embedding_generation(root: str, mirror_root: str, d: str, m: str, s: str
     cmd = [
         "python", "main.py",
         "-d", f"full/{d}",
-        "-m", model_dir_name(m),
+        "-m", m,
         "-e", "inference",
         "-s", s,                         # <-- real task name (e.g., best_regression)
         #s"-dv", dv_config,
@@ -194,9 +216,43 @@ class EfficientTucker:
     def fit_transform(self, v1_train, v2_train, v1_test, v2_test):
         self.fit(v1_train, v2_train)
         return self.transform(v1_train, v2_train), self.transform(v1_test, v2_test)
+    
+class EfficientTuckerProduct(EfficientTucker):
+    """
+    EfficientTucker с поэлементным произведением проекций вместо конкатенации.
+    fit() наследуется, transform() переопределён.
+    """
+    def transform(self, v1, v2):
+        if self.B_ is None or self.C_ is None:
+            raise RuntimeError("Fit the model first.")
+        proj1 = v1 @ self.B_
+        proj2 = v2 @ self.C_
+        return proj1 * proj2
 
-def tucker_fusion_efficient(v1_train, v2_train, v1_test, v2_test, rank=None):
+def tucker_concat_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
     return EfficientTucker(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
+
+def tucker_product_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+    return EfficientTuckerProduct(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
+
+
+def krossfuse_fusion(v1_train, v2_train, v1_test, v2_test, rank=None, random_state=42):
+    """
+    Fuse two views via random projection + Hadamard product.
+    Each view is projected to `rank` dimensions using a fixed random matrix,
+    then the element-wise product is computed.
+    """
+    F1, F2 = v1_train.shape[1], v2_train.shape[1]
+    if rank is None:
+        rank = min(F1, F2)
+    rng = np.random.RandomState(random_state)
+    # Random projection matrices with scaled uniform entries as in the original code
+    proj1 = (rng.rand(F1, rank) * 2 * np.sqrt(3) - np.sqrt(3)) / np.sqrt(rank)
+    proj2 = (rng.rand(F2, rank) * 2 * np.sqrt(3) - np.sqrt(3)) / np.sqrt(rank)
+    # Apply projections and multiply element-wise
+    train_fused = (v1_train @ proj1) * (v2_train @ proj2)
+    test_fused  = (v1_test  @ proj1) * (v2_test  @ proj2)
+    return train_fused, test_fused
 
 def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
     B_tr, T_tr, F1 = v1_train.shape
@@ -335,21 +391,7 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 # Main execution
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fusion pipeline")
-    parser.add_argument("--root", default="./log/full", help="Root path for checkpoints")
-    parser.add_argument("--mirror-root", default="./mirror_log/full", help="Root path for generated/fused embeddings")
-    parser.add_argument("--d", default="age", help="Dataset name")
-    parser.add_argument("--m1", default="SimCLR", help="Model 1")
-    parser.add_argument("--s1", default="best_classification", help="Task 1")
-    parser.add_argument("--m2", default="ntp_gru", help="Model 2")
-    parser.add_argument("--s2", default="best_forecast", help="Task 2")
-    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
-    parser.add_argument("--rank-step", type=int, default=128)
-    parser.add_argument("--gpu", type=int, default=0, help="GPU id for inference")
-    parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
-    parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
-    parser.add_argument("--resample", action="store_true", help="Run only on the small dataset for quick testing")
-    args = parser.parse_args()
+    
     start_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     root = args.root
     mirror_root = args.mirror_root
@@ -387,7 +429,7 @@ if __name__ == "__main__":
         train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
         test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = Path.cwd() / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
+        run_dir = Path.cwd() / f"outputs_validator_{start_timestamp}"  / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
         run_dir.mkdir(parents=True, exist_ok=True)
         for seed in seeds:
             if seed is not None:
@@ -409,7 +451,7 @@ if __name__ == "__main__":
                 label = "no_seed"
             save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
             pd.DataFrame(seed_reports).to_json(
-                run_dir / f"validator_outputs_{start_timestamp}" / f"validator_output_{label}.json",
+                run_dir / f"validator_output_{label}.json",
                 orient='records', indent=4, date_format='iso'
             )
         print(f"Original model {model_label} validation results saved to {run_dir}")
@@ -428,10 +470,12 @@ if __name__ == "__main__":
         ('PCA', pca_fusion, None),
         ('CCA', cca_fusion, None),
         ('rCCA', partial(cca_fusion, model=rCCA), None),
-        ('PLS', partial(cca_fusion, model=PLS), None),
+        #('PLS', partial(cca_fusion, model=PLS), None),
         #('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
         ('PLS_ALS', partial(cca_fusion, model=PLS_ALS), None),
-        ('Tucker', tucker_fusion_efficient, None),
+        ('TuckerFactorConcat', tucker_concat_fusion, None),
+        ('TuckerFactorProduct', tucker_product_fusion, None)
+        ('KrossFuse', krossfuse_fusion, None),
     ]
 
     for method_name, global_fn, shift_fn in methods:
@@ -457,7 +501,7 @@ if __name__ == "__main__":
 
             postfix = Path(out_dir).name
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            run_dir = Path.cwd() / f"validator_outputs_{start_timestamp}" / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
+            run_dir = Path.cwd() / f"outputs_validator_{start_timestamp}" / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
             run_dir.mkdir(parents=True, exist_ok=True)
 
             for seed in seeds:
