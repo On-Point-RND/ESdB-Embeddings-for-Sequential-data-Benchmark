@@ -25,7 +25,7 @@ def parse_args():
 
 args = parse_args()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
 import logging
 import subprocess
@@ -474,7 +474,7 @@ if __name__ == "__main__":
         #('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
         ('PLS_ALS', partial(cca_fusion, model=PLS_ALS), None),
         ('TuckerFactorConcat', tucker_concat_fusion, None),
-        ('TuckerFactorProduct', tucker_product_fusion, None)
+        ('TuckerFactorProduct', tucker_product_fusion, None),
         ('KrossFuse', krossfuse_fusion, None),
     ]
 
