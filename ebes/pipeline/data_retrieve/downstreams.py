@@ -2,6 +2,7 @@ import csv
 import logging
 from copy import deepcopy
 import shutil
+from multiprocessing import current_process
 from pathlib import Path
 
 from pyspark.sql import SparkSession
@@ -15,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 def create_postproc_spark_session() -> SparkSession:
+    # Use dynamic ports (0 = OS picks a free port) to avoid conflicts when
+    # multiple seeds run in parallel. Disable UI to eliminate that port entirely.
+    proc_name = current_process().name
     return (
         SparkSession.builder.appName("JoinEmbeddings").master("local[4]")
         .config("spark.sql.legacy.parquet.nanosAsLong", "true")

@@ -12,7 +12,7 @@ hpo:
 
 models:
 
-  mlp_torch:
+  logreg_torch:
     classifier: universal_validator.models.torch_mlp.TorchMLPClassifier
     regressor: universal_validator.models.torch_mlp.TorchMLPRegressor
     shared_params:

@@ -67,8 +67,8 @@ class ValidatorDataset:
         elif target_type == "global":
             columns = ["global_emb", "global_train", target_name]
             data = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            # TODO for user-wise split test should be loaded directly
-            train, test = data[data["global_train"] == 1], data[data["global_train"] == 0]
+            train = data[data["global_train"] == 1]
+            test = data[data["global_train"] == 0]
 
             X_train = np.stack(train["global_emb"].values).astype(np.float32)
             y_train = train[target_name].values
