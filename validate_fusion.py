@@ -425,7 +425,7 @@ if __name__ == "__main__":
         seeds = list(seeds)
 
     for m, s in [(m1, s1), (m2, s2)]:
-        model_label = "{m}_{s}"
+        model_label = f"{m}_{s}"
         train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
         test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
