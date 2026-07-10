@@ -1,0 +1,5 @@
+run_name: "${method_name}/optuna_classification"
+
+optuna:
+  params:
+    target_metric: target__clf__local__accuracy+f1_macro

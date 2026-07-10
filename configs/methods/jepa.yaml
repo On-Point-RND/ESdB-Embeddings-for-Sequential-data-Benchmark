@@ -17,9 +17,9 @@ trainer:
   metrics_on_train: true
   ckpt_track_metric: epoch
   total_iters: null
-  total_epochs: 100
+  total_epochs: 50
   iters_per_epoch: null
-  patience: 1
+  patience: 10
 
 model:
   name: JEPA
@@ -78,7 +78,7 @@ optimizer:
 optuna:
   params:
     n_trials: 100
-    n_startup_trials: 10
+    n_startup_trials: 7
     target_metric: ${tasks}
   suggestions:
     optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]

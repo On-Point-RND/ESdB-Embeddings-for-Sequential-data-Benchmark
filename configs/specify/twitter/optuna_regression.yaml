@@ -1,0 +1,5 @@
+run_name: "${method_name}/optuna_regression"
+
+optuna:
+  params:
+    target_metric: target__reg_mentions__global__r2

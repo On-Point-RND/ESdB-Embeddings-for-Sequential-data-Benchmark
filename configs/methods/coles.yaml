@@ -37,7 +37,9 @@ unsupervised_trainer:
   ckpt_track_metric: loss
   metrics_on_train: true
   patience: ${patience}
-  total_iters: 100_000
+  total_iters: null
+  total_epochs: 50
+  iters_per_epoch: null
 
 training_model:
   preprocess: ${model.preprocess}
@@ -90,7 +92,7 @@ optimizer:
 
 optuna:
   params:
-    n_trials: 70
+    n_trials: 100
     n_startup_trials: 7
     request_list:
       - 'optimizer.params.weight_decay': 1.e-08
