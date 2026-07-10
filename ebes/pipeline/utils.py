@@ -138,10 +138,17 @@ def get_loss(name: str, params: Mapping[str, Any] | None = None):
     params = {**params} if params else {}
     if name[:3] == "nn.":
         loss_fn = getattr(torch.nn, name[3:])(**params)
-    elif name in ["ContrastiveLoss", "InfoNCELoss", "TemporalContrastiveLoss"]:
-        selector = getattr(losses.contrastive, params.pop("selector"))(
-            params.pop("neg_count")
-        )
+    elif name in [
+        "ContrastiveLoss",
+        "InfoNCELoss",
+        "TemporalContrastiveLoss",
+        "GraphContrastiveLoss",
+    ]:
+        selector_name = params.pop("selector")
+        selector_params = dict(params.pop("selector_params", None) or {})
+        if "neg_count" in params:
+            selector_params["neg_count"] = params.pop("neg_count")
+        selector = getattr(losses.contrastive, selector_name)(**selector_params)
         loss_fn = getattr(losses.contrastive, name)(pair_selector=selector, **params)
     else:
         try:

@@ -156,6 +156,75 @@ class TemporalHardNegativePairSelector(PairSelector):
         return positive_pairs, negative_pairs
 
 
+class GraphChainPairSelector(PairSelector):
+    """
+    Treat each client's slices as a path graph ordered in time.
+
+    Expects ``labels`` of shape ``(N, 3)`` = ``[client_label, start_pos, rank]``
+    produced by ``RandomSlices(temporal=True)``.
+
+    Nodes are slices; an **edge** connects two slices of the same client whose
+    ranks differ by at most ``neighbor_radius`` (1 == immediate temporal
+    neighbours). Positive pairs are the edges, taken once each (upper triangle).
+
+    Negatives are mined exactly as in :class:`HardNegativePairSelector`: the
+    ``neg_count`` hardest (closest) counterparts for every anchor. The only
+    difference is the set they are drawn from -- here it is the **non-edges**
+    (other clients, plus same-client slices further than ``neighbor_radius``
+    apart in rank), whereas the original draws from other classes only.
+    """
+
+    def __init__(self, neg_count=1, neighbor_radius: int = 1):
+        super().__init__()
+        self.neg_count = neg_count
+        self.neighbor_radius = neighbor_radius
+
+    def get_pairs(
+        self,
+        embeddings: torch.Tensor,
+        labels: torch.Tensor | np.ndarray,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if not isinstance(labels, torch.Tensor):
+            labels = torch.as_tensor(labels)
+        labels = labels.to(embeddings.device)
+        cls = labels[:, 0]
+        rank = labels[:, 2]
+        n = len(labels)
+
+        same = cls[:, None] == cls[None, :]
+        rank_gap = (rank[:, None] - rank[None, :]).abs()
+        edge = same & (rank_gap >= 1) & (rank_gap <= self.neighbor_radius)
+
+        # positive pairs: graph edges, each counted once
+        positive_pairs = torch.triu(edge.int(), diagonal=1).nonzero(as_tuple=False)
+
+        # hard negative mining over non-edges (self-pairs excluded explicitly,
+        # since the diagonal is not an edge either)
+        eye = torch.eye(n, dtype=torch.bool, device=embeddings.device)
+        non_edge = (~edge) & (~eye)
+
+        mat_distances = outer_pairwise_distance(
+            embeddings.detach()
+        )  # pairwise_distance
+
+        upper_bound = int((2 * n) ** 0.5) + 1
+        mat_distances = (upper_bound - mat_distances) * non_edge.type(
+            mat_distances.dtype
+        )  # filter: get only non-edge pairs
+
+        _, indices = mat_distances.topk(k=self.neg_count, dim=0, largest=True)
+        negative_pairs = torch.stack(
+            [
+                torch.arange(0, n, dtype=indices.dtype, device=indices.device).repeat(
+                    self.neg_count
+                ),
+                torch.cat(indices.unbind(dim=0)),
+            ]
+        ).t()
+
+        return positive_pairs, negative_pairs
+
+
 ##### LOSSES #####
 
 
@@ -237,6 +306,25 @@ class TemporalContrastiveLoss(nn.Module):
         loss = torch.cat([positive_loss, negative_loss], dim=0)
 
         return loss.mean()
+
+
+class GraphContrastiveLoss(ContrastiveLoss):
+    """
+    Contrastive loss over a per-client temporal path graph.
+
+    Mechanically identical to :class:`ContrastiveLoss` -- symmetric pull on
+    positives, symmetric hinge push on mined negatives, mean over all terms. The
+    graph structure lives entirely in :class:`GraphChainPairSelector`: positives
+    are edges (temporally adjacent slices of one client) instead of "any two
+    slices of one client", and negatives are mined from non-edges instead of
+    other clients only.
+
+    Note the built-in tension: the edge set is a chain, so pulling ``d(r2, r1)``
+    and ``d(r1, r0)`` towards zero also drags ``d(r2, r0)`` down, which the
+    margin resists. Equilibrium spreads a client's slices along a curve with
+    adjacent spacing ~``margin/2`` -- an ordered temporal trajectory -- so the
+    positive term has a non-zero floor by design.
+    """
 
 
 class InfoNCELoss(nn.Module):
