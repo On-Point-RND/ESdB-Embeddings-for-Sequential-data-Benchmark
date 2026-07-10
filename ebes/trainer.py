@@ -158,7 +158,6 @@ class Trainer:
         def key_extractor(p: Path) -> float:
             metrics = {}
             for it in p.stem.split("_-_"):
-                breakpoint()
                 kv = it.rsplit("__", 1)
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]

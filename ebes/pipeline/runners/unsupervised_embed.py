@@ -9,6 +9,7 @@ from ...data.utils import build_loaders
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
+from ..downstream_selection import build_downstream_checkpoint_evaluator
 from ..data_retrieve.downstreams import compute_downstreams
 from ..utils import (
     get_loss,
@@ -19,6 +20,31 @@ from ..utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _EmbeddingCheckpointEvaluator:
+    def __init__(self, evaluator, embedding_model, device: str):
+        self.evaluator = evaluator
+        self.embedding_model = embedding_model
+        self.device = device
+
+    def evaluate(self, trainer: Trainer, epoch: int) -> dict[str, float]:
+        training_model = trainer.model
+        assert training_model is not None
+
+        self.embedding_model.load_state_dict(
+            training_model.state_dict(),
+            strict=False,
+        )
+        self.embedding_model.eval().to(self.device)
+
+        trainer._model = self.embedding_model
+        try:
+            return self.evaluator.evaluate(trainer, epoch)
+        finally:
+            trainer._model = training_model
+            self.embedding_model.to("cpu")
+            torch.cuda.empty_cache()
 
 
 class UnsupervisedEmbedRunner(Runner):
@@ -34,11 +60,16 @@ class UnsupervisedEmbedRunner(Runner):
             lr_scheduler = get_scheduler(opt, **config["lr_scheduler"])
         loss = get_loss(**config["unsupervised_loss"])
         metrics = get_metrics(config.get("unsupervised_metrics"), "cpu")
-        if config.get("downstream_selection"):
-            raise NotImplementedError(
-                "downstream_selection is not supported for UnsupervisedEmbedRunner "
-                "yet because online evaluation needs the final embedding model, "
-                "not the training model with projection heads."
+        checkpoint_evaluator = build_downstream_checkpoint_evaluator(
+            config=config,
+            train_loaders=loaders,
+            test_loaders=test_loaders,
+        )
+        if checkpoint_evaluator is not None:
+            checkpoint_evaluator = _EmbeddingCheckpointEvaluator(
+                evaluator=checkpoint_evaluator,
+                embedding_model=build_model(config["model"]),
+                device=config["device"],
             )
         trainer = Trainer(
             model=net,
@@ -51,6 +82,7 @@ class UnsupervisedEmbedRunner(Runner):
             ckpt_dir=Path(config["log_dir"]) / config["run_name"] / "pretrain" / "ckpt",
             device=config["device"],
             metrics=metrics,
+            checkpoint_evaluator=checkpoint_evaluator,
             **config["unsupervised_trainer"],
         )
         trainer.run()
