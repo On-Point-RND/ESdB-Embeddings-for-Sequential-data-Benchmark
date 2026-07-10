@@ -24,7 +24,10 @@ def post_processing(
     if data_mode == "train":
         data_path = Path(config["data"]["dataset"]["parquet_path"])
     elif data_mode == "test":
-        data_path = Path(config["data"]["dataset"]["parquet_path"]).parent / "test"
+        if "test_data" in config:
+            data_path = Path(config["test_data"]["dataset"]["parquet_path"])
+        else:
+            data_path = Path(config["data"]["dataset"]["parquet_path"]).parent / "test"
     else:
         raise ValueError(f"Unsupported data_mode '{data_mode}'")
 

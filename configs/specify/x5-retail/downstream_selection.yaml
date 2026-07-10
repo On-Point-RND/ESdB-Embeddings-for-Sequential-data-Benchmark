@@ -1,0 +1,50 @@
+trainer:
+  ckpt_track_metric: downstream/global/target__clf__global__accuracy+f1_macro
+  patience: ${oc.decode:${oc.env:DOWNSTREAM_PATIENCE,3}}
+
+downstream_selection:
+  every_n_epochs: ${oc.decode:${oc.env:DOWNSTREAM_EVERY,5}}
+  data:
+    dataset:
+      parquet_path: ${data.dataset.parquet_path}
+      random_split: true
+      split_seed: 42
+      split_sizes:
+        - 0.01
+        - 0.005
+    preprocessing: ${data.preprocessing}
+    loaders:
+      gen_train:
+        split_idx: 0
+        preprocessing: gen_pipeline
+        batch_size: 32
+        num_workers: 4
+      gen_train_val:
+        split_idx: 1
+        preprocessing: gen_pipeline
+        batch_size: 32
+        num_workers: 4
+  test_data:
+    dataset:
+      parquet_path: ${test_data.dataset.parquet_path}
+      random_split: true
+      split_seed: 42
+      split_sizes:
+        - 0.005
+    preprocessing: ${test_data.preprocessing}
+    loaders:
+      gen_test:
+        split_idx: 0
+        preprocessing: gen_pipeline
+        batch_size: 32
+        num_workers: 4
+  train_loaders:
+    - data.gen_train
+  global_train_loaders:
+    - data.gen_train
+    - data.gen_train_val
+  score_loaders:
+    val:
+      - data.gen_train_val
+    test:
+      - test_data.gen_test

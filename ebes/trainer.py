@@ -42,6 +42,7 @@ class Trainer:
         ckpt_resume: str | os.PathLike | None = None,
         device: str = "cpu",
         metrics_on_train: bool = False,
+        checkpoint_evaluator: Any | None = None,
         verbose: bool = True,
     ):
         """Initialize trainer.
@@ -72,6 +73,8 @@ class Trainer:
             ckpt_resume: path to the checkpoint to resume training from.
             device: device to train and validate on.
             metrics_on_train: wether to compute metrics on train set.
+            checkpoint_evaluator: optional object with `evaluate(trainer, epoch)`
+                method returning extra metrics on checkpoint boundaries.
         """
         assert (
             total_iters is None or total_epochs is None
@@ -99,6 +102,7 @@ class Trainer:
         self._ckpt_resume = ckpt_resume
         self._device = device
         self._metrics_on_train = metrics_on_train
+        self._checkpoint_evaluator = checkpoint_evaluator
         self._verbose = verbose
 
         self._model = None
@@ -154,15 +158,23 @@ class Trainer:
         def key_extractor(p: Path) -> float:
             metrics = {}
             for it in p.stem.split("_-_"):
-                kv = it.split("__")
+                breakpoint()
+                kv = it.rsplit("__", 1)
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]
                 # v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
                 v = float(kv[1])
                 metrics[k] = v
-            return metrics[key]
+            if key in metrics:
+                return metrics[key]
+            return metrics[self._fname_metric_key(key)]
 
         return key_extractor
+
+    def _fname_metric_key(self, key: str) -> str:
+        if key == "epoch":
+            return key
+        return key.split("+", 1)[0].replace("/", "_")
 
     def save_ckpt(self, ckpt_path: str | os.PathLike | None = None) -> None:
         """Save model, optimizer and scheduler states.
@@ -210,7 +222,9 @@ class Trainer:
 
         fname = f"epoch__{self._last_epoch:04d}"
         metrics_str = "_-_".join(
-            f"{k}__{v:.4g}" for k, v in metrics.items() if k == self._ckpt_track_metric
+            f"{self._fname_metric_key(k)}__{v:.4g}"
+            for k, v in metrics.items()
+            if k == self._ckpt_track_metric
         )
 
         if len(metrics_str) > 0:
@@ -454,17 +468,39 @@ class Trainer:
             self._metric_values = None
             self.validate()
 
+            checkpoint_epoch = self._last_epoch + 1
+            if self._checkpoint_evaluator is not None:
+                checkpoint_metrics = self._checkpoint_evaluator.evaluate(
+                    self, checkpoint_epoch
+                )
+                if checkpoint_metrics:
+                    assert self._metric_values is not None
+                    self._metric_values.update(checkpoint_metrics)
+                    logger.info(
+                        "Epoch %04d: checkpoint metrics: %s",
+                        checkpoint_epoch,
+                        str(checkpoint_metrics),
+                    )
+
             self._last_epoch += 1
-            self.save_ckpt()
 
             if self._ckpt_track_metric == "epoch":
                 target_metric = self._last_epoch
             else:
-                assert (
-                    self._metric_values is not None
-                    and self._ckpt_track_metric in self._metric_values
-                )
+                if (
+                    self._metric_values is None
+                    or self._ckpt_track_metric not in self._metric_values
+                ):
+                    logger.info(
+                        "Epoch %04d: checkpoint metric '%s' is unavailable, "
+                        "skipping checkpoint save and patience update",
+                        self._last_epoch,
+                        self._ckpt_track_metric,
+                    )
+                    continue
                 target_metric = self._metric_values[self._ckpt_track_metric]
+
+            self.save_ckpt()
 
             if target_metric > best_metric:
                 best_metric = target_metric

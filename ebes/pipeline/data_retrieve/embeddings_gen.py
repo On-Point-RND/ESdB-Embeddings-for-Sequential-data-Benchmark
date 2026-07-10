@@ -38,7 +38,9 @@ class ResultsGetter:
         if mode == "train":
             data_path = Path(config["data"]["dataset"]["parquet_path"])
         elif mode == "test":
-            data_path = Path(config["data"]["dataset"]["parquet_path"]).parent / "test"
+            data_path = Path(
+                config.get("test_data", config["data"])["dataset"]["parquet_path"]
+            )
         else:
             raise ValueError("Behaviour is not supported.")
         
@@ -134,7 +136,7 @@ class ResultsGetter:
         shifts = self.shifts_by_index[old_index]
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
-
+        return np.append(shifts, int(full_len))
 
     def shift_transform(self, batch):
         device = batch.time.device if isinstance(batch.time, torch.Tensor) else None

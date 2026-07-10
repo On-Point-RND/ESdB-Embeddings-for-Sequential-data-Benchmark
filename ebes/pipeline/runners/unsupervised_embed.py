@@ -34,6 +34,12 @@ class UnsupervisedEmbedRunner(Runner):
             lr_scheduler = get_scheduler(opt, **config["lr_scheduler"])
         loss = get_loss(**config["unsupervised_loss"])
         metrics = get_metrics(config.get("unsupervised_metrics"), "cpu")
+        if config.get("downstream_selection"):
+            raise NotImplementedError(
+                "downstream_selection is not supported for UnsupervisedEmbedRunner "
+                "yet because online evaluation needs the final embedding model, "
+                "not the training model with projection heads."
+            )
         trainer = Trainer(
             model=net,
             loss=loss,

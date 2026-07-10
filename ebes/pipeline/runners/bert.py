@@ -5,6 +5,7 @@ from ...data.utils import build_loaders
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
+from ..downstream_selection import build_downstream_checkpoint_evaluator
 from ..data_retrieve.downstreams import compute_downstreams
 from ..utils import (
     get_loss,
@@ -26,6 +27,11 @@ class BertRunner(Runner):
             lr_scheduler = get_scheduler(opt, **config["lr_scheduler"])
         metrics = get_metrics(config["metrics"], "cpu")
         loss = get_loss(**config["main_loss"])
+        checkpoint_evaluator = build_downstream_checkpoint_evaluator(
+            config=config,
+            train_loaders=loaders,
+            test_loaders=test_loaders,
+        )
 
         trainer = Trainer(
             model=net,
@@ -38,6 +44,7 @@ class BertRunner(Runner):
             run_name=config["run_name"],
             ckpt_dir=Path(config["log_dir"]) / config["run_name"] / "ckpt",
             device=config["device"],
+            checkpoint_evaluator=checkpoint_evaluator,
             **config["trainer"],
         )
 
