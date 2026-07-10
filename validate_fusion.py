@@ -349,18 +349,29 @@ def run_with_paths(downstream_config: Mapping[str, Any], train_path: str, test_p
 def extract_downstream_metrics(reports) -> dict[str, float]:
     metrics = {}
     for report in reports:
-        if "metrics" in report:
+        if "metrics" in report:          # embedding metrics report
             metrics.update(report["metrics"])
             continue
         if not report:
             continue
-        _, metric_names = report["task_name"].rsplit("__", 1)
-        best_model = report.get("best_model")
-        m = metric_names.split("+")[0]
-        if m == "mse":
-            m = "neg_mean_squared_error"
+        task_name = report["task_name"]
         all_results = report["all_results"]
-        metrics[report["task_name"]] = float(all_results[best_model][m])
+
+        # -- backward‑compatible: keep the best model's main metric under the task name
+        _, metric_names = task_name.rsplit("__", 1)
+        best_model = report.get("best_model")
+        main_metric = metric_names.split("+")[0]
+        if main_metric == "mse":
+            main_metric = "neg_mean_squared_error"
+        metrics[task_name] = float(all_results[best_model][main_metric])
+
+        # -- additionally expose every model–metric pair
+        for model_name, model_results in all_results.items():
+            for key, value in model_results.items():
+                if key in ("main_metric", "predictions", "model", "cv_results"):
+                    continue
+                flat_key = f"flat____{task_name}____{model_name}____{key}"
+                metrics[flat_key] = float(value)
     return metrics
 
 def set_validator_seed(downstream_config: dict, seed: int) -> None:
@@ -458,23 +469,21 @@ if __name__ == "__main__":
 
     # Determine ranks (based on the loaded embeddings)
     min_dim = min(g1_tr.shape[1], g2_tr.shape[1])
-    print('min_dim:', g1_tr.shape[1], g2_tr.shape[1], min_dim)
-    ranks = list(range(args.rank_step, min_dim + 1, args.rank_step))
-    if min_dim % args.rank_step != 0 and min_dim not in ranks:
-        ranks.append(min_dim)
-    ranks = sorted(ranks)
-
+    max_dim = max(g1_tr.shape[1], g2_tr.shape[1])
+    print('dims:', g1_tr.shape[1], g2_tr.shape[1])
+    ranks = list(range(args.rank_step, max_dim + 1, args.rank_step))
+    ranks.append(min_dim)
+    ranks.append(max_dim)
+    ranks = sorted(sorted(set(ranks)))
+    
     # Fusion methods
     methods = [
         ('concatenation', concat_fusion, None),
         ('PCA', pca_fusion, None),
         ('CCA', cca_fusion, None),
         ('rCCA', partial(cca_fusion, model=rCCA), None),
-        #('PLS', partial(cca_fusion, model=PLS), None),
-        #('SCCA_ADMM', partial(cca_fusion, model=SCCA_ADMM), None),
-        ('PLS_ALS', partial(cca_fusion, model=PLS_ALS), None),
         ('TuckerFactorConcat', tucker_concat_fusion, None),
-        ('TuckerFactorProduct', tucker_product_fusion, None),
+        #('TuckerFactorProduct', tucker_product_fusion, None),
         ('KrossFuse', krossfuse_fusion, None),
     ]
 
@@ -485,7 +494,7 @@ if __name__ == "__main__":
         if method_name == 'concatenation':
             rank_list = [None]
         else:
-            rank_list = [max(ranks)] if args.test else ranks
+            rank_list = [min_dim, max_dim] if args.test else ranks
 
         for rank in rank_list:
             out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
