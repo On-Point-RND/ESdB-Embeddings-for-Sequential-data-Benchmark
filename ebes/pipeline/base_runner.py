@@ -97,15 +97,15 @@ class Runner(ABC):
 
         storage = JournalStorage(JournalFileStorage(f"{run_path}/study.log"))
         if isinstance(target_metric, str):
-            direction_kwargs = {"direction": "maximize"}
+            directions = "maximize"
         else:
-            direction_kwargs = {"directions": ["maximize"] * len(target_metric)}
+            directions = ["maximize"] * len(target_metric)
 
         study = optuna.create_study(
             storage=storage,
             sampler=sampler,
             study_name="hpo",
-            **direction_kwargs,
+            directions=directions,
             load_if_exists=True,
         )
 
