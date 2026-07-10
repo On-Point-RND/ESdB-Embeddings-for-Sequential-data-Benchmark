@@ -2,4 +2,5 @@ run_name: "${method_name}/optuna_anomaly"
 
 optuna:
   params:
-    target_metric: target__anomaly__local__roc_auc
+    target_metric:
+      - target__anomaly__local__roc_auc

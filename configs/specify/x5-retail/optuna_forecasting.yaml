@@ -2,4 +2,5 @@ run_name: "${method_name}/optuna_forecasting"
 
 optuna:
   params:
-    target_metric: target__forecast__local__r2
+    target_metric:
+      - target__forecast__local__r2

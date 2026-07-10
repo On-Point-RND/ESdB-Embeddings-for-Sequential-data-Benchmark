@@ -2,4 +2,5 @@ run_name: "${method_name}/optuna_regression"
 
 optuna:
   params:
-    target_metric: target__reg__local__r2
+    target_metric:
+      - target__reg__local__r2
