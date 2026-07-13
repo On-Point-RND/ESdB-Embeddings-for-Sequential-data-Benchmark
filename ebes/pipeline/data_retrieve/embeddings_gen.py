@@ -57,6 +57,68 @@ class ResultsGetter:
             "_seq_len"
         ].to_dict()
 
+        self._init_time_features(config)
+
+    def _init_time_features(self, config):
+        """Set up appending explicit time features to every emitted embedding.
+
+        The contrastive/global embedding tends to forget *when* a sequence began
+        and ended. When ``append_time_features.enabled`` is set, we concatenate a
+        small block of normalised time descriptors -- ``[norm_start, norm_end,
+        norm_duration, log1p(n_events)]`` plus a fixed Fourier bank over the
+        normalised start and end -- to each embedding row (whole-sequence and
+        per-shift alike). Purely a feature-engineering step at generation time;
+        the encoder and its training are untouched.
+        """
+        atf = config.get("append_time_features") if hasattr(config, "get") else None
+        atf = atf or {}
+        self.append_time = bool(atf.get("enabled", False))
+        if not self.append_time:
+            return
+
+        self.n_fourier = int(atf.get("n_fourier", 8))
+        time_name = config["data"]["preprocessing"]["common_pipeline"]["time_name"]
+        # Normalisation constants always come from the train split, so train and
+        # test embeddings share one coordinate frame (no per-split leakage/shift).
+        train_path = Path(config["data"]["dataset"]["parquet_path"])
+        tcol = pd.read_parquet(train_path, columns=[time_name])[time_name]
+        starts = tcol.map(lambda a: a[0]).astype(float)
+        ends = tcol.map(lambda a: a[-1]).astype(float)
+        self.t_min = float(starts.min())
+        self.t_max = float(ends.max())
+        self.t_span = max(self.t_max - self.t_min, 1e-8)
+        # positional-encoding style geometric frequencies over normalised [0, 1]
+        self.freqs = (2.0 * np.pi) * (2.0 ** np.arange(self.n_fourier))
+        logger.info(
+            "append_time_features on: +%d dims (t_min=%.4g t_max=%.4g n_fourier=%d)",
+            4 + 4 * self.n_fourier,
+            self.t_min,
+            self.t_max,
+            self.n_fourier,
+        )
+
+    def _time_features(self, batch) -> np.ndarray:
+        """(n_records, 4 + 4*n_fourier) block of time descriptors for a batch."""
+        lens = batch.lengths.detach().cpu().numpy().astype(np.int64)
+        times = batch.time.detach().cpu().numpy()  # (max_len, n_records)
+        n = len(lens)
+        start = times[0, :].astype(np.float64)
+        end_idx = np.clip(lens - 1, 0, times.shape[0] - 1)
+        end = times[end_idx, np.arange(n)].astype(np.float64)
+
+        ns = (start - self.t_min) / self.t_span
+        ne = (end - self.t_min) / self.t_span
+        ndur = (end - start) / self.t_span
+        logn = np.log1p(np.maximum(lens, 0).astype(np.float64))
+        raw = np.stack([ns, ne, ndur, logn], axis=1)  # (n, 4)
+
+        ang_s = np.outer(ns, self.freqs)
+        ang_e = np.outer(ne, self.freqs)
+        fourier = np.concatenate(
+            [np.sin(ang_s), np.cos(ang_s), np.sin(ang_e), np.cos(ang_e)], axis=1
+        )  # (n, 4 * n_fourier)
+        return np.concatenate([raw, fourier], axis=1).astype(np.float32)
+
     def df_get(self, loaders, trainer):
         model = trainer.model
         assert model is not None
@@ -98,6 +160,10 @@ class ResultsGetter:
 
                     del emb
                     # torch.cuda.empty_cache()
+                    if self.append_time:
+                        emb_np = np.concatenate(
+                            [emb_np, self._time_features(batch)], axis=1
+                        )
                     index_data = batch.extract_indexes_from_batch()
 
                     for i in range(len(emb_np)):
