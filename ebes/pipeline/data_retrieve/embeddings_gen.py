@@ -60,19 +60,18 @@ class ResultsGetter:
         self._init_time_features(config)
 
     def _init_time_features(self, config):
-        """Set up appending explicit time features to every emitted embedding.
+        """Set up appending a relative-position feature to every embedding.
 
-        The contrastive/global embedding tends to forget *when* a sequence began
-        and ended. When ``append_time_features.enabled`` is set, we concatenate a
-        small block of normalised time descriptors -- ``[norm_start, norm_end,
-        norm_duration, log1p(n_events)]`` plus a fixed Fourier bank over the
-        normalised start and end -- to each embedding row (whole-sequence and
-        per-shift alike). The block is **always z-standardised** (per dimension,
-        using train statistics) before being appended, so its scale matches the
-        raw encoder embedding -- the downstream probe does not standardise its
-        inputs, so an unscaled block would otherwise dominate or get underused.
-        Purely a feature-engineering step at generation time; the encoder and its
-        training are untouched.
+        On this benchmark absolute time is a trap: the train/test split is a
+        global-time holdout on shared clients, so absolute end/duration/count are
+        out-of-distribution at test (later period), and absolute start is a stable
+        per-client fingerprint present in both splits (leakage). The only signal
+        that survives both is **relative progress within the sequence**,
+        ``rel = s / full_len`` in ``[0, 1]`` -- how far into its own sequence a
+        prefix is. When ``append_time_features.enabled`` is set we append ``rel``
+        plus a fixed Fourier bank over it (bounded input, so safe), z-standardised
+        per dimension with train statistics. Generation-time only; the encoder is
+        untouched.
         """
         atf = config.get("append_time_features") if hasattr(config, "get") else None
         atf = atf or {}
@@ -81,48 +80,39 @@ class ResultsGetter:
             return
 
         self.n_fourier = int(atf.get("n_fourier", 8))
-        time_name = config["data"]["preprocessing"]["common_pipeline"]["time_name"]
-        # Constants and standardisation stats always come from the train split so
-        # train and test embeddings share one coordinate frame (no leakage/shift).
-        train_path = Path(config["data"]["dataset"]["parquet_path"])
-        src = pd.read_parquet(train_path, columns=[time_name, "shifts", "_seq_len"])
-        starts = src[time_name].map(lambda a: float(a[0]))
-        ends = src[time_name].map(lambda a: float(a[-1]))
-        self.t_min = float(starts.min())
-        self.t_max = float(ends.max())
-        self.t_span = max(self.t_max - self.t_min, 1e-8)
-        # positional-encoding style geometric frequencies over normalised [0, 1]
+        # str-keyed full lengths so we can recover full_len from the "idx__shift"
+        # record index regardless of the original id dtype
+        self._orig_len_str = {
+            str(k): int(v) for k, v in self.orig_len_by_index.items()
+        }
         self.freqs = (2.0 * np.pi) * (2.0 ** np.arange(self.n_fourier))
-        self._compute_norm_stats(src, time_name)
+        # standardisation stats always come from the train split
+        train_path = Path(config["data"]["dataset"]["parquet_path"])
+        src = pd.read_parquet(train_path, columns=["shifts", "_seq_len"])
+        self._compute_norm_stats(src)
         logger.info(
-            "append_time_features on: +%d dims, z-standardised "
-            "(t_min=%.4g t_max=%.4g n_fourier=%d)",
-            4 + 4 * self.n_fourier,
-            self.t_min,
-            self.t_max,
+            "append_time_features on: +%d dims (rel=s/full_len, z-standardised, "
+            "n_fourier=%d)",
+            1 + 2 * self.n_fourier,
             self.n_fourier,
         )
 
-    def _compute_norm_stats(self, src, time_name, max_seqs: int = 30000):
-        """Per-dim mean/std of the time block over all train prefixes.
+    def _compute_norm_stats(self, src, max_seqs: int = 30000):
+        """Per-dim mean/std of the relative-position block over all train prefixes.
 
         Mirrors what generation emits: for every sequence, one row per shift plus
-        the whole-sequence shift (``full_len``). Sub-samples sequences on large
-        datasets -- the statistics do not need every row to be well estimated.
+        the whole-sequence shift (``rel == 1``). Sub-samples on large datasets.
         """
         if len(src) > max_seqs:
             src = src.sample(max_seqs, random_state=0)
 
         f_sum = f_sq = None
         rows = 0
-        for t_arr, shifts, slen in zip(src[time_name], src["shifts"], src["_seq_len"]):
-            t = np.asarray(t_arr, dtype=np.float64)
+        for shifts, slen in zip(src["shifts"], src["_seq_len"]):
             full_len = int(slen)
             sh = np.clip(np.asarray(shifts, dtype=np.float64), 0, full_len)
-            sh = np.append(sh, full_len).astype(np.int64)  # + whole-sequence shift
-            end_idx = np.clip(sh - 1, 0, len(t) - 1)
-            start = np.full(len(sh), t[0])
-            block = self._raw_time_block(start, t[end_idx], sh.astype(np.float64))
+            sh = np.append(sh, full_len)  # + whole-sequence shift (rel == 1)
+            block = self._raw_time_block(sh / max(full_len, 1))
             b_sum = block.sum(axis=0)
             b_sq = (block * block).sum(axis=0)
             f_sum = b_sum if f_sum is None else f_sum + b_sum
@@ -135,31 +125,26 @@ class ResultsGetter:
         # constant dims (e.g. fixed-length datasets) -> divide by 1, i.e. drop to 0
         self.feat_std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
 
-    def _raw_time_block(self, start, end, count) -> np.ndarray:
-        """Unstandardised (n, 4 + 4*n_fourier) time descriptors from scalars."""
-        ns = (start - self.t_min) / self.t_span
-        ne = (end - self.t_min) / self.t_span
-        ndur = (end - start) / self.t_span
-        logn = np.log1p(np.maximum(count, 0.0))
-        raw = np.stack([ns, ne, ndur, logn], axis=1)
-
-        ang_s = np.outer(ns, self.freqs)
-        ang_e = np.outer(ne, self.freqs)
-        fourier = np.concatenate(
-            [np.sin(ang_s), np.cos(ang_s), np.sin(ang_e), np.cos(ang_e)], axis=1
+    def _raw_time_block(self, rel) -> np.ndarray:
+        """Unstandardised (n, 1 + 2*n_fourier) block from relative positions."""
+        rel = np.asarray(rel, dtype=np.float64)
+        ang = np.outer(rel, self.freqs)
+        return np.concatenate(
+            [rel[:, None], np.sin(ang), np.cos(ang)], axis=1
         )
-        return np.concatenate([raw, fourier], axis=1)
 
     def _time_features(self, batch) -> np.ndarray:
-        """z-standardised (n_records, 4 + 4*n_fourier) time block for a batch."""
-        lens = batch.lengths.detach().cpu().numpy().astype(np.int64)
-        times = batch.time.detach().cpu().numpy()  # (max_len, n_records)
-        n = len(lens)
-        start = times[0, :].astype(np.float64)
-        end_idx = np.clip(lens - 1, 0, times.shape[0] - 1)
-        end = times[end_idx, np.arange(n)].astype(np.float64)
+        """z-standardised (n_records, 1 + 2*n_fourier) block for a batch.
 
-        block = self._raw_time_block(start, end, lens.astype(np.float64))
+        ``rel = s / full_len`` where ``s`` (the shift) is read from the record
+        index ``"origidx__s"`` and ``full_len`` from the source sequence length.
+        """
+        idx = [str(x) for x in batch.index]
+        s = np.array([int(x.rsplit("__", 1)[1]) for x in idx], dtype=np.float64)
+        full = np.array(
+            [self._orig_len_str[x.rsplit("__", 1)[0]] for x in idx], dtype=np.float64
+        )
+        block = self._raw_time_block(s / np.maximum(full, 1.0))
         block = (block - self.feat_mean) / self.feat_std
         return block.astype(np.float32)
 
