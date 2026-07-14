@@ -60,18 +60,22 @@ class ResultsGetter:
         self._init_time_features(config)
 
     def _init_time_features(self, config):
-        """Set up appending a relative-position feature to every embedding.
+        """Set up appending a (de-leaked) start-time feature to every embedding.
 
-        On this benchmark absolute time is a trap: the train/test split is a
-        global-time holdout on shared clients, so absolute end/duration/count are
-        out-of-distribution at test (later period), and absolute start is a stable
-        per-client fingerprint present in both splits (leakage). The only signal
-        that survives both is **relative progress within the sequence**,
-        ``rel = s / full_len`` in ``[0, 1]`` -- how far into its own sequence a
-        prefix is. When ``append_time_features.enabled`` is set we append ``rel``
-        plus a fixed Fourier bank over it (bounded input, so safe), z-standardised
-        per dimension with train statistics. Generation-time only; the encoder is
-        untouched.
+        ``start`` = time of the first event, which is **causal** (known at the cut
+        point, unlike ``end``/``full_len`` which peek at the future) and, on this
+        benchmark, not distribution-shifted (train and test share the start range).
+        Its only flaw is that the split reuses clients across train/test, so an
+        exact ``start`` acts as a client fingerprint (leakage). We break that with
+        additive Gaussian noise (``start_noise`` standard deviations), drawn
+        independently per record and per split, so an exact ``start`` no longer
+        identifies a client while a coarse "when did it begin" signal can survive.
+        The noised value is then expanded with a Fourier bank, and the whole block
+        is z-standardised per dimension with train statistics.
+
+        ``append_time_features.enabled`` turns this on; ``start_noise`` (default 1)
+        and ``n_fourier`` (default 8) are optional. ``start_noise = 0`` gives the
+        clean (leak-prone) start. Generation-time only; the encoder is untouched.
         """
         atf = config.get("append_time_features") if hasattr(config, "get") else None
         atf = atf or {}
@@ -79,72 +83,57 @@ class ResultsGetter:
         if not self.append_time:
             return
 
+        self.start_noise = float(atf.get("start_noise", 1.0))
         self.n_fourier = int(atf.get("n_fourier", 8))
-        # str-keyed full lengths so we can recover full_len from the "idx__shift"
-        # record index regardless of the original id dtype
-        self._orig_len_str = {
-            str(k): int(v) for k, v in self.orig_len_by_index.items()
-        }
         self.freqs = (2.0 * np.pi) * (2.0 ** np.arange(self.n_fourier))
+        # independent noise streams per split so the same client gets different
+        # noised starts in train and test -> the fingerprint cannot be matched
+        self._noise_rng = np.random.default_rng(0 if self.mode == "train" else 1)
+
+        time_name = config["data"]["preprocessing"]["common_pipeline"]["time_name"]
         # standardisation stats always come from the train split
         train_path = Path(config["data"]["dataset"]["parquet_path"])
-        src = pd.read_parquet(train_path, columns=["shifts", "_seq_len"])
-        self._compute_norm_stats(src)
+        starts = (
+            pd.read_parquet(train_path, columns=[time_name])[time_name]
+            .map(lambda a: float(a[0]))
+            .to_numpy()
+        )
+        self.start_mean = float(starts.mean())
+        self.start_std = float(starts.std()) or 1.0
+        self._compute_norm_stats((starts - self.start_mean) / self.start_std)
         logger.info(
-            "append_time_features on: +%d dims (rel=s/full_len, z-standardised, "
-            "n_fourier=%d)",
+            "append_time_features on: +%d dims (noised start, noise=%.3g std, "
+            "n_fourier=%d, z-standardised)",
             1 + 2 * self.n_fourier,
+            self.start_noise,
             self.n_fourier,
         )
 
-    def _compute_norm_stats(self, src, max_seqs: int = 30000):
-        """Per-dim mean/std of the relative-position block over all train prefixes.
-
-        Mirrors what generation emits: for every sequence, one row per shift plus
-        the whole-sequence shift (``rel == 1``). Sub-samples on large datasets.
-        """
-        if len(src) > max_seqs:
-            src = src.sample(max_seqs, random_state=0)
-
-        f_sum = f_sq = None
-        rows = 0
-        for shifts, slen in zip(src["shifts"], src["_seq_len"]):
-            full_len = int(slen)
-            sh = np.clip(np.asarray(shifts, dtype=np.float64), 0, full_len)
-            sh = np.append(sh, full_len)  # + whole-sequence shift (rel == 1)
-            block = self._raw_time_block(sh / max(full_len, 1))
-            b_sum = block.sum(axis=0)
-            b_sq = (block * block).sum(axis=0)
-            f_sum = b_sum if f_sum is None else f_sum + b_sum
-            f_sq = b_sq if f_sq is None else f_sq + b_sq
-            rows += block.shape[0]
-
-        mean = f_sum / rows
-        std = np.sqrt(np.maximum(f_sq / rows - mean * mean, 0.0))
-        self.feat_mean = mean.astype(np.float32)
-        # constant dims (e.g. fixed-length datasets) -> divide by 1, i.e. drop to 0
+    def _compute_norm_stats(self, z_starts):
+        """Per-dim mean/std of the noised start block over the train clients."""
+        rng = np.random.default_rng(12345)  # separate stream, only sets the scale
+        z = z_starts.astype(np.float64)
+        if self.start_noise > 0:
+            z = z + rng.normal(0.0, self.start_noise, size=z.shape)
+        block = self._raw_time_block(z)
+        std = block.std(axis=0)
+        self.feat_mean = block.mean(axis=0).astype(np.float32)
         self.feat_std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
 
-    def _raw_time_block(self, rel) -> np.ndarray:
-        """Unstandardised (n, 1 + 2*n_fourier) block from relative positions."""
-        rel = np.asarray(rel, dtype=np.float64)
-        ang = np.outer(rel, self.freqs)
-        return np.concatenate(
-            [rel[:, None], np.sin(ang), np.cos(ang)], axis=1
-        )
+    def _raw_time_block(self, z) -> np.ndarray:
+        """(n, 1 + 2*n_fourier) block: the value plus a Fourier bank over it."""
+        z = np.asarray(z, dtype=np.float64)
+        ang = np.outer(z, self.freqs)
+        return np.concatenate([z[:, None], np.sin(ang), np.cos(ang)], axis=1)
 
     def _time_features(self, batch) -> np.ndarray:
-        """z-standardised (n_records, 1 + 2*n_fourier) block for a batch.
-
-        ``rel = s / full_len`` where ``s`` (the shift) is read from the record
-        index ``"origidx__s"`` and ``full_len`` from the source sequence length.
-        """
-        idx = [str(x) for x in batch.index]
-        s = np.array([int(x.rsplit("__", 1)[1]) for x in idx], dtype=np.float64)
-        full = np.array(
-            [self._orig_len_str[x.rsplit("__", 1)[0]] for x in idx], dtype=np.float64
-        )
-        block = self._raw_time_block(s / np.maximum(full, 1.0))
+        """z-standardised (n_records, 1 + 2*n_fourier) noised-start block."""
+        times = batch.time.detach().cpu().numpy()  # (max_len, n_records)
+        start = times[0, :].astype(np.float64)
+        z = (start - self.start_mean) / self.start_std
+        if self.start_noise > 0:
+            z = z + self._noise_rng.normal(0.0, self.start_noise, size=z.shape)
+        block = self._raw_time_block(z)
         block = (block - self.feat_mean) / self.feat_std
         return block.astype(np.float32)
 
