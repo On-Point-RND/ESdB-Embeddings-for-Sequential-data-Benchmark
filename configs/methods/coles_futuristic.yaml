@@ -5,7 +5,7 @@ runner_name: UnsupervisedEmbedRunner
 # embeddings (whole-sequence and per-shift). Purely a generation-time step; the
 # encoder is trained exactly like coles. Set enabled: false to get vanilla coles.
 append_time_features:
-  enabled: false
+  enabled: true
   n_fourier: 8
 
 data:
