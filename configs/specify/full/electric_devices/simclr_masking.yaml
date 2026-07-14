@@ -1,0 +1,14 @@
+data:
+  preprocessing:
+    contrastive_pipeline:
+      batch_transforms:
+        AUG_masking:
+          AugmentationMasker:
+            params:
+              mask_prob: 0.4
+              span_len: 5
+              span_share: 0.35
+              random_token_prob: 0.05
+              keep_event_prob: 0.15
+              partial_cat_feature_prob: 0.15
+              partial_num_feature_prob: 0.2
