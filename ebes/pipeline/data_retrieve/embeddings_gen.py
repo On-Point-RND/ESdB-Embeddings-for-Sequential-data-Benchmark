@@ -60,27 +60,39 @@ class ResultsGetter:
         self._init_time_features(config)
 
     def _init_time_features(self, config):
-        """Set up appending a (de-leaked) start-time feature to every embedding.
+        """Set up appending causal time features to every generated embedding.
 
-        ``start`` = time of the first event, which is **causal** (known at the cut
-        point, unlike ``end``/``full_len`` which peek at the future) and, on this
-        benchmark, not distribution-shifted (train and test share the start range).
-        Its only flaw is that the split reuses clients across train/test, so an
-        exact ``start`` acts as a client fingerprint (leakage). We break that with
-        additive Gaussian noise (``start_noise`` standard deviations), drawn
-        independently per record and per split, so an exact ``start`` no longer
-        identifies a client while a coarse "when did it begin" signal can survive.
-        The noised value is then expanded with a Fourier bank, and the whole block
-        is z-standardised per dimension with train statistics.
+        Two independent blocks, each expanded with a Fourier bank and then
+        z-standardised per dimension with train statistics:
 
-        ``append_time_features.enabled`` turns this on; ``start_noise`` (default 1)
-        and ``n_fourier`` (default 8) are optional. ``start_noise = 0`` gives the
-        clean (leak-prone) start. Generation-time only; the encoder is untouched.
+        * ``start`` = time of the first event. Causal (known at the cut point) and
+          not distribution-shifted, but an exact ``start`` fingerprints a client
+          (train/test share clients -> leakage). We break that with additive
+          Gaussian noise (``start_noise`` std), drawn independently per record and
+          per split, so exact identity cannot be matched while a coarse "when did
+          it begin" signal can survive.
+        * ``end`` = time of the last event in the prefix (the "current time").
+          Raw ``end`` is out-of-distribution on test (test prefixes run past the
+          train time-cut ``T``), so we **clamp** it to the max train event time:
+          ``end := min(end, train_max)``. This turns extrapolation into saturation
+          at a value train has actually seen -- the "frozen clock at the train
+          frontier" assumption -- so no OOD input reaches the downstream head.
+
+        ``append_time_features.enabled`` is the master switch; both blocks are on
+        by default. Set ``append_start: false`` or ``append_end: false`` to drop
+        one. ``start_noise`` (default 1, 0 = clean start) and ``n_fourier``
+        (default 8) are optional. Generation-time only; the encoder is untouched.
         """
         atf = config.get("append_time_features") if hasattr(config, "get") else None
         atf = atf or {}
         self.append_time = bool(atf.get("enabled", False))
         if not self.append_time:
+            return
+
+        self.append_start = bool(atf.get("append_start", True))
+        self.append_end = bool(atf.get("append_end", True))
+        if not (self.append_start or self.append_end):
+            self.append_time = False
             return
 
         self.start_noise = float(atf.get("start_noise", 1.0))
@@ -93,32 +105,54 @@ class ResultsGetter:
         time_name = config["data"]["preprocessing"]["common_pipeline"]["time_name"]
         # standardisation stats always come from the train split
         train_path = Path(config["data"]["dataset"]["parquet_path"])
-        starts = (
-            pd.read_parquet(train_path, columns=[time_name])[time_name]
-            .map(lambda a: float(a[0]))
-            .to_numpy()
-        )
-        self.start_mean = float(starts.mean())
-        self.start_std = float(starts.std()) or 1.0
-        self._compute_norm_stats((starts - self.start_mean) / self.start_std)
+        times_col = pd.read_parquet(train_path, columns=[time_name])[time_name]
+
+        if self.append_start:
+            starts = times_col.map(lambda a: float(a[0])).to_numpy()
+            self.start_mean = float(starts.mean())
+            self.start_std = float(starts.std()) or 1.0
+            z = (starts - self.start_mean) / self.start_std
+            self.start_feat_mean, self.start_feat_std = self._norm_stats(
+                z, noise=self.start_noise
+            )
+
+        if self.append_end:
+            # every prefix end is one of the train event times; pool them for the
+            # clamp ceiling (train frontier) and the standardisation scale.
+            pool = np.concatenate(
+                [np.asarray(a, dtype=np.float64) for a in times_col.to_numpy()]
+            )
+            self.end_clamp = float(pool.max())
+            self.end_mean = float(pool.mean())
+            self.end_std = float(pool.std()) or 1.0
+            z = (np.minimum(pool, self.end_clamp) - self.end_mean) / self.end_std
+            self.end_feat_mean, self.end_feat_std = self._norm_stats(z, noise=0.0)
+
+        per_block = 1 + 2 * self.n_fourier
         logger.info(
-            "append_time_features on: +%d dims (noised start, noise=%.3g std, "
-            "n_fourier=%d, z-standardised)",
-            1 + 2 * self.n_fourier,
+            "append_time_features on: start=%s end=%s -> +%d dims "
+            "(start_noise=%.3g std, n_fourier=%d, z-standardised)",
+            self.append_start,
+            self.append_end,
+            per_block * (int(self.append_start) + int(self.append_end)),
             self.start_noise,
             self.n_fourier,
         )
 
-    def _compute_norm_stats(self, z_starts):
-        """Per-dim mean/std of the noised start block over the train clients."""
+    def _norm_stats(self, z, noise):
+        """Per-dim mean/std of the Fourier block over a (sub)sample of train z."""
         rng = np.random.default_rng(12345)  # separate stream, only sets the scale
-        z = z_starts.astype(np.float64)
-        if self.start_noise > 0:
-            z = z + rng.normal(0.0, self.start_noise, size=z.shape)
+        z = np.asarray(z, dtype=np.float64)
+        if z.shape[0] > 200_000:
+            z = rng.choice(z, size=200_000, replace=False)
+        if noise > 0:
+            z = z + rng.normal(0.0, noise, size=z.shape)
         block = self._raw_time_block(z)
         std = block.std(axis=0)
-        self.feat_mean = block.mean(axis=0).astype(np.float32)
-        self.feat_std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
+        return (
+            block.mean(axis=0).astype(np.float32),
+            np.where(std < 1e-6, 1.0, std).astype(np.float32),
+        )
 
     def _raw_time_block(self, z) -> np.ndarray:
         """(n, 1 + 2*n_fourier) block: the value plus a Fourier bank over it."""
@@ -127,15 +161,28 @@ class ResultsGetter:
         return np.concatenate([z[:, None], np.sin(ang), np.cos(ang)], axis=1)
 
     def _time_features(self, batch) -> np.ndarray:
-        """z-standardised (n_records, 1 + 2*n_fourier) noised-start block."""
+        """z-standardised time block(s): [noised-start] and/or [clamp-end]."""
         times = batch.time.detach().cpu().numpy()  # (max_len, n_records)
-        start = times[0, :].astype(np.float64)
-        z = (start - self.start_mean) / self.start_std
-        if self.start_noise > 0:
-            z = z + self._noise_rng.normal(0.0, self.start_noise, size=z.shape)
-        block = self._raw_time_block(z)
-        block = (block - self.feat_mean) / self.feat_std
-        return block.astype(np.float32)
+        blocks = []
+
+        if self.append_start:
+            start = times[0, :].astype(np.float64)
+            z = (start - self.start_mean) / self.start_std
+            if self.start_noise > 0:
+                z = z + self._noise_rng.normal(0.0, self.start_noise, size=z.shape)
+            block = self._raw_time_block(z)
+            blocks.append((block - self.start_feat_mean) / self.start_feat_std)
+
+        if self.append_end:
+            lengths = batch.lengths.detach().cpu().numpy()
+            last = np.clip(lengths - 1, 0, times.shape[0] - 1)
+            end = times[last, np.arange(times.shape[1])].astype(np.float64)
+            end = np.minimum(end, self.end_clamp)  # saturate at the train frontier
+            z = (end - self.end_mean) / self.end_std
+            block = self._raw_time_block(z)
+            blocks.append((block - self.end_feat_mean) / self.end_feat_std)
+
+        return np.concatenate(blocks, axis=1).astype(np.float32)
 
     def df_get(self, loaders, trainer):
         model = trainer.model
