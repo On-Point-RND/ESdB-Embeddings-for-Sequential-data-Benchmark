@@ -22,7 +22,7 @@ trainer:
   ckpt_replace: true
 
 unsupervised_trainer:
-  ckpt_replace: false
+  ckpt_replace: true
 
 pretrainer:
-  ckpt_replace: false
+  ckpt_replace: true
