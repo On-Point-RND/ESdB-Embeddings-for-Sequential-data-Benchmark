@@ -14,7 +14,7 @@ downstream_selection:
       random_split: true
       split_seed: 42
       split_sizes:
-        - 0.01
+        - 0.03
         - 0.005
     preprocessing: ${data.preprocessing}
     loaders:
@@ -34,7 +34,7 @@ downstream_selection:
       random_split: true
       split_seed: 42
       split_sizes:
-        - 0.005
+        - 0.03
     preprocessing: ${test_data.preprocessing}
     loaders:
       gen_test:
