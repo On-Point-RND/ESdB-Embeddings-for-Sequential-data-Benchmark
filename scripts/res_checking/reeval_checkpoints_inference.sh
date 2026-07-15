@@ -16,7 +16,12 @@ REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
 KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUN_ROOT="${RUN_ROOT:-${ROOT}/log/${DATASET}/${METHOD}/tests}"
+LOG_METHOD="${METHOD}"
+case "${METHOD}" in
+  ntp_gru) LOG_METHOD="NTP_GRU" ;;
+  ntp_gpt) LOG_METHOD="NTP_GPT" ;;
+esac
+RUN_ROOT="${RUN_ROOT:-${ROOT}/log/${DATASET}/${LOG_METHOD}/tests}"
 if [[ -z "${CKPT_DIR:-}" ]]; then
   CKPT_DIR="${RUN_ROOT}/${TASK}/${SEED_DIR}/ckpt"
   if [[ ! -d "${CKPT_DIR}" ]]; then
