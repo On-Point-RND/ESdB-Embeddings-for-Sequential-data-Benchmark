@@ -6,8 +6,8 @@ runner_name: UnsupervisedEmbedRunner
 # encoder is trained exactly like coles. Set enabled: false to get vanilla coles.
 append_time_features:
   enabled: true
-  append_start: true    # SO setup: noised-START block only
-  append_end: false     # END block off
+  append_start: true    # SE setup: noised-START + clamp-END
+  append_end: true      # both blocks on
   # optional: start_noise: 1.0 (0 = clean start), n_fourier: 8
 
 data:
