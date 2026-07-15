@@ -8,14 +8,16 @@ SPECIFY="${SPECIFY:-classification}"
 TASK="${TASK:-reeval_clf}"
 VALIDATOR="${VALIDATOR:-}"
 GPU="${GPU:-cuda:0}"
+EXTRA_CONFIG="${EXTRA_CONFIG:-}"
 SEED_DIR="${SEED_DIR:-seed_0}"
-EPOCHS="${EPOCHS:-1 $(seq 5 5 100)}"
+EPOCHS="${EPOCHS:-}"
 FORCE="${FORCE:-0}"
 REVAL_DIR="${REVAL_DIR:-${TASK}/revalidation}"
 KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CKPT_DIR="${ROOT}/log/${DATASET}/${METHOD}/${TASK}/${SEED_DIR}/ckpt"
+RUN_ROOT="${RUN_ROOT:-${ROOT}/log/${DATASET}/${METHOD}/tests}"
+CKPT_DIR="${CKPT_DIR:-${RUN_ROOT}/${TASK}/${SEED_DIR}/ckpt}"
 
 cd "${ROOT}"
 
@@ -23,6 +25,20 @@ ckpt_files=("${CKPT_DIR}"/epoch__*.ckpt)
 if [[ ${#ckpt_files[@]} -eq 0 ]]; then
   echo "no checkpoints in ${CKPT_DIR}"
   exit 1
+fi
+
+if [[ -z "${EPOCHS}" ]]; then
+  if [[ ${#ckpt_files[@]} -ne 1 ]]; then
+    echo "EPOCHS is not set and ${CKPT_DIR} contains ${#ckpt_files[@]} checkpoints."
+    echo "Set EPOCHS explicitly or leave exactly one checkpoint in the directory."
+    exit 1
+  fi
+  name="$(basename "${ckpt_files[0]}")"
+  if [[ ! "${name}" =~ epoch__([0-9]+) ]]; then
+    echo "failed to parse epoch from checkpoint: ${ckpt_files[0]}"
+    exit 1
+  fi
+  EPOCHS="$((10#${BASH_REMATCH[1]}))"
 fi
 
 max_epoch=0
@@ -42,10 +58,11 @@ for epoch in ${EPOCHS}; do
 
   ep="$(printf "%04d" "${epoch}")"
   task_name="${REVAL_DIR}/epoch_${ep}"
-  result="${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/results.csv"
+  out_dir="${RUN_ROOT}/${task_name}"
+  result="${out_dir}/results.csv"
   results=()
   [[ -f "${result}" ]] && results+=("${result}")
-  results+=("${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}"\(*\)/results.csv)
+  results+=("${out_dir}"\(*\)/results.csv)
   if [[ "${FORCE}" != "1" && ${#results[@]} -gt 0 ]]; then
     echo "skip epoch ${ep}: ${results[0]}"
     continue
@@ -60,17 +77,21 @@ for epoch in ${EPOCHS}; do
 
   validator_args=()
   [[ -n "${VALIDATOR}" ]] && validator_args=(-dv "${VALIDATOR}")
+  extra_config_args=()
+  [[ -n "${EXTRA_CONFIG}" ]] && extra_config_args=(--extra-config "${EXTRA_CONFIG}")
 
+  echo "run epoch ${ep}: ${ckpts[0]}"
   PTH="${ckpts[0]}" TASK_NAME="${task_name}" python main.py \
     -d "${DATASET}" \
     -m "${METHOD}" \
     -e inference \
     -s "${SPECIFY}" \
     -g "${GPU}" \
+    "${extra_config_args[@]}" \
     "${validator_args[@]}"
 
   if [[ "${KEEP_RAW_EMBEDDINGS}" != "1" ]]; then
-    rm -rf "${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/embeddings/train"
-    rm -rf "${ROOT}/log/${DATASET}/${METHOD}/tests/${task_name}/${SEED_DIR}/embeddings/test"
+    rm -rf "${out_dir}/${SEED_DIR}/embeddings/train"
+    rm -rf "${out_dir}/${SEED_DIR}/embeddings/test"
   fi
 done
