@@ -17,7 +17,15 @@ KEEP_RAW_EMBEDDINGS="${KEEP_RAW_EMBEDDINGS:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_ROOT="${RUN_ROOT:-${ROOT}/log/${DATASET}/${METHOD}/tests}"
-CKPT_DIR="${CKPT_DIR:-${RUN_ROOT}/${TASK}/${SEED_DIR}/ckpt}"
+if [[ -z "${CKPT_DIR:-}" ]]; then
+  CKPT_DIR="${RUN_ROOT}/${TASK}/${SEED_DIR}/ckpt"
+  if [[ ! -d "${CKPT_DIR}" ]]; then
+    PRETRAIN_CKPT_DIR="${RUN_ROOT}/${TASK}/${SEED_DIR}/pretrain/ckpt"
+    if [[ -d "${PRETRAIN_CKPT_DIR}" ]]; then
+      CKPT_DIR="${PRETRAIN_CKPT_DIR}"
+    fi
+  fi
+fi
 
 cd "${ROOT}"
 
