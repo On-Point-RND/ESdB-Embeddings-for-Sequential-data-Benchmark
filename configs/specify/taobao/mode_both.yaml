@@ -1,0 +1,5 @@
+# Ablation override: both blocks (noised-start + clamp-END).
+append_time_features:
+  enabled: true
+  append_start: true
+  append_end: true
