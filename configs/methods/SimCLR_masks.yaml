@@ -2,15 +2,20 @@ method_name: SimCLR_masks
 runner_name: UnsupervisedEmbedRunner
 
 # SimCLR trained on masking augmentations instead of random slices.
-# AUG_slices is disabled (null); AUG_masking is intentionally NOT mentioned here
-# so the per-dataset masking block defined in the dataset config flows through
-# the merge untouched. Masking produces number_of_instances (+ add_initial)
-# views per client; ContrastiveTarget groups them, giving InfoNCE its positives.
+# AUG_slices is disabled (null). AUG_masking flows from the dataset config
+# (per-dataset name/params kept via merge), but the view count is overridden to
+# exactly two augmented views with no original (number_of_instances: 2,
+# add_initial: False). This gives one positive pair per client -- the honest
+# 2-view SimCLR setup -- so siblings never leak into the InfoNCE denominator.
 data:
   preprocessing:
     contrastive_pipeline:
       batch_transforms:
         AUG_slices:
+        AUG_masking:
+          AugmentationMasker:
+            number_of_instances: 2
+            add_initial: False
   loaders:
     unsupervised_train:
       split_idx: 0
