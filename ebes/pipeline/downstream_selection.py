@@ -157,6 +157,8 @@ def build_downstream_checkpoint_evaluator(
     if not selection_config:
         return None
 
+    _check_downstream_track_metric(config)
+
     downstream_config = config.get("universal_validator")
     if downstream_config is None:
         raise ValueError(
@@ -231,3 +233,32 @@ def build_downstream_checkpoint_evaluator(
         score_loaders=score_loaders,
         global_score_name=selection_config.get("global_score_name", "global"),
     )
+
+
+def _check_downstream_track_metric(config: Mapping[str, Any]) -> None:
+    metric = None
+    for trainer_key in ("unsupervised_trainer", "trainer"):
+        trainer_config = config.get(trainer_key, {})
+        metric = trainer_config.get("ckpt_track_metric")
+        if isinstance(metric, str) and metric.startswith("downstream/"):
+            break
+    else:
+        return
+
+    parts = metric.split("/", 2)
+    if len(parts) != 3:
+        return
+
+    score_name, task_name = parts[1], parts[2]
+    if score_name == "global" and "__local__" in task_name:
+        raise ValueError(
+            f"Invalid downstream checkpoint metric: {metric!r}. "
+            "Local tasks are scored under downstream/val/... or "
+            "downstream/test/..., not downstream/global/...."
+        )
+    if score_name in {"val", "test"} and "__global__" in task_name:
+        raise ValueError(
+            f"Invalid downstream checkpoint metric: {metric!r}. "
+            "Global tasks are scored under downstream/global/..., not "
+            "downstream/val/... or downstream/test/...."
+        )
