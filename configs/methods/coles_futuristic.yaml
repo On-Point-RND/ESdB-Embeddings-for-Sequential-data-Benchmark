@@ -8,7 +8,8 @@ append_time_features:
   enabled: true
   append_start: false   # EO setup: clamp-END block only
   append_end: true      # END block on
-  # optional: start_noise: 1.0 (0 = clean start), n_fourier: 8
+  n_fourier: 16         # 2x Fourier components (default was 8)
+  # optional: start_noise: 1.0 (0 = clean start)
 
 data:
   preprocessing:
