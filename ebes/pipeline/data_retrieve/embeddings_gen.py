@@ -98,6 +98,12 @@ class ResultsGetter:
         self.start_noise = float(atf.get("start_noise", 1.0))
         self.n_fourier = int(atf.get("n_fourier", 8))
         self.freqs = (2.0 * np.pi) * (2.0 ** np.arange(self.n_fourier))
+        # clamp_end: saturate end at the train frontier (default). include_raw:
+        # keep the raw linear value channel alongside the Fourier bank (default).
+        # Setting both false gives a purely periodic, bounded (in-distribution
+        # even for post-T times) phase encoding of the TRUE current time.
+        self.clamp_end = bool(atf.get("clamp_end", True))
+        self.include_raw = bool(atf.get("include_raw", True))
         # independent noise streams per split so the same client gets different
         # noised starts in train and test -> the fingerprint cannot be matched
         self._noise_rng = np.random.default_rng(0 if self.mode == "train" else 1)
@@ -128,15 +134,17 @@ class ResultsGetter:
             z = (np.minimum(pool, self.end_clamp) - self.end_mean) / self.end_std
             self.end_feat_mean, self.end_feat_std = self._norm_stats(z, noise=0.0)
 
-        per_block = 1 + 2 * self.n_fourier
+        per_block = int(self.include_raw) + 2 * self.n_fourier
         logger.info(
             "append_time_features on: start=%s end=%s -> +%d dims "
-            "(start_noise=%.3g std, n_fourier=%d, z-standardised)",
+            "(start_noise=%.3g, n_fourier=%d, clamp_end=%s, include_raw=%s)",
             self.append_start,
             self.append_end,
             per_block * (int(self.append_start) + int(self.append_end)),
             self.start_noise,
             self.n_fourier,
+            self.clamp_end,
+            self.include_raw,
         )
 
     def _norm_stats(self, z, noise):
@@ -155,10 +163,14 @@ class ResultsGetter:
         )
 
     def _raw_time_block(self, z) -> np.ndarray:
-        """(n, 1 + 2*n_fourier) block: the value plus a Fourier bank over it."""
+        """Fourier bank over ``z``; the raw value channel is prepended unless
+        ``include_raw`` is off (then only the bounded sin/cos remain)."""
         z = np.asarray(z, dtype=np.float64)
         ang = np.outer(z, self.freqs)
-        return np.concatenate([z[:, None], np.sin(ang), np.cos(ang)], axis=1)
+        parts = [np.sin(ang), np.cos(ang)]
+        if self.include_raw:
+            parts = [z[:, None]] + parts
+        return np.concatenate(parts, axis=1)
 
     def _time_features(self, batch) -> np.ndarray:
         """z-standardised time block(s): [noised-start] and/or [clamp-end]."""
@@ -177,7 +189,8 @@ class ResultsGetter:
             lengths = batch.lengths.detach().cpu().numpy()
             last = np.clip(lengths - 1, 0, times.shape[0] - 1)
             end = times[last, np.arange(times.shape[1])].astype(np.float64)
-            end = np.minimum(end, self.end_clamp)  # saturate at the train frontier
+            if self.clamp_end:
+                end = np.minimum(end, self.end_clamp)  # saturate at train frontier
             z = (end - self.end_mean) / self.end_std
             block = self._raw_time_block(z)
             blocks.append((block - self.end_feat_mean) / self.end_feat_std)

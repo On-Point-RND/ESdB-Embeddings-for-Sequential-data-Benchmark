@@ -6,9 +6,11 @@ runner_name: UnsupervisedEmbedRunner
 # encoder is trained exactly like coles. Set enabled: false to get vanilla coles.
 append_time_features:
   enabled: true
-  append_start: false   # EO setup: clamp-END block only
+  append_start: false   # EO setup: END block only
   append_end: true      # END block on
   n_fourier: 16         # 2x Fourier components (default was 8)
+  clamp_end: false      # feed TRUE (unclamped) time into the bank
+  include_raw: false    # drop the raw linear channel -> only bounded sin/cos
   # optional: start_noise: 1.0 (0 = clean start)
 
 data:
