@@ -9,17 +9,17 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Fusion pipeline")
     parser.add_argument("--root", default="./log/full", help="Root path for checkpoints")
     parser.add_argument("--mirror-root", default="./mirror_log/full", help="Root path for generated/fused embeddings")
-    parser.add_argument("--d", default="age", help="Dataset name")
-    parser.add_argument("--m1", default="coles", help="Model 1")
-    parser.add_argument("--s1", default="best_regression", help="Task 1")
-    parser.add_argument("--m2", default="ntp_gru", help="Model 2")
-    parser.add_argument("--s2", default="best_forecast", help="Task 2")
-    parser.add_argument("--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("--rank-step", type=int, default=128)
-    parser.add_argument("--gpu", type=str, default=0, help="GPU id for inference")
-    parser.add_argument("--cleanup", action="store_true", help="Remove fused embeddings after validation")
-    parser.add_argument("--test", action="store_true", help="Run only on the first rank for quick testing")
-    parser.add_argument("--resample", action="store_true", help="Run only on the small dataset for quick testing")
+    parser.add_argument("-m1", default="coles", help="Model 1")
+    parser.add_argument("-s1", default="best_regression", help="Task 1")
+    parser.add_argument("-m2", default="ntp_gru", help="Model 2")
+    parser.add_argument("-s2", default="best_forecast", help="Task 2")
+    parser.add_argument("-gpu", type=str, default=0, help="GPU id for inference")
+    parser.add_argument("-d", "--d", default="age", help="Dataset name")
+    parser.add_argument("-cfg", "--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
+    parser.add_argument("-cl", "--cleanup", action="store_true", help="Remove fused embeddings after validation")
+    parser.add_argument("-t", "--test_fix_rank", action="store_true", help="Run only on the fixed rank for quick testing")
+    parser.add_argument("-rs", "--resample", action="store_true", help="Run only on the small dataset for quick testing")
     args = parser.parse_args()
     return args
 
@@ -120,17 +120,26 @@ def run_embedding_generation(root: str, mirror_root: str, d: str, m: str, s: str
 # ------------------------------------------------------------------
 # Robust parquet loading (from mirror root)
 # ------------------------------------------------------------------
-def safe_stack(series: pd.Series) -> np.ndarray:
+def safe_stack(series, pad_value=0.0):
     vals = []
     for x in series.values:
         if isinstance(x, tuple):
             x = x[0]
         arr = np.asarray(x.tolist() if hasattr(x, 'tolist') else x, dtype=np.float64)
         vals.append(arr)
-    shapes = {a.shape for a in vals}
+    # determine max time length
+    max_len = max(a.shape[0] for a in vals)
+    padded = []
+    for a in vals:
+        if a.ndim == 2:                      # (T, F)
+            if a.shape[0] < max_len:
+                pad_width = [(0, max_len - a.shape[0]), (0, 0)]
+                a = np.pad(a, pad_width, mode='constant', constant_values=pad_value)
+        padded.append(a)
+    shapes = {a.shape for a in padded}
     if len(shapes) > 1:
-        raise ValueError(f"Inconsistent shapes in column '{series.name}': {shapes}")
-    return np.stack(vals)
+        raise ValueError(f"Inconsistent shapes after padding in column '{series.name}': {shapes}")
+    return np.stack(padded)
 
 def load_embeddings(mirror_root: str, d: str, m: str, s: str):
     m_dir = model_dir_name(m)
@@ -440,7 +449,7 @@ if __name__ == "__main__":
         train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
         test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = Path.cwd() / f"outputs_validator_{start_timestamp}"  / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
+        run_dir = Path.cwd() / f"outputs_validator_"  / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
         run_dir.mkdir(parents=True, exist_ok=True)
         for seed in seeds:
             if seed is not None:
@@ -481,7 +490,7 @@ if __name__ == "__main__":
         ('concatenation', concat_fusion, None),
         ('PCA', pca_fusion, None),
         ('CCA', cca_fusion, None),
-        ('rCCA', partial(cca_fusion, model=rCCA), None),
+        #('rCCA', partial(cca_fusion, model=rCCA), None),
         ('TuckerFactorConcat', tucker_concat_fusion, None),
         #('TuckerFactorProduct', tucker_product_fusion, None),
         ('KrossFuse', krossfuse_fusion, None),
@@ -494,7 +503,7 @@ if __name__ == "__main__":
         if method_name == 'concatenation':
             rank_list = [None]
         else:
-            rank_list = [min_dim, max_dim] if args.test else ranks
+            rank_list = [1024] if args.test_fix_rank else ranks
 
         for rank in rank_list:
             out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
@@ -510,7 +519,7 @@ if __name__ == "__main__":
 
             postfix = Path(out_dir).name
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            run_dir = Path.cwd() / f"outputs_validator_{start_timestamp}" / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
+            run_dir = Path.cwd() / f"outputs_validator_" / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_{postfix}"
             run_dir.mkdir(parents=True, exist_ok=True)
 
             for seed in seeds:
