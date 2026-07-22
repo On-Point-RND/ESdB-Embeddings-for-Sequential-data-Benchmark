@@ -279,6 +279,23 @@ def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
 # ------------------------------------------------------------------
 # Fusion + save (output goes to mirror_root)
 # ------------------------------------------------------------------
+def remove_variable_length_columns(df, keep_cols=('global_emb', 'shift_emb')):
+    """Удаляет все колонки, в которых длина элементов различается, кроме указанных."""
+    cols_to_drop = []
+    for col in df.columns:
+        if col in keep_cols:
+            continue
+        try:
+            lengths = df[col].apply(lambda x: len(x) if isinstance(x, (list, np.ndarray)) else 0)
+            if lengths.nunique() > 1:
+                cols_to_drop.append(col)
+        except Exception:
+            pass
+    if cols_to_drop:
+        print(f"  Dropping variable-length columns: {cols_to_drop}")
+    return df.drop(columns=cols_to_drop, errors='ignore')
+
+
 def fuse_and_save(method_name, global_fn, shift_fn, rank,
                   g1_tr, g2_tr, g1_te, g2_te,
                   s1_tr, s2_tr, s1_te, s2_te,
@@ -290,12 +307,18 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
     try:
         g_tr, g_te = global_fn(g1_tr, g2_tr, g1_te, g2_te)
         s_tr, s_te = fuse_3d(shift_fn, s1_tr, s2_tr, s1_te, s2_te, name="shift_emb")
+
         out_train = deepcopy(X1_train_template)
         out_test  = deepcopy(X1_test_template)
         out_train['global_emb'] = [x.tolist() for x in g_tr]
         out_test['global_emb']  = [x.tolist() for x in g_te]
         out_train['shift_emb']  = [x.tolist() for x in s_tr]
         out_test['shift_emb']   = [x.tolist() for x in s_te]
+
+        # ---- Удаляем колонки с переменной длиной (например, оригинальную 'embeddings') ----
+        out_train = remove_variable_length_columns(out_train)
+        out_test  = remove_variable_length_columns(out_test)
+
         out_dir = Path(mirror_root) / d / model_dir_name(m2) / 'tests' / s2 / 'seed_0' / f'embeddings_{full_name}'
         (out_dir / 'train_postproc').mkdir(parents=True, exist_ok=True)
         (out_dir / 'test_postproc').mkdir(parents=True, exist_ok=True)
@@ -306,7 +329,7 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
     except Exception as e:
         print(f"  SKIPPED: {e}")
         return None
-
+    
 # ------------------------------------------------------------------
 # Downstream validation functions (unchanged)
 # ------------------------------------------------------------------
