@@ -316,8 +316,8 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
         out_test['shift_emb']   = [x.tolist() for x in s_te]
 
         # ---- Удаляем колонки с переменной длиной (например, оригинальную 'embeddings') ----
-        out_train = remove_variable_length_columns(out_train)
-        out_test  = remove_variable_length_columns(out_test)
+        #out_train = remove_variable_length_columns(out_train)
+        #out_test  = remove_variable_length_columns(out_test)
 
         out_dir = Path(mirror_root) / d / model_dir_name(m2) / 'tests' / s2 / 'seed_0' / f'embeddings_{full_name}'
         (out_dir / 'train_postproc').mkdir(parents=True, exist_ok=True)
