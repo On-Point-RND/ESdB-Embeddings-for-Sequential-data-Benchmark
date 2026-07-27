@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 
 import torch
+import torch.nn.functional as F
 
 from .basemodel import BaseModel
 from ..types import Seq
@@ -17,6 +18,12 @@ class AllHiddenMean(BaseAgg):
     def forward(self, seq: Seq) -> torch.Tensor:
         return seq.tokens.mean(dim=0)
 
+
+class L2Normalization(BaseModel):
+    """L2-normalize embeddings to unit sphere. Used after aggregation for contrastive learning."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.normalize(x, dim=-1)
 
 class TakeLastHidden(BaseAgg):
     def forward(self, seq: Seq) -> torch.Tensor:

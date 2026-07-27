@@ -2,8 +2,8 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
-from dataclasses import dataclass
+from typing import Any, ClassVar, Literal, Mapping, Callable, TypeVar
+from dataclasses import dataclass, replace
 import random
 import logging
 
@@ -11,6 +11,7 @@ import torch
 import numpy as np
 
 from ..types import Batch
+from ..utils.reproduce import spawn_generator
 
 
 logger = logging.getLogger(__name__)
@@ -151,11 +152,13 @@ class TimeToFeatures(BatchTransform):
         if batch.num_features_names is None:
             batch.num_features_names = [self.time_name]
             assert batch.num_features is None
-            batch.num_features = t
+            batch.num_features = t.to(torch.float32)
             return
 
         assert batch.num_features is not None
         batch.num_features_names.append(self.time_name)
+        if t.dtype != batch.num_features.dtype:
+            t = t.to(batch.num_features.dtype)
         batch.num_features = torch.cat((batch.num_features, t), dim=2)
 
 
@@ -308,7 +311,79 @@ class TargetToLong(BatchTransform):
         if batch.target is not None:
             batch.target = batch.target.long()
 
+@dataclass
+class TrxDropout(BatchTransform):
+    """Randomly drop events from sequences (data augmentation).
 
+    Each event is independently dropped with probability ``dropout``.
+    Mirrors ``DropoutTrxDataset`` from the original CoLES implementation.
+    """
+
+    dropout: float = 0.0
+
+    def __call__(self, batch: Batch):
+        if self.dropout <= 0:
+            return
+
+        batch_size = len(batch)
+        # Masks may be stale after RandomSlices (which doesn't propagate them),
+        # so only process masks if their batch dim matches.
+        has_cat_mask = (
+            batch.cat_mask is not None and batch.cat_mask.shape[1] == batch_size
+        )
+        has_num_mask = (
+            batch.num_mask is not None and batch.num_mask.shape[1] == batch_size
+        )
+
+        new_lens = []
+        new_times = []
+        new_cats = []
+        new_nums = []
+        new_cat_masks = []
+        new_num_masks = []
+        max_len = 0
+
+        for i in range(batch_size):
+            seq_len = batch.lengths[i].item()
+            if seq_len <= 1:
+                keep = np.arange(seq_len)
+            else:
+                n_keep = int(seq_len * (1 - self.dropout) + 1)
+                n_keep = min(n_keep, seq_len)
+                keep = np.sort(np.random.choice(seq_len, size=n_keep, replace=False))
+
+            kl = len(keep)
+            new_lens.append(kl)
+            max_len = max(max_len, kl)
+            new_times.append(batch.time[keep, i])
+            if batch.cat_features is not None:
+                new_cats.append(batch.cat_features[keep, i])
+            if batch.num_features is not None:
+                new_nums.append(batch.num_features[keep, i])
+            if has_cat_mask:
+                new_cat_masks.append(batch.cat_mask[keep, i])
+            if has_num_mask:
+                new_num_masks.append(batch.num_mask[keep, i])
+
+        def cat_pad(tensors, dtype):
+            t0 = tensors[0]
+            res = torch.zeros(max_len, len(tensors), *t0.shape[1:], dtype=dtype)
+            for j, ten in enumerate(tensors):
+                res[: ten.shape[0], j] = ten
+            return res
+
+        batch.lengths = torch.tensor(new_lens)
+        batch.time = cat_pad(new_times, batch.time.dtype)
+        if batch.cat_features is not None:
+            batch.cat_features = cat_pad(new_cats, batch.cat_features.dtype)
+        if batch.num_features is not None:
+            batch.num_features = cat_pad(new_nums, batch.num_features.dtype)
+        if has_cat_mask:
+            batch.cat_mask = cat_pad(new_cat_masks, batch.cat_mask.dtype)
+        if has_num_mask:
+            batch.num_mask = cat_pad(new_num_masks, batch.num_mask.dtype)
+
+            
 @dataclass
 class RandomSlices(BatchTransform):
     """Sample random slices from input sequences.
@@ -332,17 +407,16 @@ class RandomSlices(BatchTransform):
         sequence length.
     """
     seed: int | None = None
-    """Value to seed the random generator."""
-
-    def __post_init__(self):
-        self._gen = np.random.default_rng(self.seed)
+    """Deprecated and ignored; sampling now uses the global RNG."""
 
     def __call__(self, batch: Batch):
+        gen = spawn_generator()
 
         lens = []
         times = []
         nums = []
         cats = []
+        embs = {k: [] for k in batch.emb_features} if batch.emb_features else None
         inds = []
         targets = []
         max_len = 0
@@ -355,8 +429,15 @@ class RandomSlices(BatchTransform):
             inds.append(batch.index[i])
             if batch.num_features is not None:
                 nums.append(batch.num_features[start:end, i])
+                # Not (len_x, 1, all_features) but (len_x, all_features)
+                # is added for many intervals for same batch, that transits farther
             if batch.cat_features is not None:
                 cats.append(batch.cat_features[start:end, i])
+            if batch.emb_features is not None:
+                for k in batch.emb_features:
+                    embs[k].append(batch.emb_features[k][:, start:end, i].permute(1, 0))
+                    # reminder: emb_features[k] is (emb_dim, len)
+                    # becomes (small_seq_len (time), emb_dim) and is agregated in []
             if batch.target is not None:
                 targets.append(batch.target[i])
 
@@ -377,14 +458,14 @@ class RandomSlices(BatchTransform):
                 cnt_min = max(int(c_len * self.short_seq_crop_rate), 1)
 
             if cnt_max > cnt_min:
-                new_len = self._gen.integers(cnt_min, cnt_max, size=self.split_count)
+                new_len = gen.integers(cnt_min, cnt_max, size=self.split_count)
             else:
                 new_len = np.full(self.split_count, cnt_min)
 
             max_len = max(max_len, *new_len)
             available_start_pos = (c_len - new_len).clip(0, None)
             start_pos = (
-                self._gen.uniform(size=self.split_count)
+                gen.uniform(size=self.split_count)
                 * (available_start_pos + 1 - 1e-9)
             ).astype(int)
 
@@ -392,12 +473,27 @@ class RandomSlices(BatchTransform):
                 add_slice(i, sp, ln)
 
         def cat_pad(tensors, dtype):
-            t0 = tensors[0]
+            t0 = tensors[0]  # (len_x of the first small seq, features)
             res = torch.zeros(max_len, len(tensors), *t0.shape[1:], dtype=dtype)
-            for i, ten in enumerate(tensors):
-                res[: ten.shape[0], i] = ten
-                res[ten.shape[0] :, i] = ten[-1]
+            #  (max_len, number of small seqs, features)
+            for k, ten in enumerate(tensors):
+                res[: ten.shape[0], k] = ten
+                res[ten.shape[0] :, k] = ten[-1]
             return res
+
+        def cat_pad_emb(ten_dict, dtype):
+            res_dict = {}
+            for s in ten_dict:
+                # ten_dict[s]: list [] of new batch length of tensors (len_seq, emb_dim)
+                # meme unpacking?
+                res = torch.zeros(max_len, len(ten_dict[s]), *ten_dict[s][0].shape[1:], dtype=dtype)
+                #  (max_len, number_of_small_seqs, emb_dim)
+                for k, ten in enumerate(ten_dict[s]):
+                    res[: ten.shape[0], k] = ten
+                    res[ten.shape[0] :, k] = ten[-1]
+                res_dict[s] = res.permute(2, 0, 1)
+
+            return res_dict
 
         batch.lengths = torch.tensor(lens)
         if batch.target is not None:
@@ -412,6 +508,8 @@ class RandomSlices(BatchTransform):
             batch.cat_features = cat_pad(cats, batch.cat_features.dtype)
         if batch.num_features is not None:
             batch.num_features = cat_pad(nums, batch.num_features.dtype)
+        if batch.emb_features is not None:
+            batch.emb_features = cat_pad_emb(embs, dtype = list(batch.emb_features.values())[0].dtype)
 
 
 @dataclass
@@ -732,3 +830,277 @@ class MaskValid(BatchTransform):
 
         if batch.cat_features is not None:
             batch.cat_mask = len_mask & (batch.cat_features != 0)
+
+
+@dataclass
+class AugmentationMasker(BatchTransform):
+    params: Mapping[str, Any]
+
+    name: str = "MixedMasker"
+    number_of_instances: int = 0
+    add_initial: bool = True
+
+    def __post_init__(self):
+        self._masker = AugmentationMaskerBase.build({"name": self.name,
+            "number_of_instances": self.number_of_instances,
+            "add_initial": self.add_initial,
+            "params": self.params,
+            }
+        )
+
+    def __call__(self, batch: Batch):
+        self._masker(batch)  # делегируем — всё in-place внутри
+
+@dataclass
+class AugmentationMaskerBase(BatchTransform):
+    cat_cardinalities: Mapping[str, int]
+    name: str 
+    number_of_instances: int 
+    add_initial: bool
+
+    _registry: ClassVar[dict[str, type]] = {}
+
+    ignore_index: int = -100
+    mask_prob: float = 0.15
+    span_len: int = 5
+    span_share: float = 0.5
+    random_token_prob: float = 0.1
+    keep_event_prob: float = 0.0
+    num_mask_fill: Literal["zero", "mean", "noise"] = "zero"
+    partial_cat_feature_prob: float = 0.0
+    partial_num_feature_prob: float = 0.0
+
+    @classmethod
+    def register_masker(cls, name: str):
+        def decorator(subcls):
+            cls._registry[name] = subcls
+            return subcls
+        return decorator
+
+    @classmethod
+    def build(cls, conf: Mapping) -> "AugmentationMaskerBase":
+        name = conf.get("name")
+        if name is None:
+            raise ValueError("masker config must contain `name`")
+        subcls = cls._registry.get(name)
+        if subcls is None:
+            raise ValueError(f"Unknown masker name: {name}")
+        params = {
+            "name": name,
+            "number_of_instances": conf.get("number_of_instances"),
+            "add_initial": conf.get("add_initial"),
+        }
+        params.update(conf.get("params", {}))
+        return subcls(**params)
+
+    def clone_with(self, **overrides: Any) -> "AugmentationMaskerBase":
+        return replace(self, **overrides)
+
+    def __call__(self, batch: Batch):
+        if batch.emb_features is not None or batch.emb_features_names is not None:
+            raise ValueError("Bert4Rec masking does not support emb_features")
+
+        seq_len, device = self._resolve_seq_meta(batch)
+        B = batch.lengths.numel()
+        pad_valid = torch.arange(seq_len, device=device)[:, None] < batch.lengths[None, :]
+
+        cats = []
+        nums = []
+
+        def add_masked_batch(do_mask: bool = True):
+            if not do_mask:
+                if batch.cat_features is not None:
+                    cats.append(batch.cat_features)
+                if batch.num_features is not None:
+                    nums.append(batch.num_features)
+                return
+
+            event_mask = self._sample_event_mask(batch.lengths, seq_len, device)
+            partial_event_candidate = (~event_mask) & pad_valid
+
+            keep_event_mask = torch.zeros_like(event_mask)
+            if self.keep_event_prob > 0.0:
+                keep_event_mask = (
+                    torch.rand(seq_len, B, device=device) < self.keep_event_prob
+                ) & pad_valid
+
+            if batch.cat_features is not None and batch.cat_features_names is not None:
+                masked_cat = batch.cat_features.clone()
+
+                for feat_idx, name in enumerate(batch.cat_features_names):
+                    vals = masked_cat[:, :, feat_idx]
+                    mask_token_id = 0# self.cat_cardinalities[name]
+                    #assert (vals != mask_token_id).all(), "Mask token already in cat tokens!"
+                    cat_pre_masked = (vals == 0) | (vals == mask_token_id)
+
+                    full_valid = event_mask & pad_valid & (~cat_pre_masked)
+
+                    partial_valid = torch.zeros_like(full_valid)
+                    if self.partial_cat_feature_prob > 0.0:
+                        partial_valid = (
+                            partial_event_candidate
+                            & (~cat_pre_masked)
+                            & (torch.rand(seq_len, B, device=device) < self.partial_cat_feature_prob)
+                        )
+                        if (partial_valid & full_valid).any():
+                            raise RuntimeError("Partial categorical mask intersects full event mask")
+
+                    corrupt_valid = (full_valid | partial_valid) & (~keep_event_mask)
+
+                    if self.random_token_prob > 0.0:
+                        rand = torch.rand(seq_len, B, device=device)
+                        p_mask = 1.0 - self.random_token_prob
+                        vals[(rand < p_mask) & corrupt_valid] = mask_token_id
+                        random_mask = (rand >= p_mask) & corrupt_valid
+                        if random_mask.any():
+                            random_tokens = torch.randint(
+                                1, max(self.cat_cardinalities[name], 2),
+                                size=(seq_len, B), device=device,
+                            )
+                            vals[random_mask] = random_tokens[random_mask]
+                    else:
+                        vals[corrupt_valid] = mask_token_id
+
+                    masked_cat[:, :, feat_idx] = vals
+
+                cats.append(masked_cat)
+
+            if batch.num_features is not None:
+                masked_num = batch.num_features.clone()
+                num_pre_masked = ~torch.isfinite(masked_num)
+                valid_num = pad_valid[:, :, None]
+
+                num_full_loss_mask = (
+                    event_mask[:, :, None].expand_as(masked_num)
+                    & valid_num
+                    & (~num_pre_masked)
+                )
+                num_partial_loss_mask = torch.zeros_like(num_full_loss_mask)
+                if self.partial_num_feature_prob > 0.0:
+                    num_partial_loss_mask = (
+                        partial_event_candidate[:, :, None].expand_as(masked_num)
+                        & valid_num
+                        & (~num_pre_masked)
+                        & (torch.rand(masked_num.shape, device=device) < self.partial_num_feature_prob)
+                    )
+                    if (num_partial_loss_mask & num_full_loss_mask).any():
+                        raise RuntimeError("Partial numeric mask intersects full event mask")
+
+                num_loss_mask = num_full_loss_mask | num_partial_loss_mask
+
+                for feat_idx in range(masked_num.shape[2]):
+                    selector = num_loss_mask[:, :, feat_idx] & (~keep_event_mask)
+                    vals = masked_num[:, :, feat_idx]
+                    valid_positions = pad_valid & torch.isfinite(vals)
+                    self._fill_numeric(vals, selector, valid_positions)
+                    masked_num[:, :, feat_idx] = vals
+
+                nums.append(masked_num)
+
+        for _ in range(self.number_of_instances):
+            add_masked_batch(do_mask=True)
+        if self.add_initial:
+            add_masked_batch(do_mask=False)
+
+        repeat_count = self.number_of_instances + (1 if self.add_initial else 0)
+        batch.lengths = batch.lengths.repeat(repeat_count)
+        if batch.target is not None:
+            batch.target = batch.target.repeat(repeat_count)
+        if isinstance(batch.index, torch.Tensor):
+            batch.index = batch.index.repeat(repeat_count)
+        else:
+            batch.index = np.tile(batch.index, repeat_count)
+
+        batch.time = batch.time.repeat(1, repeat_count)
+        if batch.cat_features is not None:
+            batch.cat_features = torch.cat(cats, dim=1)
+        if batch.num_features is not None:
+            batch.num_features = torch.cat(nums, dim=1)
+
+        return batch
+
+
+    @staticmethod
+    def _resolve_seq_meta(batch: Batch) -> tuple[int, torch.device]:
+        if batch.cat_features is not None:
+            return batch.cat_features.shape[0], batch.cat_features.device
+        if batch.num_features is not None:
+            return batch.num_features.shape[0], batch.num_features.device
+        raise ValueError("Batch must contain cat_features or num_features")
+
+    def _sample_event_mask(self, lengths: torch.Tensor, seq_len: int, device: torch.device):
+        raise NotImplementedError
+
+    def _fill_numeric(self, values: torch.Tensor, selector: torch.Tensor, valid_positions: torch.Tensor):
+        if self.num_mask_fill == "zero":
+            values[selector] = 0.0
+            return
+
+        valid_vals = values[valid_positions & (~selector)]
+        if valid_vals.numel() == 0:
+            values[selector] = 0.0
+            return
+
+        mean = valid_vals.mean()
+        if self.num_mask_fill == "mean":
+            values[selector] = mean
+            return
+
+        std = valid_vals.std(unbiased=False).clamp_min(1e-6)
+        values[selector] = torch.randn_like(values[selector]) * std + mean
+
+
+
+@AugmentationMaskerBase.register_masker("PointMasker")
+@dataclass
+class PointMasker(AugmentationMaskerBase):
+    def _sample_event_mask(self, lengths: torch.Tensor, seq_len: int, device: torch.device):
+        mask = torch.rand(seq_len, lengths.numel(), device=device) < self.mask_prob
+        valid = torch.arange(seq_len, device=device)[:, None] < lengths[None, :]
+        return mask & valid
+
+
+@AugmentationMaskerBase.register_masker("SpanMasker")
+@dataclass
+class SpanMasker(AugmentationMaskerBase):
+    def _sample_event_mask(self, lengths: torch.Tensor, seq_len: int, device: torch.device):
+        mask = torch.zeros(seq_len, lengths.numel(), device=device, dtype=torch.bool)
+        for b, seq_len_t in enumerate(lengths):
+            cur_len = int(seq_len_t.item())
+            if cur_len <= 0:
+                continue
+
+            target_count = max(1, int(round(cur_len * self.mask_prob)))
+            covered = 0
+            while covered < target_count:
+                cur_span = min(self.span_len, target_count - covered, cur_len)
+                start = torch.randint(0, cur_len - cur_span + 1, (1,), device=device).item()
+                mask[start : start + cur_span, b] = True
+                covered += cur_span
+        return mask
+
+
+@AugmentationMaskerBase.register_masker("MixedMasker")
+@dataclass
+class MixedMasker(AugmentationMaskerBase):
+    def _sample_event_mask(self, lengths: torch.Tensor, seq_len: int, device: torch.device):
+        mask = torch.zeros(seq_len, lengths.numel(), device=device, dtype=torch.bool)
+        for b, seq_len_t in enumerate(lengths):
+            cur_len = int(seq_len_t.item())
+            if cur_len <= 0:
+                continue
+
+            target_count = max(1, int(round(cur_len * self.mask_prob)))
+            point_count = int(round(target_count * (1.0 - self.span_share)))
+            if point_count > 0:
+                idx = torch.randperm(cur_len, device=device)[:point_count]
+                mask[idx, b] = True
+            target_count -= point_count
+
+            covered = 0
+            while covered < target_count:
+                cur_span = min(self.span_len, target_count - covered, cur_len)
+                start = torch.randint(0, cur_len - cur_span + 1, (1,), device=device).item()
+                mask[start : start + cur_span, b] = True
+                covered += cur_span
+        return mask

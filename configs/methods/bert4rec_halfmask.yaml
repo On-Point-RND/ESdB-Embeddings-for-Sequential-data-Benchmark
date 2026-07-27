@@ -1,0 +1,74 @@
+method_name: bert4rec_halfmask
+runner_name: BertRunner
+
+main_loss:
+  name: ModelLoss
+  params: {}
+
+metrics: null
+
+trainer:
+  ckpt_track_metric: loss
+  metrics_on_train: false
+  patience: ${patience}
+  total_iters: 100_000
+  # ckpt_resume: ''
+model:
+  name: Bert4Rec
+  params:
+    cat_cardinalities: ${cc}
+    num_features: ${nn}
+    time_process: ${model.preprocess.params.time_process}
+    cat_emb_dim: 128
+    num_emb_dim: 128
+    num_norm: false
+    reconstruction_ce_weight: 1.0
+    reconstruction_mse_weight: 1.0
+    ignore_index: -100
+    masker:
+      name: HalfMasker
+      params:
+        random_token_prob: 0.0
+        keep_event_prob: 0.0
+        num_mask_fill: zero
+        partial_cat_feature_prob: 0.0
+        partial_num_feature_prob: 0.0
+    query_aggregation: last
+    max_len: ${data.preprocessing.common_pipeline.max_seq_len}
+    hidden_size: 128
+    embedding_size: 128
+    num_blocks: 2
+    num_heads: 4
+    num_passes_over_block: 1
+    dropout: 0.1
+    enable_positional_embedding: true
+  preprocess:
+    params:
+      time_process: "cat"
+
+
+optimizer:
+  name: Adam
+  params:
+    lr: 1.e-3
+    weight_decay: 1.e-6
+
+
+optuna:
+  params:
+    n_trials: 100
+    n_startup_trials: 10
+    target_metric: ${tasks}
+  suggestions:
+    optimizer.params.weight_decay: [suggest_float, {low: 1.e-10, high: 1.e-2, log: True}]
+    optimizer.params.lr: [suggest_float, {low: 1.e-5, high: 1.e-2, log: True}]
+
+    model.params.hidden_size: [suggest_int, {low: 64, high: 1024, step: 32}]
+    model.params.num_heads: [suggest_categorical, {choices: [1, 2, 4, 8]}]
+    model.params.query_aggregation: [suggest_categorical, {choices: [last, mean]}]
+    model.params.dropout: [suggest_float, {low: 0.0, high: 0.3, step: 0.05}]
+    model.params.num_blocks: [suggest_int, {low: 1, high: 5, log: False}]
+    model.params.num_passes_over_block: [suggest_int, {low: 1, high: 2, log: False}]
+    model.params.cat_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+    model.params.num_emb_dim: [suggest_int, {low: 16, high: 128, step: 16}]
+    model.params.embedding_size: [suggest_categorical, {choices: [64, 256, 1024]}]

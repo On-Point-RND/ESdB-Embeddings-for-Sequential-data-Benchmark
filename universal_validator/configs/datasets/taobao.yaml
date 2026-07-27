@@ -1,0 +1,4 @@
+data_conf:
+  dataset_name: "TAOBAO"
+  train_path: /home/dev/exp-orchestrator/state/embeddings/taobao/bert4rec/classification/train_postproc
+  test_path: /home/dev/exp-orchestrator/state/embeddings/taobao/bert4rec/classification/test_postproc

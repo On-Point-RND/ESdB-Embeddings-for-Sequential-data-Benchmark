@@ -3,6 +3,7 @@ import gc
 from pathlib import Path
 
 # from torch import nn
+import pandas as pd
 
 import torch
 
@@ -14,7 +15,7 @@ from ..utils import get_loss, get_metrics, get_optimizer, suggest_conf, get_sche
 
 
 class UnsupervisedRunner(Runner):
-    def pipeline(self, config: Mapping) -> dict[str, float]:
+    def pipeline(self, config: Mapping) -> tuple[dict[str, float], pd.DataFrame]:
         loaders = build_loaders(**config["data"])
         test_loaders = build_loaders(**config["test_data"])
 

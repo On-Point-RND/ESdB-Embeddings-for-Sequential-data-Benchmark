@@ -1,0 +1,478 @@
+log_dir: log/favorita
+patience: 10
+n_classes: 2
+main_metric: MulticlassAccuracy
+main_loss:
+  name: nn.CrossEntropyLoss
+tasks:
+- target__store_type__global__accuracy+f1_macro
+- target__anomaly__global__roc_auc
+- target__reg_amount__local__r2
+- target__forecast__local__r2
+
+cc:
+
+ee:
+
+nn:
+  - class_1_sales
+  - class_2_sales
+  - class_3_sales
+  - class_4_sales
+  - class_5_sales
+  - class_6_sales
+  - class_7_sales
+  - class_8_sales
+  - class_9_sales
+  - class_10_sales
+  - class_11_sales
+  - class_12_sales
+  - class_13_sales
+  - class_14_sales
+  - class_15_sales
+  - class_16_sales
+  - class_17_sales
+  - class_18_sales
+  - class_19_sales
+  - class_20_sales
+  - class_21_sales
+  - class_22_sales
+  - class_23_sales
+  - class_24_sales
+  - class_25_sales
+  - class_26_sales
+  - class_27_sales
+  - class_28_sales
+  - class_29_sales
+  - class_30_sales
+  - class_31_sales
+  - class_32_sales
+  - class_33_sales
+  - class_34_sales
+  - class_35_sales
+  - class_36_sales
+  - class_37_sales
+  - class_38_sales
+  - class_39_sales
+  - class_40_sales
+  - class_41_sales
+  - class_42_sales
+  - class_43_sales
+  - class_44_sales
+  - class_45_sales
+  - class_46_sales
+  - class_47_sales
+  - class_48_sales
+  - class_49_sales
+  - class_50_sales
+  - class_51_sales
+  - class_52_sales
+  - class_53_sales
+  - class_54_sales
+  - class_55_sales
+  - class_56_sales
+  - class_57_sales
+  - class_58_sales
+  - class_59_sales
+  - class_60_sales
+  - class_61_sales
+  - class_62_sales
+  - class_63_sales
+  - class_64_sales
+  - class_65_sales
+  - class_66_sales
+  - class_67_sales
+  - class_68_sales
+  - class_69_sales
+  - class_70_sales
+  - class_71_sales
+  - class_72_sales
+  - class_73_sales
+  - class_74_sales
+  - class_75_sales
+  - class_76_sales
+  - class_77_sales
+  - class_78_sales
+  - class_79_sales
+  - class_80_sales
+  - class_81_sales
+  - class_82_sales
+  - class_83_sales
+  - class_84_sales
+  - class_85_sales
+  - class_86_sales
+  - class_87_sales
+  - class_88_sales
+  - class_89_sales
+  - class_90_sales
+  - class_91_sales
+  - class_92_sales
+  - class_93_sales
+  - class_94_sales
+  - class_95_sales
+  - class_96_sales
+  - class_97_sales
+  - class_98_sales
+  - class_99_sales
+  - class_100_sales
+  - class_101_sales
+  - class_102_sales
+  - class_103_sales
+  - class_104_sales
+  - class_105_sales
+  - class_106_sales
+  - class_107_sales
+  - class_108_sales
+  - class_109_sales
+  - class_110_sales
+  - class_111_sales
+  - class_112_sales
+  - class_113_sales
+  - class_114_sales
+  - class_115_sales
+  - class_116_sales
+  - class_117_sales
+  - class_118_sales
+  - class_119_sales
+  - class_120_sales
+  - class_121_sales
+  - class_122_sales
+  - class_123_sales
+  - class_124_sales
+  - class_125_sales
+  - class_126_sales
+  - class_127_sales
+  - class_128_sales
+  - class_129_sales
+  - class_130_sales
+  - class_131_sales
+  - class_132_sales
+  - class_133_sales
+  - class_134_sales
+  - class_135_sales
+  - class_136_sales
+  - class_137_sales
+  - class_138_sales
+  - class_139_sales
+  - class_140_sales
+  - class_141_sales
+  - class_142_sales
+  - class_143_sales
+  - class_144_sales
+  - class_145_sales
+  - class_146_sales
+  - class_147_sales
+  - class_148_sales
+  - class_149_sales
+  - class_150_sales
+  - class_151_sales
+  - class_152_sales
+  - class_153_sales
+  - class_154_sales
+  - class_155_sales
+  - class_156_sales
+  - class_157_sales
+  - class_158_sales
+  - class_159_sales
+  - class_160_sales
+  - class_161_sales
+  - class_162_sales
+  - class_163_sales
+  - class_164_sales
+  - class_165_sales
+  - class_166_sales
+  - class_167_sales
+  - class_168_sales
+  - class_169_sales
+  - class_170_sales
+  - class_171_sales
+  - class_172_sales
+  - class_173_sales
+  - class_174_sales
+  - class_175_sales
+  - class_176_sales
+  - class_177_sales
+  - class_178_sales
+  - class_179_sales
+  - class_180_sales
+  - class_181_sales
+  - class_182_sales
+  - class_183_sales
+  - class_184_sales
+  - class_185_sales
+  - class_186_sales
+  - class_187_sales
+  - class_188_sales
+  - class_189_sales
+  - class_190_sales
+  - class_191_sales
+  - class_192_sales
+  - class_193_sales
+  - class_194_sales
+  - class_195_sales
+  - class_196_sales
+  - class_197_sales
+  - class_198_sales
+  - class_199_sales
+  - class_200_sales
+  - class_201_sales
+  - class_202_sales
+  - class_203_sales
+  - class_204_sales
+  - class_205_sales
+  - class_206_sales
+  - class_207_sales
+  - class_208_sales
+  - class_209_sales
+  - class_210_sales
+  - class_211_sales
+  - class_212_sales
+  - class_213_sales
+  - class_214_sales
+  - class_215_sales
+  - class_216_sales
+  - class_217_sales
+  - class_218_sales
+  - class_219_sales
+  - class_220_sales
+  - class_221_sales
+  - class_222_sales
+  - class_223_sales
+  - class_224_sales
+  - class_225_sales
+  - class_226_sales
+  - class_227_sales
+  - class_228_sales
+  - class_229_sales
+  - class_230_sales
+  - class_231_sales
+  - class_232_sales
+  - class_233_sales
+  - class_234_sales
+  - class_235_sales
+  - class_236_sales
+  - class_237_sales
+  - class_238_sales
+  - class_239_sales
+  - class_240_sales
+  - class_241_sales
+  - class_242_sales
+  - class_243_sales
+  - class_244_sales
+  - class_245_sales
+  - class_246_sales
+  - class_247_sales
+  - class_248_sales
+  - class_249_sales
+  - class_250_sales
+  - class_251_sales
+  - class_252_sales
+  - class_253_sales
+  - class_254_sales
+  - class_255_sales
+  - class_256_sales
+  - class_257_sales
+  - class_258_sales
+  - class_259_sales
+  - class_260_sales
+  - class_261_sales
+  - class_262_sales
+  - class_263_sales
+  - class_264_sales
+  - class_265_sales
+  - class_266_sales
+  - class_267_sales
+  - class_268_sales
+  - class_269_sales
+  - class_270_sales
+  - class_271_sales
+  - class_272_sales
+  - class_273_sales
+  - class_274_sales
+  - class_275_sales
+  - class_276_sales
+  - class_277_sales
+  - class_278_sales
+  - class_279_sales
+  - class_280_sales
+  - class_281_sales
+  - class_282_sales
+  - class_283_sales
+  - class_284_sales
+  - class_285_sales
+  - class_286_sales
+  - class_287_sales
+  - class_288_sales
+  - class_289_sales
+  - class_290_sales
+  - class_291_sales
+  - class_292_sales
+  - class_293_sales
+  - class_294_sales
+  - class_295_sales
+  - class_296_sales
+  - class_297_sales
+  - class_298_sales
+  - class_299_sales
+  - class_300_sales
+  - class_301_sales
+  - class_302_sales
+  - class_303_sales
+  - class_304_sales
+  - class_305_sales
+  - class_306_sales
+  - class_307_sales
+  - class_308_sales
+  - class_309_sales
+  - class_310_sales
+  - class_311_sales
+  - class_312_sales
+  - class_313_sales
+  - class_314_sales
+  - class_315_sales
+  - class_316_sales
+  - class_317_sales
+  - class_318_sales
+  - class_319_sales
+  - class_320_sales
+  - class_321_sales
+  - class_322_sales
+  - class_323_sales
+  - class_324_sales
+  - class_325_sales
+  - class_326_sales
+  - class_327_sales
+  - class_328_sales
+  - class_329_sales
+  - class_330_sales
+  - class_331_sales
+  - class_332_sales
+  - class_333_sales
+  - class_334_sales
+  
+data:
+  dataset:
+    parquet_path: "data/favorita/preprocessed/train"
+    random_split: true
+    split_seed: 42
+    split_sizes: 
+      - 0.85   # train
+      - 0.15  # train_val
+
+  preprocessing:
+    common_pipeline: &common_pipeline
+      max_seq_len: 2000
+      time_name: date
+      index_name: store_nbr
+      target_name: _seq_len
+      cat_cardinalities: ${cc}
+      num_names: ${nn}
+      batch_transforms:
+        TTF:
+          TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        MV:
+          MaskValid
+        FN:
+          FillNans:
+            fill_value: 0
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
+    contrastive_pipeline:
+      <<: *common_pipeline
+      batch_transforms:
+        TTF:
+          TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        MV:
+          MaskValid
+        FN:
+          FillNans:
+            fill_value: 0
+        CT:
+          ContrastiveTarget
+        AUG_slices:
+          RandomSlices:
+            split_count: 5
+            cnt_min: 100
+            cnt_max: 500
+            short_seq_crop_rate: 0.8
+            seed: 0
+        AUG_masking:
+          AugmentationMasker:
+            name: MixedMasker
+            number_of_instances: 3
+            add_initial: True
+            params:
+              cat_cardinalities: ${cc}
+              mask_prob: 0.2
+              span_len: 10
+              span_share: 0.5
+              random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
+              keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
+              num_mask_fill: zero
+              partial_cat_feature_prob: 0.0
+              partial_num_feature_prob: 0.0
+
+  loaders:
+    train:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 16
+      drop_incomplete: true
+      shuffle: true
+      loop: false
+      num_workers: 4
+      random_seed: 42
+    full_train:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 16
+      num_workers: 4
+    train_val:
+      split_idx: 1
+      preprocessing: common_pipeline
+      batch_size: 16
+      num_workers: 4
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 1
+      num_workers: 4
+    gen_train_val:
+      split_idx: 1
+      preprocessing: gen_pipeline
+      batch_size: 1
+      num_workers: 4
+
+
+test_data:
+  dataset:
+    parquet_path: "data/favorita/preprocessed/test"
+    split_sizes: 
+      - 1.0
+  preprocessing:
+    common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
+  loaders:
+    test:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 16
+      num_workers: 4
+    gen_test:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 1
+      num_workers: 4
+
+metrics:
+  - name: ${main_metric}
+    params: 
+      num_classes: ${n_classes}
+
+trainer:
+  total_iters: 1000

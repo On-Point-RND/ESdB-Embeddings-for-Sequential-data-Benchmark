@@ -37,6 +37,7 @@ class Batch2Seq(BaseModel):
     def __init__(
         self,
         cat_cardinalities: Mapping[str, int],
+        emb_dimensionalities: Mapping[str, int] | None = None,  # Done in a special way different from
         num_count: int | None = None,
         num_features: Sequence[str] | None = None,
         cat_emb_dim: int | Mapping[str, int] | None = None,
@@ -46,13 +47,11 @@ class Batch2Seq(BaseModel):
     ):
         super().__init__()
         cat_cardinalities = cat_cardinalities if cat_cardinalities is not None else {}
-
         if num_count is None:
             if num_features is not None:
                 num_count = len(num_features)
             else:
                 num_count = 0
-
         if time_process != "none":
             assert time_process in [
                 "diff",
@@ -92,6 +91,16 @@ class Batch2Seq(BaseModel):
                 groups=num_count,
             )
         self._out_dim += num_emb_dim * num_count
+        ##################################################
+        if emb_dimensionalities:
+            self._emb_dims = emb_dimensionalities
+            for name, emb_length in emb_dimensionalities.items():
+                dim = emb_length
+                self._out_dim += dim
+        ##################################################
+        
+        
+
 
     @property
     def output_dim(self):
@@ -107,7 +116,7 @@ class Batch2Seq(BaseModel):
                 "Consider proper time preprocessing"
             )
 
-        embs = []
+        embs = []  # in embs there are many objects of shape (len, batch, string_length)
         masks = []
         if batch.cat_features_names:
             for i, cf in enumerate(batch.cat_features_names):
@@ -135,7 +144,23 @@ class Batch2Seq(BaseModel):
                         dim=2,
                     )
                 )
-
+        ######################################################################
+        # batch.emb_features_names = (features)
+        # batch.emb_features = {feature_name: (emb_dim, len, batch)} (is not needed here - batch[feature_name] is used)
+        # batch.emb_mask = (len, batch, features)
+        if batch.emb_features_names:
+            for i, ef in enumerate(batch.emb_features_names):
+                # batch[ef] = (emb_len, len, batch)
+                emb = batch[ef].permute(1, 2, 0)  # (len, batch, emb_len)
+                embs.append(emb)
+                if batch.emb_mask is not None:
+                    mask = batch.emb_mask[:, :, i].unsqueeze(2)
+                    emb_dim = self._emb_dims[ef]
+                    mask = torch.repeat_interleave(
+                        mask, emb_dim, 2
+                    )
+                    masks.append(mask)
+        ######################################################################
         tokens = torch.cat(embs, dim=2)
         masks = torch.cat(masks, dim=2) if len(masks) > 0 else None
         return Seq(tokens=tokens, lengths=batch.lengths, time=batch.time, masks=masks)

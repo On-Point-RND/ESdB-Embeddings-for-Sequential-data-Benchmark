@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
+import pandas as pd
 from torch import nn
 from torcheval.metrics import Mean, Metric
 from tqdm.autonotebook import tqdm
@@ -82,7 +83,8 @@ class Trainer:
 
         self._metrics = {}
         if metrics is not None:
-            self._metrics.update({m.__class__.__name__: m for m in metrics})
+            m = {getattr(m, "_name", m.__class__.__name__): m for m in metrics}
+            self._metrics.update(m)
 
         if loss is not None:
             self._metrics.update({"loss": Mean()})
@@ -144,6 +146,10 @@ class Trainer:
     def device(self) -> str:
         return self._device
 
+    @property
+    def verbose(self) -> str:
+        return self._verbose
+
     def _make_key_extractor(self, key):
         def key_extractor(p: Path) -> float:
             metrics = {}
@@ -151,7 +157,8 @@ class Trainer:
                 kv = it.split("__")
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]
-                v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
+                # v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
+                v = float(kv[1])
                 metrics[k] = v
             return metrics[key]
 
@@ -286,7 +293,6 @@ class Trainer:
             batch.to(self._device)
             inp = batch
             gt = batch.pop_target()
-
             pred = self._model(inp)
             loss = self._loss(pred, gt)
             if torch.isnan(loss).any():
@@ -294,13 +300,18 @@ class Trainer:
 
             loss.backward()
 
-            self._metrics["loss"].update(loss.detach().cpu())
+            self._metrics["loss"].update(-loss.detach().cpu())
             loss_np = loss.item()
             losses.append(loss_np)
             loss_ema = loss_np if i == 0 else 0.9 * loss_ema + 0.1 * loss_np
             pbar.set_postfix_str(f"Loss: {loss_ema:.4g}")
 
             self._opt.step()
+            after_optimizer_step = getattr(
+                self._model, "after_optimizer_step", None
+            )
+            if after_optimizer_step is not None:
+                after_optimizer_step()
 
             if self._metrics_on_train:
                 if gt is not None:
@@ -342,7 +353,7 @@ class Trainer:
 
             if self._loss is not None:
                 loss = self._loss(pred, gt).cpu()
-                self._metrics["loss"].update(loss.cpu())
+                self._metrics["loss"].update(-loss.cpu())
 
             if gt is not None:
                 gt = gt.to("cpu")
@@ -363,7 +374,7 @@ class Trainer:
         metrics is epoch, so when the metrics are not None, the epoch is not None to.
 
         Args:
-            phase: wether the metrics were collected during train or validatoin.
+            phase: whether the metrics were collected during train or validatoin.
         """
 
         self._metric_values = {}
@@ -396,7 +407,7 @@ class Trainer:
         assert self._model is not None
 
         logger.info("run %s started", self._run_name)
-
+        logger.info("the given iters number is %s", self._total_iters)
         if self._ckpt_resume is not None:
             logger.info("Resuming from checkpoint '%s'", str(self._ckpt_resume))
             self.load_ckpt(self._ckpt_resume)
@@ -431,6 +442,9 @@ class Trainer:
                 self._total_iters - self._last_iter,
                 self._iters_per_epoch,
             )
+            logger.info(
+                "the rest iters number is %s", self._total_iters - self._last_iter
+            )
 
             self._metric_values = None
             self.train(train_iters)
@@ -443,13 +457,14 @@ class Trainer:
             self._last_epoch += 1
             self.save_ckpt()
 
-            assert (
-                self._metric_values is not None
-                and self._ckpt_track_metric in self._metric_values
-            )
-            target_metric = self._metric_values[self._ckpt_track_metric]
-            if self._ckpt_track_metric == "loss":
-                target_metric = -1 * target_metric
+            if self._ckpt_track_metric == "epoch":
+                target_metric = self._last_epoch
+            else:
+                assert (
+                    self._metric_values is not None
+                    and self._ckpt_track_metric in self._metric_values
+                )
+                target_metric = self._metric_values[self._ckpt_track_metric]
 
             if target_metric > best_metric:
                 best_metric = target_metric

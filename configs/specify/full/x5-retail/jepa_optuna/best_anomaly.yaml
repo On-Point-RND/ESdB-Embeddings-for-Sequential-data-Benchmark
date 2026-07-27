@@ -1,0 +1,23 @@
+optimizer:
+  params:
+    weight_decay: 1.0153518053563385e-07
+    lr: 2.5439137648406567e-05
+model:
+  params:
+    hidden_size: 896
+    objective_projection_mode: predictor_output
+    ema_tau: 0.9999
+    downstream_embedding_source: target
+    context_position_mode: both
+    predictor_hidden_multiplier: 2.0
+    num_heads: 2
+    query_aggregation: mean
+    dropout: 0.05
+    num_blocks: 4
+    num_passes_over_block: 1
+    cat_emb_dim: 80
+    num_emb_dim: 128
+    embedding_size: 256
+    masker:
+      params:
+        mask_prob: 0.34460041734913305

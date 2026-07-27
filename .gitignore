@@ -3,8 +3,14 @@
 /dev
 esbench/data/x5-retail
 log/
+glog/
 INSPARATION_ARCHIVE/
 zhores/
+.idea
+embeddings/
+notebooks/local/
+scripts/local/
+tests/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -170,3 +176,9 @@ cython_debug/
 # Vim
 .vim
 *.swp
+
+# OURS
+*.parquet
+*.pth
+**.code-workspace
+*locexp_*

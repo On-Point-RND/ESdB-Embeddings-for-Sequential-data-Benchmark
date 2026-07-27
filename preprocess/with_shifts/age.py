@@ -1,0 +1,298 @@
+from argparse import ArgumentParser
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from pyspark.sql.types import FloatType, LongType
+
+from ..common import SORT_IDX_COL, add_row_order, cat_freq, collect_lists
+from .common_pandas import (
+    add_shift_columns,
+    add_debug_f,
+    global_time_split,
+    save_partitioned_parquet,
+    sample_users,
+    filter_short,
+    split_num_shifts,
+    global_train_column,
+    trim_test,
+    transform_train_test_features,
+)
+
+CAT_FEATURES = ["small_group"]
+NUM_FEATURES = ["amount_rur"]
+INDEX_COLUMNS = ["client_id", "age"]
+ORDERING_COLUMNS = ["trans_date"]
+TM = ORDERING_COLUMNS[0]
+RESCALE_FEATURES = [x for x in NUM_FEATURES if x != "amount_rur"] + [TM]
+LOG_FEATURES = ["amount_rur"]
+HORIZON = np.timedelta64(30, "D")
+
+
+def get_reg_target(row):
+    a = np.asarray(row["amount_rur"])
+    t = np.asarray(row["trans_date"])
+    out = []
+    for s in row["shifts"]:
+        assert s > 0, "shift should be more than zero"
+        delta = t - t[s - 1]
+        mask = (delta > 0) & (delta < HORIZON)
+        out.append(np.log1p(a[mask].sum()))
+    return out
+
+
+def get_forecast_target(row):
+    t = np.asarray(row["trans_date"])
+    out = []
+    for s in row["shifts"]:
+        assert s > 0, "shift should be more than zero"
+        out.append(np.log1p(np.sum(t[s:] == t[s - 1])))
+    return out
+
+
+def get_anomaly_target(df: pd.DataFrame) -> pd.Series:
+    def _cv_list(row):
+        a = np.asarray(row["amount_rur"])
+        mean = a.mean()
+        std = a.std()
+        assert mean != 0, "Mean of amount_rur shouldn't be zero even after shifts"
+        return std / mean
+
+    cv_list = df.apply(_cv_list, axis=1)
+    all_cv = np.asarray(cv_list)
+    q95 = np.nanquantile(all_cv, 0.95)
+    return np.asarray(cv_list > q95, dtype=np.int32).tolist()
+
+
+def compute_shift_end(arr):
+    arr = np.asarray(arr)
+    diff = arr[-1] - arr
+    return (diff > HORIZON).sum() - 1 if len(arr) else -1
+
+
+def trim_users(arr):
+    arr = np.asarray(arr)
+    if len(arr) < 2:
+        return True
+    total_duration = arr[-1] - arr[0]
+    return total_duration < HORIZON
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--data-path",
+        help="Path to directory containing CSV files",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--save-path",
+        help="Where to save preprocessed parquets",
+        required=True,
+        type=Path,
+    )
+    parser.add_argument(
+        "--which-split",
+        help="Whether to preprocess train set, test set or their union",
+        choices=["train", "test", "union"],
+        required=True,
+    )
+    parser.add_argument(
+        "--cat-codes-path",
+        help="Path where to save codes for categorical features",
+        type=Path,
+    )
+    parser.add_argument(
+        "--split-seed",
+        help="Random seed for train-test split",
+        type=int,
+        default=42,
+    )
+    parser.add_argument(
+        "--overwrite",
+        help='Toggle "overwrite" mode on all spark writes',
+        action="store_true",
+    )
+    parser.add_argument(
+        "--num-shifts",
+        help="How many shifts to sample per sequence",
+        type=int,
+        default=10,
+    )
+    parser.add_argument(
+        "--shift-seed",
+        help="Random seed for shifts",
+        default=1,
+        type=int,
+    )
+    parser.add_argument(
+        "--ntp",
+        help="Whether to use splitting for NTP",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--user-sample-frac",
+        help="Fraction of users to keep after preprocessing",
+        type=float,
+        default=0.5,
+    )
+    args = parser.parse_args()
+    mode = "overwrite" if args.overwrite else "error"
+
+    if args.ntp:
+        TIME_TRAIN_SPLIT = 0.5
+    else:
+        TIME_TRAIN_SPLIT = 0.9
+    USER_TRAIN_SPLIT = 0.9
+
+    if not (0.0 < TIME_TRAIN_SPLIT < 1.0):
+        parser.error("time_train_split must be in range (0, 1)")
+    if not (0.0 < USER_TRAIN_SPLIT < 1.0):
+        parser.error("user_train_split must be in range (0, 1)")
+    if not (0.0 < args.user_sample_frac <= 1.0):
+        parser.error("user_sample_frac must be in range (0, 1]")
+    time_test_split = 1 - TIME_TRAIN_SPLIT
+
+    spark = (
+        SparkSession.builder.master("local[*]")  # type: ignore[attr-defined]
+        .appName("AGEPreprocessing")
+        .config("spark.driver.memory", "12g")
+        .config("spark.executor.memory", "4g")
+        .config("spark.driver.maxResultSize", "0")
+        .config("spark.sql.execution.arrow.pyspark.enabled", "false")
+        .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC")
+        .getOrCreate()
+    )
+    df, df_kag_train = None, None
+
+    if args.which_split == "train":
+        df_kag_train = spark.read.csv(
+            (args.data_path / "transactions_train.csv").as_posix(), header=True
+        )
+        df_kag_train = add_row_order(df_kag_train)
+
+        df_kag_train = df_kag_train.select(
+            F.col("client_id").cast(LongType()),
+            F.col("trans_date").cast(LongType()),
+            F.col("small_group").cast(LongType()),
+            F.col("amount_rur").cast(FloatType()),
+            F.col(SORT_IDX_COL).cast(LongType()),
+        )
+
+        df_label = spark.read.csv(
+            (args.data_path / "train_target.csv").as_posix(), header=True
+        ).select(F.col("client_id").cast(LongType()), F.col("bins").cast(LongType()))
+
+        df = df_kag_train.join(df_label, on="client_id")
+        df = df.withColumnRenamed("bins", "age")
+    else:
+        raise NotImplementedError(
+            "We doesn't know what to do with test.csv for AGE dataset without labels."
+        )
+
+    vcs = cat_freq(df, CAT_FEATURES)
+    for vc in vcs:
+        df = vc.encode(df)
+        if args.cat_codes_path is not None:
+            vc.write(args.cat_codes_path / vc.feature_name, mode=mode)
+
+    df = collect_lists(df, group_by=INDEX_COLUMNS, order_by=ORDERING_COLUMNS)
+
+    df = df.sort("client_id").toPandas()
+    df = filter_short(df)
+
+    df["shift_end"] = df[TM].map(compute_shift_end)
+
+    train_df, test_df = global_time_split(
+        data=df,
+        test_frac=time_test_split,
+        time_col=TM,
+        seqlen_col="_seq_len",
+    )
+
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+
+    train_df["is_bad_user"] = train_df[TM].apply(trim_users)
+    bad_indices = train_df.index[train_df["is_bad_user"]].tolist()
+    train_df = train_df.drop(index=bad_indices)
+    del train_df["is_bad_user"]
+
+    train_df["shift_end"] = train_df[TM].map(compute_shift_end)
+
+    valid_mask_train = train_df.index[train_df["shift_end"] >= train_df["shift_start"]]
+    train_df = train_df.loc[valid_mask_train].copy()
+    valid_mask_test = test_df.index.intersection(valid_mask_train)
+    test_df = test_df.loc[valid_mask_test].copy()
+
+    assert (train_df["shift_end"] >= train_df["shift_start"]).all()
+    assert (test_df["shift_end"] >= test_df["shift_start"]).all()
+
+    train_n_shifts, test_n_shifts = split_num_shifts(args.num_shifts, time_test_split)
+
+    test_df = add_shift_columns(test_df, test_n_shifts, args.shift_seed)
+    train_df = add_shift_columns(train_df, train_n_shifts, args.shift_seed)
+
+    if args.ntp:
+        test_df = test_df.apply(trim_test, axis=1)
+        test_df["_seq_len"] = test_df[TM].apply(len)
+
+    test_df["target__reg_amount__local__r2"] = test_df.apply(get_reg_target, axis=1)
+    test_df["target__age__global__accuracy+f1_macro"] = test_df["age"]
+    test_df["target__forecast__local__r2"] = test_df.apply(get_forecast_target, axis=1)
+    test_df["target__anomaly__global__roc_auc"] = get_anomaly_target(test_df)
+
+    train_df["target__reg_amount__local__r2"] = train_df.apply(get_reg_target, axis=1)
+    train_df["target__age__global__accuracy+f1_macro"] = train_df["age"]
+    train_df["target__forecast__local__r2"] = train_df.apply(
+        get_forecast_target, axis=1
+    )
+    train_df["target__anomaly__global__roc_auc"] = get_anomaly_target(train_df)
+
+    train_df, test_df = transform_train_test_features(
+        train_df=train_df,
+        test_df=test_df,
+        rescale_features=RESCALE_FEATURES,
+        log_features=LOG_FEATURES,
+    )
+    train_df, test_df = sample_users(
+        train_df=train_df,
+        test_df=test_df,
+        sample_frac=args.user_sample_frac,
+        seed=args.split_seed,
+        index_col="client_id",
+    )
+
+    train_df, test_df = global_train_column(
+        train_df, test_df, USER_TRAIN_SPLIT, args.split_seed
+    )
+
+    test_df = add_debug_f(test_df, time_col=TM)
+    train_df = add_debug_f(train_df, time_col=TM)
+    keep_cols = [
+        "client_id",
+        "age",
+        TM,
+        "small_group",
+        "amount_rur",
+        "_seq_len",
+        "shifts",
+        "target__reg_amount__local__r2",
+        "target__age__global__accuracy+f1_macro",
+        "target__forecast__local__r2",
+        "target__anomaly__global__roc_auc",
+        "global_train",
+        "debug_f",
+    ]
+
+    save_partitioned_parquet(
+        train_df[keep_cols], args.save_path / "train", 20, mode=mode
+    )
+    save_partitioned_parquet(test_df[keep_cols], args.save_path / "test", 20, mode=mode)
+
+
+if __name__ == "__main__":
+    main()

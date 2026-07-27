@@ -66,7 +66,7 @@ class Runner(ABC):
     def run_optuna(
         self,
         config: DictConfig,
-        target_metric: str = "val_metric",
+        target_metric: str | list[str] = "val_metric",
         request_list=[],
         n_startup_trials: int = 3,
         n_trials: int = 50,
@@ -82,7 +82,6 @@ class Runner(ABC):
         call(doesn't affect parallel runs).
         n_runs - better not torch it
         """
-
         optuna.logging.get_logger("optuna").addHandler(
             logging.StreamHandler(sys.stdout)
         )
@@ -97,11 +96,16 @@ class Runner(ABC):
         run_path.mkdir(exist_ok=True, parents=True)
 
         storage = JournalStorage(JournalFileStorage(f"{run_path}/study.log"))
+        if isinstance(target_metric, str):
+            directions = "maximize"
+        else:
+            directions = ["maximize"] * len(target_metric)
+
         study = optuna.create_study(
             storage=storage,
             sampler=sampler,
             study_name="hpo",
-            direction="maximize",
+            directions=directions,
             load_if_exists=True,
         )
 
@@ -122,7 +126,7 @@ class Runner(ABC):
         self,
         trial: Trial,
         config: DictConfig,
-        target_metric: str = "val_metric",
+        target_metric: str | list[str] = "val_metric",
     ):
         config = deepcopy(config)
         trial, config = self.param_grid(trial, config)
@@ -148,9 +152,14 @@ class Runner(ABC):
             trial.set_user_attr(f"{k}_mean", summary_df.loc[k, "mean"])
             trial.set_user_attr(f"{k}_std", summary_df.loc[k, "std"])
 
-        return (
-            summary_df.loc[target_metric, "mean"] - summary_df.loc[target_metric, "std"]
-        )  # TODO *weak* maybe make customizable objective
+        if isinstance(target_metric, str):
+            return (
+                summary_df.loc[target_metric, "mean"]
+                - summary_df.loc[target_metric, "std"]
+            )
+        return [
+            summary_df.loc[m, "mean"] - summary_df.loc[m, "std"] for m in target_metric
+        ]
 
     def param_grid(self, trial: Trial, config: DictConfig) -> tuple[Trial, DictConfig]:
         raise NotImplementedError("Implement param grid first")
@@ -224,7 +233,8 @@ class Runner(ABC):
         with open(log_file.parent / "config.yaml", "w") as file:
             yaml.dump(config, file, sort_keys=False)
         with log_to_file(log_file, **config["logging"]):
-            return self.pipeline(config)
+            metrics = self.pipeline(config)
+        return metrics
 
     @abstractmethod
     def pipeline(self, config: Mapping) -> dict[str, float]:

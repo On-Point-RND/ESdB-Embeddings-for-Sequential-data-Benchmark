@@ -1,0 +1,130 @@
+log_dir: log/full/rossman
+patience: 10
+n_classes: 2
+main_metric: MulticlassAUROC
+main_loss: 
+  name: nn.CrossEntropyLoss
+tasks:
+- target__clf__global__accuracy+f1_macro
+- target__anomaly__local__roc_auc
+- target__reg_amount__local__r2
+- target__forecast__local__r2
+
+cc: 
+  DayOfWeek: 8
+  Open: 3
+  Promo: 3
+  StateHoliday: 2
+  SchoolHoliday: 3
+ee:
+nn:
+  - Sales
+  - Customers
+data:
+  dataset:
+    parquet_path: "data/rossman/preprocessed_full/train"
+    random_split: true
+    split_seed: 42
+
+    split_sizes: 
+      - 0.85   # train
+      - 0.15  # train_val
+
+  preprocessing:
+    common_pipeline: &common_pipeline
+      max_seq_len: 1000
+      time_name: Date
+      index_name: Store
+      target_name: _seq_len
+      num_names: ${nn}
+      cat_cardinalities: ${cc}
+      batch_transforms:
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
+    contrastive_pipeline:
+      <<: *common_pipeline
+      batch_transforms:
+        TTF:
+          TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        MV:
+          MaskValid
+        CT:
+          ContrastiveTarget
+        AUG_slices:
+          RandomSlices:
+            split_count: 5
+            cnt_min: 25
+            cnt_max: 200
+            short_seq_crop_rate: 0.8
+            seed: 0
+    primenet_pipeline:
+      <<: *common_pipeline
+      batch_transforms:
+        - TimeToFeatures:
+            process_type: ${model.preprocess.params.time_process}
+        - MaskValid
+        - PrimeNetSampler:
+            segment_num: 3
+
+  loaders:
+    train:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 128
+      drop_incomplete: true
+      shuffle: true
+      loop: false
+      num_workers: 4
+      random_seed: 42
+    full_train:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 128
+      num_workers: 4
+    train_val:
+      split_idx: 1
+      preprocessing: common_pipeline
+      batch_size: 128
+      num_workers: 4
+    gen_train:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+    gen_train_val:
+      split_idx: 1
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+
+test_data:
+  dataset:
+    parquet_path: "data/rossman/preprocessed_full/test"
+    split_sizes: 
+      - 1.0
+  preprocessing:
+    common_pipeline: *common_pipeline
+    gen_pipeline:
+      <<: *common_pipeline
+      max_seq_len: 1000000
+  loaders:
+    test:
+      split_idx: 0
+      preprocessing: common_pipeline
+      batch_size: 128
+      num_workers: 4
+    gen_test:
+      split_idx: 0
+      preprocessing: gen_pipeline
+      batch_size: 32
+      num_workers: 4
+
+metrics:
+  - name: ${main_metric}
+    params: 
+      num_classes: ${n_classes}
