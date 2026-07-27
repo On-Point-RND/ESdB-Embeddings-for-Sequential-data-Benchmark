@@ -1,11 +1,10 @@
+# Dataset Preprocessing
 
-# Предобработка датасета
+## Running Preprocessing
 
-## Запуск препроцессинга
+Run the commands from the project root.
 
-Команды необходимо запускать из корня проекта.
-
-Общий шаблон запуска:
+General command template:
 
 ```bash
 python -m preprocess.with_shifts.<dataset> \
@@ -15,7 +14,7 @@ python -m preprocess.with_shifts.<dataset> \
     --overwrite
 ```
 
-Чтобы запрепроцессить полный датасет:
+To preprocess the full dataset:
 
 ```bash
 python -m preprocess.with_shifts.<dataset> \
@@ -26,11 +25,10 @@ python -m preprocess.with_shifts.<dataset> \
     --user-sample-frac 1
 ```
 
-Вместо `<dataset>` необходимо указать название модуля препроцессинга
-датасета. Параметр `--user-sample-frac 1` включает в выборку всех
-пользователей.
+Replace `<dataset>` with the name of the corresponding preprocessing module.
+The `--user-sample-frac 1` option includes all users in the sample.
 
-Доступные значения `<dataset>`:
+Available `<dataset>` values:
 
 - `30music`
 - `age`
@@ -45,24 +43,26 @@ python -m preprocess.with_shifts.<dataset> \
 - `yambda`
 - `zvuk`
 
-Параметр `--user-sample-frac` поддерживают `30music`, `age`, `alpha`,
-`twitter`, `x5-retail`, `yambda` и `zvuk`. Остальные модули обрабатывают
-весь переданный датасет без этого параметра.
+The `--user-sample-frac` option is supported by `30music`, `age`, `alpha`,
+`twitter`, `x5-retail`, `yambda`, and `zvuk`. The remaining modules process
+the entire input dataset without this option.
 
-## Формат именования таргетов
+## Target Naming Convention
 
-При определении целевых переменных (таргетов) необходимо соблюдать следующий формат именования:
+Use the following naming convention when defining target variables:
 
 ```
 target__<name>__<local/global>__<metric1+metric2+...>
 ```
 
-### Пояснение полей:
-- **`<name>`** — краткое название таргета (например, `reg_amount`, `age`, `anomaly`);
-- **`<local/global>`** — указывает, является ли задача локальной (на уровне отдельного события или сессии) или глобальной (на уровне всей последовательности);
-- **`<metric1+metric2+...>`** — метрики, по которым будет оцениваться качество модели (перечисляются через `+` без пробелов).
+### Fields
 
-### Примеры корректных имён:
+- **`<name>`** — a short target name (for example, `reg_amount`, `age`, or `anomaly`);
+- **`<local/global>`** — whether the task is local (at the individual event or session level) or global (at the entire sequence level);
+- **`<metric1+metric2+...>`** — the metrics used to evaluate the model, separated by `+` without spaces.
+
+### Valid Examples
+
 - `target__reg_amount__local__mse+r2`
 - `target__age__global__accuracy+f1_macro`
 - `target__anomaly__local__roc_auc+f1_macro+accuracy`
