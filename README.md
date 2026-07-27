@@ -1,56 +1,32 @@
-# EBES Easy Benchmarking for Event Sequences.
+# ESdB: Embeddings for Sequential Data Benchmark
 
-[![arXiv](https://img.shields.io/badge/arXiv-2410.03399-b31b1b.svg)](https://arxiv.org/abs/2410.03399)
-[![Docs](https://badgen.net/static/Docs/EBES/green)](https://on-point-rnd.github.io/EBES/)
+Welcome to ESdB, the repository accompanying **"Towards a Universal Sequence Embedding: A Multi-Domain, Multi-Task Benchmark and Evaluation of Self-Supervised Methods."**
 
-## **🎉 Accepted at KDD 2025!**  
-Our paper "**EBES: Easy Benchmarking for Event Sequences**" has been accepted to the *31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD '25)*.  
-```bibtex
-@inproceedings{osin2025ebes,
-  title={EBES: Easy Benchmarking for Event Sequences},
-  author={Osin, Dmitry and Udovichenko, Igor and Shvetsov, Egor and Moskvoretskii, Viktor and Burnaev, Evgeny},
-  booktitle={Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2},
-  pages={5730--5741},
-  year={2025}
-}
-```
+ESdB is a benchmark for evaluating self-supervised sequence embeddings across multiple downstream tasks and data domains. It brings 12 source datasets into a common event-sequence representation and provides targets for classification, regression, forecasting, and anomaly detection.
 
-EBES is an easy-to-use development and application toolkit for Event Sequence(EvS) Assesment, with key features in configurability, compatibility and reproducibility. We hope this project could benefit both researchers and practitioners with the goal of easily customized development and open benchmarking in EvS.
+## Dataset
 
+The processed ESdB dataset is available on Hugging Face:
 
-## Setup
-### Installation
-To install the latest stable version:
-```
-pip install ebes
-```
-### Datasets
-| Dataset         | Source Link                                                                 | Preprocessing Script Link                                                                 | Download Instructions                                                                                               |
-|-----------------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
-| Physionet2012   | [Physionet2012](https://physionet.org/content/challenge-2012/1.0.0/)        | [physionet2012.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/physionet2012.py) | Straightforward download on site                                                                                    |
-| MIMIC-III       | [MIMIC-III](https://physionet.org/content/mimiciii/1.4/)                    | [mimic-3.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/mimic-3.py)        | Only credentialed users who sign the DUA can access the files.                                                      |
-| Age             | [Age](https://ods.ai/competitions/sberbank-sirius-lesson/data)             | [age.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/age.py)                | [Download here](https://storage.yandexcloud.net/datasouls-competitions/sirius/data.zip) if you have difficulties navigating site |
-| Retail          | [Retail](https://ods.ai/competitions/x5-retailhero-uplift-modeling/data)   | [x5-retail.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/x5-retail.py)    | [Download here](https://storage.yandexcloud.net/datasouls-ods/materials/9c6913e5/retailhero-uplift.zip) if you have difficulties navigating site |
-| MBD             | [MBD](https://huggingface.co/datasets/ai-lab/MBD)                           | [mbd.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/mbd.py)                | Straightforward download on site                                                                                    |
-| Taobao          | [Taobao](https://tianchi.aliyun.com/dataset/46)                             | [taobao.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/taobao.py)          | Need to login on site to download. After that pass `tianchi_mobile_recommend_train_user.csv` into script           |
-| BPI17           | [BPI17](https://data.4tu.nl/articles/_/12696884/1)                          | [bpi_17.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/bpi_17.py)          | Straightforward download on site                                                                                    |
-| ArabicDigits    | [ArabicDigits](https://www.timeseriesclassification.com/description.php?Dataset=SpokenArabicDigits) | [SpokenArabicDigits.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/SpokenArabicDigits.py) | Either just run preprocessing script and it will download automatically, or straightforward download on site       |
-| ElectricDevices | [ElectricDevices](https://www.timeseriesclassification.com/description.php?Dataset=ElectricDevices) | [electric_devices.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/electric_devices.py) | Straightforward download on site                                                                                    |
-| Pendulum        | We created it ourselves                                                     | [pendulum.py](https://github.com/On-Point-RND/EBES/blob/main/preprocess/pendulum.py)      | Run preprocessing script in order to generate from scratch. Make sure to keep default `seed=0` in order to get exactly same dataset. |
+- [ESdB: Embeddings for Sequential Data Benchmark](https://huggingface.co/datasets/On-Point-Rnd/ESdB-Embeddings-for-Sequential-data-Benchmark)
 
+The original data sources are listed below.
 
-## Usage
->python main -d age -m gru -e correlation -s best
+| Dataset | Domain | Source |
+|---|---|---|
+| AGE | Transactions | [Age Dataset](https://ods.ai/competitions/sberbank-sirius-lesson/data) |
+| AlphaBattle | Transactions | [AlphaBattle 2.0](https://www.kaggle.com/datasets/mrmorj/alfabattle-20) |
+| Retail | Transactions | [X5 RetailHero](https://ods.ai/competitions/x5-retailhero-uplift-modeling/data) |
+| Taobao | Recommender systems | [User Behavior Data from Taobao](https://tianchi.aliyun.com/dataset/46) |
+| Zvuk | Recommender systems | [Zvuk Dataset](https://www.kaggle.com/datasets/alexxl/zvuk-dataset) |
+| 30Music | Recommender systems | [30Music Listening and Playlists Dataset](https://remaplab.deib.polimi.it/resources/) |
+| Yambda | Recommender systems | [Yambda](https://huggingface.co/datasets/yandex/yambda) |
+| Electric Devices | Time series | [ElectricDevices](https://www.timeseriesclassification.com/description.php?Dataset=ElectricDevices) |
+| ETT | Time series | [Electricity Transformer Temperature Dataset](https://github.com/zhouhaoyi/ETDataset) |
+| Favorita | Time series | [Corporacion Favorita Grocery Sales Forecasting](https://www.kaggle.com/competitions/favorita-grocery-sales-forecasting/data) |
+| Rossmann | Time series | [Rossmann Store Sales](https://www.kaggle.com/competitions/rossmann-store-sales/data) |
+| Twitter | Text | [Sentiment140](https://www.kaggle.com/datasets/kazanova/sentiment140/data) |
 
-### Results:
-![image](https://github.com/user-attachments/assets/68532c78-af68-4c78-86e8-f7677fdf635d)
+## Preprocessing
 
-
-
-Performance of various models as a function of number of sequences. Metrics from Table 1 are reported. Number of sequences is presented in log scale. Standard deviation across 3 runs is depicted as vertical lines.
-
-<img src="https://arxiv.org/html/2410.03399v1/x5.png" width="500">
-
-Performance metric relationships and correlations of different subsets among all methods on PhysioNet2012 are presented. We do not observe a correlation between the test metric and train-val on PhysioNet2012, as seen in the right upper corner. For the Taobao dataset, we do not observe a clear linear trend between hpo-val and the test metric suggesting the presence of distribution shift.
-
-<img src="https://arxiv.org/html/2410.03399v1/x11.png">
+See the [preprocessing guide](preprocess/with_shifts/README.md) for the dataset preparation and target conventions used by ESdB.
