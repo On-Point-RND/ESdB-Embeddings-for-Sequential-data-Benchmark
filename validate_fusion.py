@@ -18,8 +18,10 @@ def parse_args():
     parser.add_argument("-d", "--d", default="age", help="Dataset name")
     parser.add_argument("-cfg", "--config", default="./universal_validator/configs/validator/logreg_lgbm_3seed_embedding_metrics.yaml")
     parser.add_argument("-cl", "--cleanup", action="store_true", help="Remove fused embeddings after validation")
-    parser.add_argument("-t", "--test_fix_rank", action="store_true", help="Run only on the fixed rank for quick testing")
+    parser.add_argument("-t", "--test_fix_rank", action="store_true", help="Run only on the fixed (min(F1,F2)) rank for quick testing")
+    parser.add_argument("-skpo", "--skip-original", action="store_true", help="Skip original validation")
     parser.add_argument("-rs", "--resample", action="store_true", help="Run only on the small dataset for quick testing")
+    parser.add_argument("-tr","--test-rank", type=int, default=None, help="Fixed ranks for a quick test")
     args = parser.parse_args()
     return args
 
@@ -191,9 +193,9 @@ class EfficientTucker:
         F1, F2 = v1_train.shape[1], v2_train.shape[1]
         max_rank = min(F1, F2)
         if self.rank is None:
-            r = max_rank
+            r = max_rank//2
         else:
-            r = min(self.rank[0] if isinstance(self.rank, tuple) else self.rank, max_rank)
+            r = min(self.rank[0] if isinstance(self.rank, tuple) else self.rank, max_rank)//2
         N = len(v1_train)
         batches = [(v1_train[i:i+self.batch_size], v2_train[i:i+self.batch_size])
                    for i in range(0, N, self.batch_size)]
@@ -225,7 +227,7 @@ class EfficientTucker:
     def fit_transform(self, v1_train, v2_train, v1_test, v2_test):
         self.fit(v1_train, v2_train)
         return self.transform(v1_train, v2_train), self.transform(v1_test, v2_test)
-    
+
 class EfficientTuckerProduct(EfficientTucker):
     """
     EfficientTucker с поэлементным произведением проекций вместо конкатенации.
@@ -241,8 +243,8 @@ class EfficientTuckerProduct(EfficientTucker):
 def tucker_concat_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
     return EfficientTucker(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
 
-def tucker_product_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
-    return EfficientTuckerProduct(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
+#def tucker_product_fusion(v1_train, v2_train, v1_test, v2_test, rank=None):
+#    return EfficientTuckerProduct(rank=rank).fit_transform(v1_train, v2_train, v1_test, v2_test)
 
 
 def krossfuse_fusion(v1_train, v2_train, v1_test, v2_test, rank=None, random_state=42):
@@ -263,7 +265,7 @@ def krossfuse_fusion(v1_train, v2_train, v1_test, v2_test, rank=None, random_sta
     test_fused  = (v1_test  @ proj1) * (v2_test  @ proj2)
     return train_fused, test_fused
 
-def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
+def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d", rank=None):
     B_tr, T_tr, F1 = v1_train.shape
     B_te, T_te, _ = v1_test.shape
     flat1_tr = v1_train.reshape(-1, F1)
@@ -271,7 +273,7 @@ def fuse_3d(fusion_func, v1_train, v2_train, v1_test, v2_test, name="3d"):
     flat1_te = v1_test.reshape(-1, F1)
     flat2_te = v2_test.reshape(-1, v2_test.shape[2])
     print(f"    [{name}] Flattened train: {flat1_tr.shape[0]} samples")
-    fused_flat_tr, fused_flat_te = fusion_func(flat1_tr, flat2_tr, flat1_te, flat2_te)
+    fused_flat_tr, fused_flat_te = fusion_func(flat1_tr, flat2_tr, flat1_te, flat2_te, rank=rank)
     fused_dim = fused_flat_tr.shape[1]
     print(f"    [{name}] Fused dimension: {fused_dim}")
     return fused_flat_tr.reshape(B_tr, T_tr, fused_dim), fused_flat_te.reshape(B_te, T_te, fused_dim)
@@ -305,8 +307,8 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
     full_name = f"{method_name}{rank_str}"
     print(f"\n=== {full_name} ===")
     try:
-        g_tr, g_te = global_fn(g1_tr, g2_tr, g1_te, g2_te)
-        s_tr, s_te = fuse_3d(shift_fn, s1_tr, s2_tr, s1_te, s2_te, name="shift_emb")
+        g_tr, g_te = global_fn(g1_tr, g2_tr, g1_te, g2_te, rank=rank)
+        s_tr, s_te = fuse_3d(shift_fn, s1_tr, s2_tr, s1_te, s2_te, name="shift_emb", rank=rank)
 
         out_train = deepcopy(X1_train_template)
         out_test  = deepcopy(X1_test_template)
@@ -329,7 +331,7 @@ def fuse_and_save(method_name, global_fn, shift_fn, rank,
     except Exception as e:
         print(f"  SKIPPED: {e}")
         return None
-    
+
 # ------------------------------------------------------------------
 # Downstream validation functions (unchanged)
 # ------------------------------------------------------------------
@@ -454,10 +456,8 @@ if __name__ == "__main__":
     # Template DataFrames for saving (from mirror root)
     X1_train = pd.read_parquet(f"{mirror_root}/{d}/{model_dir_name(m1)}/tests/{s1}/seed_0/embeddings/train_postproc/")
     X1_test  = pd.read_parquet(f"{mirror_root}/{d}/{model_dir_name(m1)}/tests/{s1}/seed_0/embeddings/test_postproc/")
-    
-    # ------------------------------------------------------------------
-    # Validate original (non-fused) embeddings for each model
-    # ------------------------------------------------------------------
+
+    # ---------- Подготовка конфига и seeds (всегда) ----------
     config_dict = OmegaConf.to_container(OmegaConf.load(args.config), resolve=True)
     seeds = config_dict.get("validator_seeds")
     if seeds is None:
@@ -467,37 +467,40 @@ if __name__ == "__main__":
     else:
         seeds = list(seeds)
 
-    for m, s in [(m1, s1), (m2, s2)]:
-        model_label = f"{m}_{s}"
-        train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
-        test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = Path.cwd() / f"outputs_validator_"  / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        for seed in seeds:
-            if seed is not None:
-                seed_reports, seed_metrics = run_downstream_with_seed(
-                    config_dict, train_path, test_path, seed
+    # ---------- Валидация оригинальных эмбеддингов (если не пропущено) ----------
+    if not args.skip_original:
+        for m, s in [(m1, s1), (m2, s2)]:
+            model_label = f"{m}_{s}"
+            train_path = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/train_postproc/"
+            test_path  = f"{mirror_root}/{d}/{model_dir_name(m)}/tests/{s}/seed_0/embeddings/test_postproc/"
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            run_dir = Path.cwd() / f"outputs_validator_"  / f"{d}_{m1}_{s1}_{m2}_{s2}" / f"validator_output_{timestamp}_embeddings_{model_label}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            for seed in seeds:
+                if seed is not None:
+                    seed_reports, seed_metrics = run_downstream_with_seed(
+                        config_dict, train_path, test_path, seed
+                    )
+                    label = f"seed_{seed}"
+                else:
+                    no_seed_config = deepcopy(config_dict)
+                    no_seed_config.pop("validator_seeds", None)
+                    if "embedding_metrics" in no_seed_config:
+                        no_seed_config["embedding_metrics"]["enabled"] = False
+                    seed_reports = run_with_paths(
+                        downstream_config=no_seed_config,
+                        train_path=train_path,
+                        test_path=test_path,
+                    )
+                    seed_metrics = extract_downstream_metrics(seed_reports)
+                    label = "no_seed"
+                save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
+                pd.DataFrame(seed_reports).to_json(
+                    run_dir / f"validator_output_{label}.json",
+                    orient='records', indent=4, date_format='iso'
                 )
-                label = f"seed_{seed}"
-            else:
-                no_seed_config = deepcopy(config_dict)
-                no_seed_config.pop("validator_seeds", None)
-                if "embedding_metrics" in no_seed_config:
-                    no_seed_config["embedding_metrics"]["enabled"] = False
-                seed_reports = run_with_paths(
-                    downstream_config=no_seed_config,
-                    train_path=train_path,
-                    test_path=test_path,
-                )
-                seed_metrics = extract_downstream_metrics(seed_reports)
-                label = "no_seed"
-            save_seed_metrics(run_dir / f"downstream_validator_{label}.csv", seed_metrics)
-            pd.DataFrame(seed_reports).to_json(
-                run_dir / f"validator_output_{label}.json",
-                orient='records', indent=4, date_format='iso'
-            )
-        print(f"Original model {model_label} validation results saved to {run_dir}")
+            print(f"Original model {model_label} validation results saved to {run_dir}")
+        
 
     # Determine ranks (based on the loaded embeddings)
     min_dim = min(g1_tr.shape[1], g2_tr.shape[1])
@@ -510,7 +513,7 @@ if __name__ == "__main__":
     
     # Fusion methods
     methods = [
-        ('concatenation', concat_fusion, None),
+        #('concatenation', concat_fusion, None),
         ('PCA', pca_fusion, None),
         ('CCA', cca_fusion, None),
         #('rCCA', partial(cca_fusion, model=rCCA), None),
@@ -526,7 +529,9 @@ if __name__ == "__main__":
         if method_name == 'concatenation':
             rank_list = [None]
         else:
-            rank_list = [1024] if args.test_fix_rank else ranks
+            if args.test_rank is None:
+                args.test_rank = min_dim
+            rank_list = [args.test_rank] if args.test_fix_rank else ranks
 
         for rank in rank_list:
             out_dir = fuse_and_save(method_name, global_fn, shift_fn, rank,
