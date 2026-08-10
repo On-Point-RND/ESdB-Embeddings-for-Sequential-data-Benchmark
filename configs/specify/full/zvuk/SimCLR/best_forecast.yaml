@@ -1,0 +1,24 @@
+optimizer:
+  params:
+    weight_decay: 4.0984458800635795e-09
+    lr: 0.0008963276777125702
+unsupervised_loss:
+  params:
+    temperature: 0.05537511966426923
+data:
+  loaders:
+    unsupervised_train:
+      batch_size: 128
+model:
+  encoder:
+    params:
+      num_layers: 2
+      hidden_size: 700
+  preprocess:
+    params:
+      time_process: cat
+      num_norm: true
+      cat_emb_dim: 86
+      num_emb_dim: 96
+  aggregation:
+    name: TakeLastHidden
