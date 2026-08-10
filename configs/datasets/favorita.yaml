@@ -406,14 +406,14 @@ data:
             add_initial: True
             params:
               cat_cardinalities: ${cc}
-              mask_prob: 0.2
-              span_len: 10
-              span_share: 0.5
-              random_token_prob: 0.1  # How many masked tokens going to be corrupted not masked
-              keep_event_prob: 0.0  # Keep selected events unchanged for both cat and num
+              mask_prob: 0.4
+              span_len: 8
+              span_share: 0.45
+              random_token_prob: 0.0  # How many masked tokens going to be corrupted not masked
+              keep_event_prob: 0.05  # Keep selected events unchanged for both cat and num
               num_mask_fill: zero
-              partial_cat_feature_prob: 0.0
-              partial_num_feature_prob: 0.0
+              partial_cat_feature_prob: 0.2
+              partial_num_feature_prob: 0.2
 
   loaders:
     train:

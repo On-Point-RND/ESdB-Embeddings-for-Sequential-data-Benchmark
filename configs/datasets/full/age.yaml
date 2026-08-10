@@ -68,6 +68,21 @@ data:
         #TD:
         #  TrxDropout:
         #    dropout: 0.01
+        AUG_masking:
+          AugmentationMasker:
+            name: MixedMasker
+            number_of_instances: 3
+            add_initial: True
+            params:
+              cat_cardinalities: ${cc}
+              mask_prob: 0.3
+              span_len: 9
+              span_share: 0.65
+              random_token_prob: 0.1
+              keep_event_prob: 0.15
+              num_mask_fill: zero
+              partial_cat_feature_prob: 0.1
+              partial_num_feature_prob: 0.1
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
