@@ -107,6 +107,7 @@ def save_seed_metrics(path: Path, metrics: dict[str, float]) -> None:
 def compute_downstreams(
     trainer, train_loaders, test_loaders, config, downstream_config
 ):
+    import gc
     train_embeddings_getter = ResultsGetter(config, "train")
     keys = {"gen_train", "gen_train_val"}
     subloaders = {k: train_loaders[k] for k in keys if k in train_loaders}
@@ -116,6 +117,7 @@ def compute_downstreams(
     )
     embed_train_file.parent.mkdir(parents=True, exist_ok=True)
     df_train.to_parquet(embed_train_file, index=False)
+    del df_train, train_embeddings_getter
 
     test_embeddings_getter = ResultsGetter(config, "test")
     keys = {"gen_test"}
@@ -126,6 +128,8 @@ def compute_downstreams(
     )
     embed_test_file.parent.mkdir(parents=True, exist_ok=True)
     df_test.to_parquet(embed_test_file, index=False)
+    del df_test, test_embeddings_getter, subloaders
+    gc.collect()
 
     spark = create_postproc_spark_session()
     try:
