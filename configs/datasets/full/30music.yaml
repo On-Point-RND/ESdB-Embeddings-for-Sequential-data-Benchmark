@@ -60,6 +60,21 @@ data:
             cnt_max: 200
             short_seq_crop_rate: 0.8
             seed: 0
+        AUG_masking:
+          AugmentationMasker:
+            name: MixedMasker
+            number_of_instances: 3
+            add_initial: True
+            params:
+              cat_cardinalities: ${cc}
+              mask_prob: 0.25
+              span_len: 40
+              span_share: 0.35
+              random_token_prob: 0.05
+              keep_event_prob: 0.15
+              num_mask_fill: zero
+              partial_cat_feature_prob: 0.1
+              partial_num_feature_prob: 0.05
     primenet_pipeline:
       <<: *common_pipeline
       batch_transforms:
