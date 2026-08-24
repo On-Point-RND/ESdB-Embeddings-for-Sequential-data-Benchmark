@@ -3,311 +3,262 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta
-      name="description"
-      content="Interactive cross-domain time-series benchmark result dashboard."
-    >
-    <title>Time-Series Benchmark Results</title>
+    <meta name="theme-color" content="#0b1020">
+    <meta name="description" content="A 12-dataset, four-domain benchmark testing whether self-supervised sequence embeddings transfer across classification, regression, forecasting and anomaly detection.">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Towards a Universal Sequence Embedding">
+    <meta property="og:description" content="A multi-domain, multi-task benchmark for self-supervised sequence methods.">
+    <title>Towards a Universal Sequence Embedding</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="results.js" defer></script>
+    <script src="app.js" defer></script>
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="topbar">
-      <nav aria-label="Site sections">
-        <a href="#overview">Overview</a>
+      <a class="brand" href="#overview" aria-label="Universal Sequence Embedding home"><span>US</span><b>Embedding Benchmark</b></a>
+      <nav aria-label="Page sections">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#datasets">Datasets</a>
         <a href="#results">Results</a>
-        <a href="#global-charts">Charts</a>
-        <a href="insights.html">Insights</a>
-        <a href="datasets.html">Datasets</a>
-        <a href="additional.html">Additional</a>
-        <a href="#authors">Center</a>
+        <a href="#methods">Methods</a>
+        <a href="#protocol">Protocol</a>
+        <a href="#authors">Authors</a>
       </nav>
+      <a class="paper-link" href="408_Towards_a_Universal_Sequen.pdf">Read paper <span aria-hidden="true">↗</span></a>
     </header>
 
-    <main id="top">
-      <section class="hero">
-        <div class="hero-backdrop" aria-hidden="true"></div>
-        <div class="hero-copy">
-          <p class="kicker">Ai Applied Research Center preview</p>
-          <h1>Cross-domain time-series results, ready to inspect.</h1>
-          <p>
-            Methods are compared per dataset across regression, classification,
-            forecasting, and anomaly detection. Every view below is computed
-            from workbook rows: no synthetic examples, no merged semantics, only
-            traceable tables and interactive summaries.
-          </p>
-          <div class="author-strip" aria-label="Research center">
-            <span>Research center</span>
-            <strong>Ai Applied Research Center</strong>
-          </div>
-        </div>
-        <dl class="stat-grid" aria-label="Benchmark summary">
-          <div>
-            <dt>Datasets</dt>
-            <dd id="stat-datasets">--</dd>
-          </div>
-          <div>
-            <dt>Methods</dt>
-            <dd id="stat-methods">--</dd>
-          </div>
-          <div>
-            <dt>Main rows</dt>
-            <dd id="stat-records">--</dd>
-          </div>
-          <div>
-            <dt>Updated</dt>
-            <dd id="stat-updated">--</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section id="overview" class="panel overview-panel" aria-labelledby="overview-title">
-        <div class="panel-heading">
-          <div>
-            <p class="kicker">Overview</p>
-            <h2 id="overview-title">Readable result atlas</h2>
-          </div>
-          <div class="overview-controls">
-            <label>
-              Task focus
-              <select id="overview-task-filter">
-                <option value="all">All tasks</option>
-              </select>
-            </label>
-            <button id="reset-view" class="ghost-button" type="button">Reset table view</button>
-          </div>
-        </div>
-
-        <div class="overview-grid" aria-label="Interactive benchmark overview">
-          <section class="chart-card donut-card" aria-labelledby="dataset-donut-title">
-            <div class="chart-heading">
-              <h3 id="dataset-donut-title">Dataset share</h3>
-              <span>main rows</span>
+    <main id="main">
+      <section id="overview" class="hero section-shell">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow"><span></span> Multi-domain sequence representation learning</p>
+            <h1>Towards a Universal Sequence Embedding</h1>
+            <p class="subtitle">A Multi-Domain, Multi-Task Benchmark for Self-Supervised Methods</p>
+            <p class="abstract">
+              Can one sequence embedding work across many downstream tasks? We test that assumption on 12 datasets from transactions, recommender logs, time series and text. Seven self-supervised methods and three baselines are evaluated across 42 classification, regression, forecasting and anomaly-detection settings under one protocol.
+            </p>
+            <div class="hero-actions">
+              <a class="primary-button" href="#results">Explore results</a>
+              <a class="secondary-button" href="https://huggingface.co/datasets/On-Point-Rnd/ESdB-Embeddings-for-Sequential-data-Benchmark">Get the dataset <span aria-hidden="true">↗</span></a>
+              <a class="secondary-button" href="https://github.com/On-Point-RND/ESdB-Embeddings-for-Sequential-data-Benchmark">Code <span aria-hidden="true">↗</span></a>
             </div>
-            <div id="dataset-donut" class="donut-layout"></div>
-          </section>
-          <section class="chart-card donut-card" aria-labelledby="task-donut-title">
-            <div class="chart-heading">
-              <h3 id="task-donut-title">Task availability</h3>
-              <span>non-empty scores</span>
-            </div>
-            <div id="task-availability-donut" class="donut-layout"></div>
-          </section>
-          <section class="chart-card donut-card" aria-labelledby="source-donut-title">
-            <div class="chart-heading">
-              <h3 id="source-donut-title">Workbook composition</h3>
-              <span>typed sections</span>
-            </div>
-            <div id="source-donut" class="donut-layout"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="score-histogram-title">
-            <div class="chart-heading">
-              <h3 id="score-histogram-title">Score distribution</h3>
-              <span id="score-histogram-label">task focus</span>
-            </div>
-            <div id="score-histogram" class="histogram"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="composite-histogram-title">
-            <div class="chart-heading">
-              <h3 id="composite-histogram-title">Composite distribution</h3>
-              <span>dataset-normalized</span>
-            </div>
-            <div id="composite-histogram" class="histogram"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="winner-chart-title">
-            <div class="chart-heading">
-              <h3 id="winner-chart-title">Winner frequency</h3>
-              <span>dataset x task</span>
-            </div>
-            <div id="winner-chart" class="bar-chart"></div>
-          </section>
-        </div>
-      </section>
-
-      <section id="results" class="panel results-panel" aria-labelledby="results-title">
-        <div class="panel-heading">
-          <div>
-            <p class="kicker">Results</p>
-            <h2 id="results-title">Dataset view</h2>
           </div>
-          <div class="controls" aria-label="Result filters">
-            <label>
-              Dataset
-              <select id="dataset-filter"></select>
-            </label>
-            <label>
-              Sort by
-              <select id="sort-filter">
-                <option value="rank">Composite rank</option>
-                <option value="regression">Regression R2</option>
-                <option value="classification">Classification accuracy</option>
-                <option value="forecasting">Forecasting R2</option>
-                <option value="anomaly">Anomaly roc_auc</option>
-              </select>
-            </label>
-            <label>
-              Methods
-              <input id="method-search" type="search" placeholder="BERT, JEPA, COLES">
-            </label>
-            <div id="method-filter-chips" class="method-filter-chips" aria-live="polite"></div>
-          </div>
-        </div>
-
-        <div id="task-summary" class="task-summary" aria-label="Task winners"></div>
-
-        <div class="chart-grid" aria-label="Charts for the selected dataset">
-          <section class="chart-card" aria-labelledby="composite-chart-title">
-            <div class="chart-heading">
-              <h3 id="composite-chart-title">Composite ranking</h3>
-              <span>rank-normalized</span>
-            </div>
-            <div id="composite-chart" class="bar-chart"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="task-chart-title">
-            <div class="chart-heading">
-              <h3 id="task-chart-title">Task score map</h3>
-              <span>relative within dataset</span>
-            </div>
-            <div id="task-chart" class="heat-chart"></div>
-          </section>
-        </div>
-
-        <div class="results-layout">
-          <div class="table-shell">
-            <div id="table-status" class="table-status" aria-live="polite"></div>
-            <table class="results-table">
-              <thead>
-                <tr>
-                  <th class="rank-col" scope="col">#</th>
-                  <th class="method-col" scope="col">Method</th>
-                  <th scope="col">Validator</th>
-                  <th scope="col">Composite</th>
-                  <th scope="col">Regression</th>
-                  <th scope="col">Classification</th>
-                  <th scope="col">Forecasting</th>
-                  <th scope="col">Anomaly</th>
-                </tr>
-              </thead>
-              <tbody id="results-body"></tbody>
-            </table>
-          </div>
-
-          <aside class="details" aria-live="polite">
-            <p class="kicker">Selected row</p>
-            <h3 id="detail-method">Select a method</h3>
+          <aside class="hero-card" aria-label="Benchmark summary">
+            <p>Benchmark at a glance</p>
             <dl>
-              <div>
-                <dt>Dataset</dt>
-                <dd id="detail-dataset">--</dd>
-              </div>
-              <div>
-                <dt>Best task</dt>
-                <dd id="detail-best">--</dd>
-              </div>
-              <div>
-                <dt>Validator</dt>
-                <dd id="detail-validator">--</dd>
-              </div>
-              <div>
-                <dt>Scores</dt>
-                <dd id="detail-scores">--</dd>
-              </div>
-              <div>
-                <dt>Hyperparameters</dt>
-                <dd id="detail-params">--</dd>
-              </div>
-              <div>
-                <dt>Masking</dt>
-                <dd id="detail-masking">--</dd>
-              </div>
+              <div><dt>12</dt><dd>datasets</dd></div>
+              <div><dt>42</dt><dd>dataset–task settings</dd></div>
+              <div><dt>4</dt><dd>domains</dd></div>
+              <div><dt>10</dt><dd>methods + baselines</dd></div>
             </dl>
+            <div class="domain-line" aria-label="Four domains"><i></i><i></i><i></i><i></i></div>
+            <small>Frozen embeddings · repeated linear probes · uncertainty-aware ranks</small>
           </aside>
         </div>
-      </section>
 
-      <section id="global-charts" class="panel global-charts-panel" aria-labelledby="global-charts-title">
-        <div class="panel-heading">
-          <div>
-            <p class="kicker">Global charts</p>
-            <h2 id="global-charts-title">Across the full table</h2>
+        <div class="finding-strip" role="note">
+          <span>Core finding</span>
+          <p><strong>No method is universal.</strong> Seven distinct methods win at least one setting, and the strongest method leads in fewer than a quarter of them.</p>
+        </div>
+
+        <div class="section-intro overview-intro">
+          <div><p class="section-number">01 · Overview</p><h2>The choice of embedding is part of the task.</h2></div>
+          <p>Success on one downstream task transfers only weakly to another. Training loss and label-free quality metrics do not reliably identify a universal model, while per-task selection introduces validator bias. Fusion offers a practical alternative.</p>
+        </div>
+
+        <div class="overview-visual-grid">
+          <figure class="paper-figure feature-figure">
+            <button type="button" data-figure="imgs/paper/figure-01-selection-paths.png" data-alt="Decision tree for selecting or fusing sequence embeddings" data-caption="Figure 1 · Strategies for obtaining embeddings that work across many downstream tasks.">
+              <img src="imgs/paper/figure-01-selection-paths.png" alt="Decision tree showing unreliable single-model selection signals and embedding fusion" loading="eager">
+              <span>Expand figure</span>
+            </button>
+            <figcaption><b>Figure 1.</b> Selecting one model requires a reliable label-free signal; selecting per task requires a biased validator. Fusion sidesteps both choices.</figcaption>
+          </figure>
+          <div class="task-stack" aria-label="Downstream task families">
+            <article><span>01</span><div><h3>Classification</h3><p>Categorical global or local outcomes · accuracy</p></div></article>
+            <article><span>02</span><div><h3>Regression</h3><p>Future value or activity over a fixed horizon · R²</p></div></article>
+            <article><span>03</span><div><h3>Forecasting</h3><p>Activity in the next interval · R²</p></div></article>
+            <article><span>04</span><div><h3>Anomaly detection</h3><p>Rare or tail behaviour · ROC-AUC</p></div></article>
           </div>
-          <p class="panel-note">
-            These views aggregate all rows from the verified benchmark table:
-            method coverage, best dataset scores, and task-level score spread.
-          </p>
         </div>
-        <div class="global-chart-grid">
-          <section class="chart-card wide-chart" aria-labelledby="method-landscape-title">
-            <div class="chart-heading">
-              <h3 id="method-landscape-title">Method landscape</h3>
-              <span>coverage x normalized score</span>
-            </div>
-            <div id="method-landscape" class="scatter-plot"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="dataset-heatmap-title">
-            <div class="chart-heading">
-              <h3 id="dataset-heatmap-title">Best score map</h3>
-              <span>best method per dataset/task</span>
-            </div>
-            <div id="dataset-heatmap" class="dataset-heatmap"></div>
-          </section>
-          <section class="chart-card" aria-labelledby="distribution-title">
-            <div class="chart-heading">
-              <h3 id="distribution-title">Metric distributions</h3>
-              <span>min / quartiles / max</span>
-            </div>
-            <div id="metric-distribution" class="boxplot-list"></div>
-          </section>
-        </div>
-      </section>
 
-      <section class="panel page-links-panel" aria-labelledby="pages-title">
-        <div class="panel-heading">
-          <div>
-            <p class="kicker">More views</p>
-            <h2 id="pages-title">Detailed pages</h2>
+        <div class="correlation-block">
+          <div class="correlation-copy">
+            <p class="eyebrow"><span></span> Cross-task agreement</p>
+            <h3>Weak alignment is the rule, not the exception.</h3>
+            <p>Off-diagonal relationships are low. Classification and forecasting share essentially no linear variance (<b>R² = 0.00</b>), while even the largest off-diagonal mean rank correlation is only <b>Kendall τ = 0.32</b>.</p>
+            <ul class="check-list"><li>Task performance does not reliably transfer.</li><li>Method ordering changes with the task family.</li><li>One aggregate leaderboard hides important trade-offs.</li></ul>
           </div>
-          <p class="panel-note">
-            Heavy dataset notes and workbook archive tables now live on
-            separate pages, so the main dashboard stays focused on the verified
-            leaderboard.
-          </p>
+          <figure class="paper-figure">
+            <button type="button" data-figure="imgs/paper/figure-05-task-correlation.png" data-alt="Heatmaps of cross-task R squared and Kendall rank correlation" data-caption="Figure 5 · Cross-task relationships of downstream performance and method rankings.">
+              <img src="imgs/paper/figure-05-task-correlation.png" alt="Cross-task correlation heatmaps showing low off-diagonal values" loading="lazy"><span>Expand figure</span>
+            </button>
+            <figcaption><b>Figure 5.</b> Linear score relationships (left) and rank agreement (right).</figcaption>
+          </figure>
         </div>
-        <div class="page-link-grid">
-          <a class="page-link-card" href="datasets.html">
-            <span>Datasets</span>
-            <strong>Feature cards and validator view</strong>
-            <small>Domains, selected features, cardinalities, targets, and preprocessing.</small>
-          </a>
-          <a class="page-link-card" href="insights.html">
-            <span>Insights</span>
-            <strong>Comparison charts and next steps</strong>
-            <small>Method pies, normalized heatmaps, Optuna validator summaries, and feature plans.</small>
-          </a>
-          <a class="page-link-card" href="additional.html">
-            <span>Additional</span>
-            <strong>Workbook archive and raw sheets</strong>
-            <small>NTP_LGBM rows, validator trials, archive coverage, and exact sheet rows.</small>
-          </a>
+
+        <div id="datasets" class="datasets-block anchor-offset">
+          <div class="section-intro">
+            <div><p class="section-number">02 · Dataset atlas</p><h2>Twelve datasets, four structurally different domains.</h2></div>
+            <p>Each source is converted to the same entity-centric sequence format. Across 42 available settings, 35 targets are constructed from histories, metadata or training statistics and seven compatible source targets are retained.</p>
+          </div>
+
+          <div class="target-construction">
+            <article><span>G</span><h3>Global targets</h3><p>One label describes the complete entity history. Entire entities are assigned to disjoint train and test sets.</p></article>
+            <article><span>L</span><h3>Local targets</h3><p>Each sampled shift creates a history prefix and a future target window without duplicating the stored events.</p></article>
+            <article><span>42</span><h3>Unified settings</h3><p>Task scope is independent of family: classification, regression and anomaly targets may be global or local; forecasting is local.</p></article>
+          </div>
+
+          <div class="dataset-toolbar">
+            <div class="filter-row" aria-label="Filter datasets by domain">
+              <button type="button" data-domain-filter="all" aria-pressed="true">All</button>
+              <button type="button" data-domain-filter="trx" aria-pressed="false">Transactions</button>
+              <button type="button" data-domain-filter="recsys" aria-pressed="false">RecSys</button>
+              <button type="button" data-domain-filter="ts" aria-pressed="false">Time series</button>
+              <button type="button" data-domain-filter="text" aria-pressed="false">Text</button>
+            </div>
+            <span id="dataset-count">12 datasets</span>
+          </div>
+          <div id="dataset-grid" class="dataset-grid"></div>
         </div>
       </section>
 
-      <section id="authors" class="panel authors-panel" aria-labelledby="authors-title">
-        <div>
-          <p class="kicker">Research center</p>
-          <h2 id="authors-title">Ai Applied Research Center</h2>
-          <p>
-            Research preview for a cross-domain time-series benchmark and
-            embedding comparison study. The public page keeps only verified
-            table results and interactive diagnostics.
-          </p>
+      <section id="results" class="results-section anchor-offset">
+        <div class="section-shell">
+          <div class="section-intro light">
+            <div><p class="section-number">03 · Results</p><h2>No universal winner. Useful patterns remain.</h2></div>
+            <p>CoLES has the best average rank, but Slice-InfoNCE leads classification and NTP-GPT leads forecasting in the ten-method task view. Rank uncertainty is incorporated by grouping overlapping performance intervals.</p>
+          </div>
+
+          <div class="result-callouts">
+            <article><strong>2.69</strong><span>CoLES overall mean rank</span></article>
+            <article><strong>7 / 10</strong><span>methods win at least one setting</span></article>
+            <article><strong>&lt; 25%</strong><span>settings led by the strongest method</span></article>
+            <article><strong>0.11–0.32</strong><span>off-diagonal Kendall τ</span></article>
+          </div>
+
+          <div class="ranking-layout">
+            <article class="data-card">
+              <div class="card-heading"><div><span>Table 1</span><h3>Mean rank by task family</h3></div><small>Lower is better</small></div>
+              <div class="table-scroll"><table class="ranking-table"><thead><tr><th>#</th><th>Method</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th><th>Overall</th></tr></thead><tbody id="ranking-body"></tbody></table></div>
+              <p class="table-note"><span class="best-key"></span> Best &nbsp; <span class="second-key"></span> Second best · eight non-random methods</p>
+            </article>
+            <article class="data-card rank-card">
+              <div class="card-heading"><div><span>Overall</span><h3>Average rank</h3></div><small>0 → 8</small></div>
+              <div id="overall-ranks" class="rank-bars"></div>
+            </article>
+          </div>
+
+          <div class="figure-grid two-up">
+            <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-03-method-ranks.png" data-alt="Average rank of ten methods for four downstream tasks" data-caption="Figure 3 · Average rank across datasets per task; lower is better."><img src="imgs/paper/figure-03-method-ranks.png" alt="Four horizontal bar charts of method rank by task" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 3.</b> The best method changes with the downstream task.</figcaption></figure>
+            <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-04-rank-profiles.png" data-alt="Task-specific uncertainty-aware rank profiles for ten methods" data-caption="Figure 4 · Share of settings within each rank threshold; higher is better."><img src="imgs/paper/figure-04-rank-profiles.png" alt="Task-specific rank-threshold curves for all ten methods" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 4.</b> Uncertainty-aware profiles expose ties and instability hidden by a single mean.</figcaption></figure>
+          </div>
+
+          <div class="transition-statement"><span>So what?</span><h3>If no single model is best for every task, combine specialised embeddings.</h3><p>Embedding Fusion aims to recover the upper envelope of complementary encoders without pretending that one SSL objective is universally superior.</p></div>
+
+          <div class="fusion-block">
+            <div class="subsection-heading"><p class="eyebrow"><span></span> Embedding Fusion</p><h2>Complementary encoders, one downstream representation.</h2><p>AGE covers all four task families. The study pairs task-best encoders and compares concatenation, PCA, CCA, KrossFuse and the proposed low-rank TuckerFactorConcat.</p></div>
+            <article class="data-card light-card">
+              <div class="card-heading"><div><span id="fusion-main-label">Table 6</span><h3>Upper-envelope recovery</h3></div><small>Mean ± std</small></div>
+              <div class="table-scroll"><table><thead><tr><th>Representation</th><th>Clf. accuracy</th><th>Reg. R²</th><th>Forec. R²</th><th>Anom. ROC-AUC</th></tr></thead><tbody id="fusion-main-body"></tbody></table></div>
+              <p class="table-note">TuckerFactorConcat leads the fused variants on regression and forecasting; the preferred fusion still depends on the validator.</p>
+            </article>
+
+            <article class="fusion-explorer data-card light-card">
+              <div class="card-heading"><div><span>Appendix E.5</span><h3>Three additional fusion pairs</h3></div><small>Linear probe means</small></div>
+              <div id="fusion-tabs" class="tabs" role="tablist" aria-label="Fusion table"></div>
+              <div class="fusion-study-heading"><h4 id="fusion-study-title"></h4><p id="fusion-study-note"></p></div>
+              <div class="table-scroll"><table><thead><tr><th>Representation</th><th>Clf.</th><th>Reg.</th><th>Forec.</th><th>Anom.</th></tr></thead><tbody id="fusion-study-body"></tbody></table></div>
+            </article>
+          </div>
+
+          <div class="ablations-block">
+            <div class="section-intro light"><div><p class="section-number">04 · Ablations</p><h2>The evaluation protocol changes the conclusion.</h2></div><p>Aggregation, downstream validator, hyperparameter budget and checkpoint-selection signal all affect which representation appears best.</p></div>
+
+            <article class="ablation-row">
+              <div class="ablation-copy"><span class="ablation-index">A1</span><h3>Aggregation follows target scope.</h3><p>The last hidden state is selected in 85% of forecasting and 60% of regression configurations. Mean-pooling is selected in 62% of classification and anomaly settings. Local targets favour recent state; global targets favour whole-history pooling.</p></div>
+              <div class="mini-figures">
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-06-aggregation-share.png" data-alt="Mean versus last-state aggregation share by task" data-caption="Figure 6 · Selected aggregation by task family."><img src="imgs/paper/figure-06-aggregation-share.png" alt="Stacked bars comparing mean and last-state aggregation" loading="lazy"><span>Expand</span></button><figcaption>Figure 6 · By task</figcaption></figure>
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-13-aggregation-by-method.png" data-alt="Last-state share by method and task" data-caption="Figure 13 · Last-state selection share per method and task."><img src="imgs/paper/figure-13-aggregation-by-method.png" alt="Heatmap of last-state selection by method" loading="lazy"><span>Expand</span></button><figcaption>Figure 13 · By method</figcaption></figure>
+                <figure class="paper-figure dark-figure wide-mini"><button type="button" data-figure="imgs/paper/figure-14-aggregation-map.png" data-alt="Aggregation selection map by dataset method and task" data-caption="Figure 14 · Aggregation chosen per dataset, method and task."><img src="imgs/paper/figure-14-aggregation-map.png" alt="Aggregation selection heatmaps across datasets and methods" loading="lazy"><span>Expand</span></button><figcaption>Figure 14 · Full selection map</figcaption></figure>
+              </div>
+            </article>
+
+            <article class="ablation-row reverse">
+              <div class="ablation-copy"><span class="ablation-index">A2</span><h3>Validators introduce measurable bias.</h3><p>LightGBM has the best average candidate rank, but MLP favours forecasting while the linear probe favours anomaly detection. The same frozen embeddings can be ordered differently by the readout.</p></div>
+              <div class="data-card compact-card"><div class="card-heading"><div><span>Table 3</span><h3>Validator sensitivity</h3></div><small>Lower is better</small></div><div class="table-scroll"><table><thead><tr><th>Scope</th><th>LightGBM</th><th>MLP</th><th>Linear</th></tr></thead><tbody id="validator-body"></tbody></table></div><p class="table-note">23 settings · six datasets · final 10 Optuna trials</p></div>
+            </article>
+
+            <article class="selection-signals">
+              <div class="ablation-copy"><span class="ablation-index">A3</span><h3>Label-free signals do not rescue model selection.</h3><p>SSL training and validation loss show mixed or even positive correlations with downstream quality. RankMe, LiDAR and aSMI peak at different epochs and do not consistently select the downstream-best checkpoint.</p></div>
+              <div class="figure-grid two-up">
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-08-loss-correlation.png" data-alt="Spearman correlation of SSL losses with downstream metrics" data-caption="Figure 8 · SSL loss versus downstream performance."><img src="imgs/paper/figure-08-loss-correlation.png" alt="Scatter plots of SSL loss and downstream correlation" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 8.</b> SSL loss is a low-signal selector.</figcaption></figure>
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-07-unsupervised-selection.png" data-alt="Unsupervised representation metrics and downstream score over epochs" data-caption="Figure 7 · RankMe, LiDAR and aSMI select different checkpoints."><img src="imgs/paper/figure-07-unsupervised-selection.png" alt="Epoch curves for three unsupervised representation metrics" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 7.</b> Metric variants disagree with each other and downstream quality.</figcaption></figure>
+                <figure class="paper-figure dark-figure full-span"><button type="button" data-figure="imgs/paper/figure-15-unsupervised-trajectories.png" data-alt="Additional unsupervised metric trajectories across four downstream tasks" data-caption="Figure 15 · Additional AGE anomaly trajectories for RankMe, LiDAR and aSMI."><img src="imgs/paper/figure-15-unsupervised-trajectories.png" alt="Detailed epoch-wise unsupervised metric trajectories" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 15.</b> The appendix confirms the same failure mode across tasks and metric settings.</figcaption></figure>
+              </div>
+            </article>
+
+            <article class="ablation-row">
+              <div class="ablation-copy"><span class="ablation-index">A4</span><h3>A random encoder is a real baseline.</h3><p>On some datasets, trained SSL methods add only a small increment above R-RNN or R-Tr; on Favorita regression they all underperform the random RNN. The frontier view separates the contribution of architecture from the contribution of pretraining.</p></div>
+              <figure class="paper-figure dark-figure large-figure"><button type="button" data-figure="imgs/paper/figure-11-random-baseline.png" data-alt="Performance frontiers above the best random encoder" data-caption="Figure 11 · Incremental gains over the random-encoder baseline."><img src="imgs/paper/figure-11-random-baseline.png" alt="Stacked performance frontiers above random encoders across datasets" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 11.</b> Grey is the best random encoder; colour is the incremental gain from trained methods.</figcaption></figure>
+            </article>
+
+            <article class="ablation-row reverse">
+              <div class="ablation-copy"><span class="ablation-index">A5</span><h3>Hyperparameter optimisation is necessary.</h3><p>Fixed-budget Optuna studies improve downstream metrics substantially—up to 20% in the main analysis, with larger absolute changes in hard settings. Plateau trials vary strongly by dataset, motivating the 70-trial NTP budget.</p></div>
+              <figure class="paper-figure dark-figure large-figure"><button type="button" data-figure="imgs/paper/figure-10-optuna.png" data-alt="Optuna improvement and convergence heatmaps" data-caption="Figure 10 · Post-hoc convergence analysis of NTP Optuna studies."><img src="imgs/paper/figure-10-optuna.png" alt="Heatmaps and bar chart of HPO improvement and plateau trial" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 10.</b> HPO gains and convergence differ by dataset and encoder.</figcaption></figure>
+            </article>
+
+            <article class="multi-target data-card">
+              <div class="multi-target-copy"><span class="ablation-index">A6</span><div><h3>Multi-target HPO trades trials, not a consistent quality winner.</h3><p>One 100-trial joint study replaces four task-specific studies on x5-Retail and three on Twitter. Quality moves in both directions; neither regime wins uniformly in this deliberately small comparison.</p><div class="compute-badges"><span><b>4×</b> fewer trials · x5-Retail</span><span><b>3×</b> fewer trials · Twitter</span></div></div></div>
+              <div class="card-heading"><div><span>Table 5</span><h3>Single- vs multi-target objective</h3></div><small>Higher is better</small></div>
+              <div class="table-scroll"><table><thead><tr><th>Dataset</th><th>Model</th><th>HPO</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th></tr></thead><tbody id="multi-target-body"></tbody></table></div>
+            </article>
+          </div>
         </div>
-        <div class="authors-mark" aria-hidden="true">
-          <span>AI</span>
-          <i></i>
+      </section>
+
+      <section id="methods" class="methods-section section-shell anchor-offset">
+        <div class="section-intro"><div><p class="section-number">05 · Methods</p><h2>Seven SSL methods, one statistical and two random baselines.</h2></div><p>The benchmark spans contrastive, masked, latent-predictive and autoregressive objectives, adapted to the same sequential interface and evaluated with frozen representations.</p></div>
+        <div class="method-family-table data-card">
+          <div class="card-heading"><div><span>Table 2</span><h3>Objective families</h3></div><small>Unified implementations</small></div>
+          <div class="family-grid">
+            <article><span>Contrastive</span><strong>CoLES · Slice-InfoNCE · Mask-InfoNCE</strong><p>Event slices or masked views</p></article>
+            <article><span>Masked modelling</span><strong>MLM</strong><p>Raw-field reconstruction</p></article>
+            <article><span>Latent prediction</span><strong>JEPA</strong><p>Representation-space targets</p></article>
+            <article><span>Next-token</span><strong>NTP-GPT · NTP-GRU</strong><p>Causal event prediction</p></article>
+            <article><span>Statistical</span><strong>TSFresh</strong><p>Handcrafted temporal features</p></article>
+            <article><span>Random</span><strong>R-RNN · R-Tr</strong><p>Untrained neural features</p></article>
+          </div>
         </div>
+        <div id="methods-grid" class="methods-grid"></div>
+      </section>
+
+      <section id="protocol" class="protocol-section anchor-offset">
+        <div class="section-shell">
+          <div class="section-intro light"><div><p class="section-number">06 · Evaluation protocol</p><h2>Comparable splits, frozen embeddings, repeated probes.</h2></div><p>Every dataset uses the same entity-centric representation, scope-aware splitting and fixed downstream validators. Probe variation—not repeated SSL pretraining—defines uncertainty intervals.</p></div>
+          <div class="protocol-grid">
+            <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-02-splitting-protocols.png" data-alt="Global time and global user split diagrams" data-caption="Figure 2 · Data splitting protocols for local and global targets."><img src="imgs/paper/figure-02-splitting-protocols.png" alt="Global Time Split and Global User Split diagrams" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 2.</b> Local targets use Global Time Split; global targets use Global User Split.</figcaption></figure>
+            <div class="protocol-steps">
+              <article><span>01</span><div><h3>Global Time Split</h3><p>A shared test boundary is the 0.9 quantile of valid target times. Earlier histories train the encoder and validator; future shifts test them.</p></div></article>
+              <article><span>02</span><div><h3>Global User Split</h3><p>Complete entity histories are assigned approximately 90/10 to train and test, so downstream evaluation uses unseen entities.</p></div></article>
+              <article><span>03</span><div><h3>Shift construction</h3><p>Each local shift stores a history prefix plus a horizon-specific future target. Up to 9/1 or 90/10 train/test shifts are sampled per entity.</p></div></article>
+              <article><span>04</span><div><h3>Frozen evaluation</h3><p>A linear probe is trained with three random seeds. MLP and LightGBM are added on six datasets to quantify validator sensitivity.</p></div></article>
+            </div>
+          </div>
+          <div class="protocol-note"><strong>Reproducible by construction.</strong><p>Processed datasets share a Parquet schema, frequency-ranked categorical values, robustly scaled numerical features, saved split metadata and seed-controlled shift sampling. Exact dataset counts and target horizons are available through the cards above.</p></div>
+        </div>
+      </section>
+
+      <section id="authors" class="authors-section section-shell anchor-offset">
+        <div class="authors-heading"><div><p class="section-number">07 · Authors</p><h2>Built across Applied AI, SB AI Lab and RSMU.</h2></div><div class="author-links"><a href="408_Towards_a_Universal_Sequen.pdf">Preprint</a><a href="https://github.com/On-Point-RND/ESdB-Embeddings-for-Sequential-data-Benchmark">Code</a><a href="https://huggingface.co/datasets/On-Point-Rnd/ESdB-Embeddings-for-Sequential-data-Benchmark">Dataset</a></div></div>
+        <ul id="authors-list" class="authors-list"></ul>
       </section>
     </main>
 
-    <script src="app.js"></script>
+    <footer><div class="section-shell"><p>Towards a Universal Sequence Embedding · 2026 preprint</p><a href="#overview">Back to top ↑</a></div></footer>
+
+    <dialog id="dataset-dialog" class="dataset-dialog" aria-labelledby="dataset-dialog-title"><div id="dataset-dialog-content"></div></dialog>
+    <dialog id="figure-dialog" class="figure-dialog" aria-label="Expanded research figure"><button id="figure-dialog-close" class="dialog-close" type="button" aria-label="Close figure">×</button><figure><img src="" alt=""><figcaption></figcaption></figure></dialog>
   </body>
 </html>
