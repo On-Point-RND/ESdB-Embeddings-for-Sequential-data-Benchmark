@@ -39,6 +39,7 @@ class Trainer:
         ckpt_dir: str | os.PathLike | None = None,
         ckpt_replace: bool = True,
         ckpt_track_metric: str = "epoch",
+        ckpt_warmup_epochs: int = 0,
         ckpt_resume: str | os.PathLike | None = None,
         device: str = "cpu",
         metrics_on_train: bool = False,
@@ -69,6 +70,8 @@ class Trainer:
             ckpt_track_metric: if `ckpt_replace` is `True`, the best checkpoint is
                 determined based on `track_metric`. All metrcs except loss are assumed
                 to be better if the value is higher.
+            ckpt_warmup_epochs: number of initial epochs excluded from checkpoint
+                selection and early stopping.
             ckpt_resume: path to the checkpoint to resume training from.
             device: device to train and validate on.
             metrics_on_train: wether to compute metrics on train set.
@@ -96,6 +99,7 @@ class Trainer:
         self._ckpt_dir = ckpt_dir
         self._ckpt_replace = ckpt_replace
         self._ckpt_track_metric = ckpt_track_metric
+        self._ckpt_warmup_epochs = ckpt_warmup_epochs
         self._ckpt_resume = ckpt_resume
         self._device = device
         self._metrics_on_train = metrics_on_train
@@ -455,6 +459,10 @@ class Trainer:
             self.validate()
 
             self._last_epoch += 1
+
+            if self._last_epoch <= self._ckpt_warmup_epochs:
+                continue
+
             self.save_ckpt()
 
             if self._ckpt_track_metric == "epoch":
