@@ -56,7 +56,7 @@ echo "job: \${SLURM_JOB_ID}, array task: \${SLURM_ARRAY_TASK_ID}"
 nvidia-smi
 
 srun singularity exec \
-    --bind "/trinity/home/${login}:/home" \
+    --bind "/trinity/home/${login}/dev:/home" \
     --nv \
     "${image}" \
     bash -lc '
