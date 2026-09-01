@@ -11,10 +11,10 @@ login="${5:-e.surkov}"
 validator="${6:-universal_validator/configs/validator/logreg.yaml}"
 
 partition="${PARTITION:-ais-gpu}"
-image="${IMAGE:-image_trans.sif}"
 project_dir="${PROJECT_DIR:-/home/ESdB-Embeddings-for-Sequential-data-Benchmark}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+image="${IMAGE:-${root}/../image_trans.sif}"
 output_dir="${OUTPUT_DIR:-${root}/zhores/outputs/optuna/${dataset}/${method}}"
 
 cd "${root}"
@@ -56,7 +56,7 @@ echo "job: \${SLURM_JOB_ID}, array task: \${SLURM_ARRAY_TASK_ID}"
 nvidia-smi
 
 srun singularity exec \
-    --bind "/gpfs/gpfs0/${login}:/home" \
+    --bind "/trinity/home/${login}:/home" \
     --nv \
     "${image}" \
     bash -lc '
