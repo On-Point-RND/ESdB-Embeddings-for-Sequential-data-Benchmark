@@ -5,7 +5,8 @@ esbench/data/x5-retail
 log/
 glog/
 INSPARATION_ARCHIVE/
-zhores/
+zhores/*
+!zhores/optuna.sh
 .idea
 embeddings/
 notebooks/local/
