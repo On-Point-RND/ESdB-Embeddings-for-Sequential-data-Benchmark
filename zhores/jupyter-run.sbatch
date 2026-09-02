@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=esdb-jupyter
+#SBATCH --job-name=esdb-ablation
 #SBATCH --partition=ais-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
