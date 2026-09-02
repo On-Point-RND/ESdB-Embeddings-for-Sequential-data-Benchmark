@@ -3,7 +3,7 @@
 #SBATCH --partition=ais-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=128
+#SBATCH --cpus-per-task=64
 #SBATCH --mem=800G
 #SBATCH --gpus=8
 #SBATCH --time=6-00:00:00
