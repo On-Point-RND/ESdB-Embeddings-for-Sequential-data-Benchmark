@@ -22,10 +22,8 @@ trap report_exit EXIT
 HOST_DEV_DIR="/trinity/home/e.surkov/dev"
 PROJECT_NAME="ESdB-Embeddings-for-Sequential-data-Benchmark"
 PROJECT_DIR="${HOST_DEV_DIR}/${PROJECT_NAME}"
-CONTAINER_PROJECT_DIR="/home/${PROJECT_NAME}"
 IMAGE="${HOST_DEV_DIR}/image_trans.sif"
 PORT="${PORT:-7777}"
-TOKEN="${JUPYTER_TOKEN:-$(printf '%s' "${SLURM_JOB_ID}-$(date +%s%N)" | sha256sum | cut -c1-32)}"
 
 if [[ ! -d "${PROJECT_DIR}" ]]; then
     echo "Project directory not found: ${PROJECT_DIR}" >&2
@@ -44,7 +42,7 @@ echo "Node:                 ${NODE}"
 echo "Slurm GPU IDs:        ${SLURM_JOB_GPUS:-unknown}"
 echo "Job log:               /trinity/home/e.surkov/jupyter-${SLURM_JOB_ID}.log"
 echo "SSH tunnel:            ssh -N -L ${PORT}:${NODE}:${PORT} e.surkov@<cluster-login-host>"
-echo "Open locally:          http://localhost:${PORT}/lab?token=${TOKEN}"
+echo "Open locally:          http://localhost:${PORT}/lab"
 
 nvidia-smi --query-gpu=index,name,memory.total --format=csv
 
@@ -61,6 +59,6 @@ srun \
         env HOME=/home jupyter-lab \
             --port "${PORT}" \
             --ip 0.0.0.0 \
-            --ServerApp.root_dir="${CONTAINER_PROJECT_DIR}" \
-            --IdentityProvider.token="${TOKEN}" \
-            --ServerApp.password=''
+            --NotebookApp.notebook_dir=/home \
+            --NotebookApp.token='' \
+            --NotebookApp.password=''
