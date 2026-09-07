@@ -39,10 +39,11 @@ for dataset in "${datasets[@]}"; do
         task=${task%.yaml}
 
         record STARTED -
+        echo "Output: ${log_dir}/${dataset}_${task}.log"
         if TASK_NAME="$task" python -u main.py \
             -d "full/${dataset}" -m SimCLR_masks -e train_best -s "$task" \
             -dv universal_validator/configs/validator/logreg_3seed.yaml \
-            > "${log_dir}/${dataset}_${task}.log" 2>&1; then
+            2>&1 | tee "${log_dir}/${dataset}_${task}.log"; then
             record COMPLETED 0
         else
             code=$?
