@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Usage: CUDA_VISIBLE_DEVICES=2 bash scripts/run_simclr_masks_full.sh [age alpha ...]
 set -euo pipefail
+shopt -s nullglob
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2}"
@@ -26,11 +27,16 @@ fi
 
 failed=0
 for dataset in "${datasets[@]}"; do
-    for task in best_classification best_regression best_anomaly best_forecasting; do
-        if [[ ! -f "configs/specify/full/${dataset}/SimCLR_masks/${task}.yaml" ]]; then
-            record SKIPPED_MISSING_CONFIG -
-            continue
-        fi
+    configs=(configs/specify/full/"${dataset}"/SimCLR_masks/*.yaml)
+    if (( ${#configs[@]} == 0 )); then
+        task=-
+        record NO_CONFIGS -
+        failed=1
+        continue
+    fi
+    for config in "${configs[@]}"; do
+        task=${config##*/}
+        task=${task%.yaml}
 
         record STARTED -
         if TASK_NAME="$task" python -u main.py \
