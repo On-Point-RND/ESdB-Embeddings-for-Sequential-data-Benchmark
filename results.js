@@ -188,7 +188,9 @@ window.BENCHMARK_RESULTS = {
 
   fusion: {
     main: {
+      id: "table6",
       label: "Table 6 · AGE · Slice-InfoNCE + NTP-GRU · Linear probe",
+      note: "Classification + forecasting specialists · linear probe · mean ± std",
       rows: [
         ["Slice-InfoNCE (classification)", "0.630 ± 0.000", "0.459 ± 0.002", "0.244 ± 0.001", "0.745 ± 0.002"],
         ["NTP-GRU (forecasting)", "0.602 ± 0.003", "0.491 ± 0.000", "0.411 ± 0.002", "0.673 ± 0.006"],
@@ -247,7 +249,7 @@ window.BENCHMARK_RESULTS = {
   ],
 
   authors: [
-    ["Egor Surkov", "Applied AI"], ["Andrey Savochkin", "Russian State Medical University"],
+    ["Egor Surkov", "Applied AI"], ["Andrey Savochkin", "Applied AI"],
     ["Grigorii Gulii", "Applied AI"], ["Konstantin Sozykin", "Applied AI"],
     ["Dmitry Osin", "Applied AI"], ["Albert Bogdanov", "Applied AI"],
     ["Aleksei Shestov", "SB AI Lab"], ["Artem Sakhno", "SB AI Lab"],

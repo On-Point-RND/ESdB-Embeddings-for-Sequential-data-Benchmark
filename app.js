@@ -79,15 +79,14 @@
   }
 
   function renderFusion() {
-    $("#fusion-main-label").textContent = data.fusion.main.label;
-    renderFusionTable("#fusion-main-body", data.fusion.main);
-    $("#fusion-tabs").innerHTML = data.fusion.studies.map((study, index) => `<button type="button" role="tab" aria-selected="${index === 0}" data-fusion-tab="${escapeHtml(study.id)}">${escapeHtml(study.label.split(" · ")[0])}</button>`).join("");
-    selectFusion(data.fusion.studies[0].id);
+    const studies = [data.fusion.main, ...data.fusion.studies];
+    $("#fusion-tabs").innerHTML = studies.map((study, index) => `<button type="button" role="tab" aria-selected="${index === 0}" data-fusion-tab="${escapeHtml(study.id)}">${escapeHtml(study.label.split(" · ")[0])}</button>`).join("");
+    selectFusion(studies[0].id);
     $$('[data-fusion-tab]').forEach((button) => button.addEventListener("click", () => selectFusion(button.dataset.fusionTab)));
   }
 
   function selectFusion(id) {
-    const study = data.fusion.studies.find((item) => item.id === id);
+    const study = [data.fusion.main, ...data.fusion.studies].find((item) => item.id === id);
     if (!study) return;
     $$('[data-fusion-tab]').forEach((button) => button.setAttribute("aria-selected", String(button.dataset.fusionTab === id)));
     $("#fusion-study-title").textContent = study.label;
@@ -97,8 +96,29 @@
 
   function renderMethods() {
     $("#methods-grid").innerHTML = data.methods.map((method, index) => `
-      <details class="method-card" ${index === 0 ? "open" : ""}><summary><span><b>${escapeHtml(method.name)}</b><small>${escapeHtml(method.family)}</small></span><i aria-hidden="true">+</i></summary><p>${escapeHtml(method.description)}</p><span class="method-origin">${escapeHtml(method.origin)}</span></details>
+      <details class="method-card" ${index < 2 ? "open" : ""}><summary><span><b>${escapeHtml(method.name)}</b><small>${escapeHtml(method.family)}</small></span><i aria-hidden="true">+</i></summary><p>${escapeHtml(method.description)}</p><span class="method-origin">${escapeHtml(method.origin)}</span></details>
     `).join("");
+
+    const cards = $$(".method-card", $("#methods-grid"));
+    cards.forEach((card, index) => card.addEventListener("toggle", () => {
+      if (!window.matchMedia("(min-width: 761px)").matches) return;
+      const pairedIndex = index % 2 === 0 ? index + 1 : index - 1;
+      const pairedCard = cards[pairedIndex];
+      if (pairedCard && pairedCard.open !== card.open) pairedCard.open = card.open;
+    }));
+  }
+
+  function selectMultiTargetDataset(dataset) {
+    $$('[data-multi-target-dataset]').forEach((button) => button.setAttribute("aria-selected", String(button.dataset.multiTargetDataset === dataset)));
+    const rows = data.multiTarget.filter((row) => row.dataset === dataset);
+    renderSimpleTable("#multi-target-body", rows, [["model", "Model"], ["regime", "HPO"], ["regression", "Regression"], ["classification", "Classification"], ["forecasting", "Forecasting"], ["anomaly", "Anomaly"]]);
+  }
+
+  function setupMultiTargetTable() {
+    const datasets = [...new Set(data.multiTarget.map((row) => row.dataset))];
+    $("#multi-target-tabs").innerHTML = datasets.map((dataset, index) => `<button type="button" role="tab" aria-selected="${index === 0}" data-multi-target-dataset="${escapeHtml(dataset)}">${escapeHtml(dataset)}</button>`).join("");
+    $$('[data-multi-target-dataset]').forEach((button) => button.addEventListener("click", () => selectMultiTargetDataset(button.dataset.multiTargetDataset)));
+    selectMultiTargetDataset(datasets[0]);
   }
 
   function renderAuthors() {
@@ -143,7 +163,7 @@
   renderMethods();
   renderAuthors();
   renderSimpleTable("#validator-body", data.validators, [["scope", "Scope"], ["lightgbm", "LightGBM"], ["mlp", "MLP"], ["linear", "Linear probe"]]);
-  renderSimpleTable("#multi-target-body", data.multiTarget, [["dataset", "Dataset"], ["model", "Model"], ["regime", "HPO"], ["regression", "Regression"], ["classification", "Classification"], ["forecasting", "Forecasting"], ["anomaly", "Anomaly"]]);
+  setupMultiTargetTable();
   setupDomainFilters();
   setupDialogs();
   setupNavigation();
