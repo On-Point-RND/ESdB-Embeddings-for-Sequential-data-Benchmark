@@ -58,13 +58,25 @@
           </aside>
         </div>
 
-        <div class="finding-strip" role="note">
-          <span>Core finding</span>
-          <p><strong>No method is universal.</strong> Seven distinct methods win at least one setting, and the strongest method leads in fewer than a quarter of them.</p>
-        </div>
+        <section class="finding-strip" aria-labelledby="core-findings-title">
+          <p id="core-findings-title" class="finding-label">Core findings</p>
+          <div class="finding-content">
+            <ol class="finding-list">
+              <li>SSL approaches are not universal.</li>
+              <li>There is a large discrepancy between classification and regression or forecasting performance.</li>
+              <li>Current SSL approaches do not adequately account for temporal structure.</li>
+              <li>Current backbones may not be well suited to modelling temporal components.</li>
+              <li>Architectural design determines which tasks a model performs well on—for example, through feature aggregation.</li>
+              <li>Validation models are biased toward specific tasks; consequently, HPO is biased as well.</li>
+              <li>Models designed for one task transfer poorly to others.</li>
+              <li>We therefore need new models and evaluation procedures—or we can combine embeddings from diverse existing encoders.</li>
+            </ol>
+            <p class="finding-summary"><strong>We invite researchers to validate their new models on our benchmark.</strong></p>
+          </div>
+        </section>
 
         <div class="section-intro overview-intro">
-          <div><p class="section-number">01 · Overview</p><h2>The choice of embedding is part of the task.</h2></div>
+          <div><h2>Overview</h2></div>
           <p>Success on one downstream task transfers only weakly to another. Training loss and label-free quality metrics do not reliably identify a universal model, while per-task selection introduces validator bias. Fusion offers a practical alternative.</p>
         </div>
 
@@ -76,31 +88,30 @@
             <article><span>04</span><div><h3>Anomaly detection</h3><p>Rare or tail behaviour · ROC-AUC</p></div></article>
           </div>
           <figure class="paper-figure feature-figure">
-            <button type="button" data-figure="imgs/paper/figure-01-selection-paths.png" data-alt="Decision tree for selecting or fusing sequence embeddings" data-caption="Figure 1 · Strategies for obtaining embeddings that work across many downstream tasks.">
+            <button type="button" data-figure="imgs/paper/figure-01-selection-paths.png" data-alt="Decision tree for selecting or fusing sequence embeddings" data-caption="Strategies for obtaining embeddings that work across many downstream tasks.">
               <img src="imgs/paper/figure-01-selection-paths.png" alt="Decision tree showing unreliable single-model selection signals and embedding fusion" loading="eager">
               <span>Expand figure</span>
             </button>
-            <figcaption><b>Figure 1.</b> Possible strategies for obtaining embeddings that work well across different downstream tasks.</figcaption>
+            <figcaption>Possible strategies for obtaining embeddings that work well across different downstream tasks.</figcaption>
           </figure>
         </div>
 
         <div class="correlation-block">
           <div class="correlation-copy">
-            <p class="eyebrow correlation-kicker"><span></span> Cross-task agreement</p>
-            <h3>Success on one downstream task does not reliably transfer to another.</h3>
+            <h3>Cross-task transferability</h3>
             <p>Task performance and method rankings are only weakly aligned, even within the same dataset. A representation selected for one task therefore cannot be assumed to work equally well for others.</p>
           </div>
           <figure class="paper-figure">
-            <button type="button" data-figure="imgs/paper/figure-05-task-correlation.png" data-alt="Heatmaps of cross-task R squared and Kendall rank correlation" data-caption="Figure 5 · Cross-task relationships of downstream performance and method rankings.">
+            <button type="button" data-figure="imgs/paper/figure-05-task-correlation.png" data-alt="Heatmaps of cross-task R squared and Kendall rank correlation" data-caption="Cross-task relationships of downstream performance and method rankings.">
               <img src="imgs/paper/figure-05-task-correlation.png" alt="Cross-task correlation heatmaps showing low off-diagonal values" loading="lazy"><span>Expand figure</span>
             </button>
-            <figcaption><b>Figure 5.</b> Linear score relationships (left) and rank agreement (right).</figcaption>
+            <figcaption>Linear score relationships (left) and rank agreement (right).</figcaption>
           </figure>
         </div>
 
         <div id="datasets" class="datasets-block anchor-offset">
           <div class="section-intro">
-            <div><p class="section-number">02 · Dataset atlas</p><h2>Twelve datasets, four structurally different domains.</h2></div>
+            <div><h2>Datasets · Four domains</h2></div>
             <p>Each source is converted to the same entity-centric sequence format. Across 42 available settings, 35 targets are constructed from histories.</p>
           </div>
 
@@ -141,7 +152,7 @@
       <section id="results" class="results-section anchor-offset">
         <div class="section-shell">
           <div class="section-intro light results-intro">
-            <div><p class="section-number">03 · Results</p><h2>No universal winner. Useful patterns remain.</h2></div>
+            <div><h2>Overall results</h2></div>
             <div class="result-intro-side">
               <article class="result-highlight"><strong>7 / 10</strong><span>methods win at least one setting</span></article>
               <p>CoLES has the best average rank, but Slice-InfoNCE leads classification and NTP-GPT leads forecasting in the ten-method task view.</p>
@@ -150,7 +161,7 @@
 
           <div class="ranking-layout">
             <article class="data-card">
-              <div class="card-heading"><div><span>Table 1</span><h3>Mean rank by task family</h3></div><small>Lower is better</small></div>
+              <div class="card-heading"><div><h3>Mean rank by task family</h3></div><small>Lower is better</small></div>
               <div class="table-scroll"><table class="ranking-table"><thead><tr><th>#</th><th>Method</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th><th>Overall</th></tr></thead><tbody id="ranking-body"></tbody></table></div>
               <p class="table-note"><span class="best-key"></span> Best &nbsp; <span class="second-key"></span> Second best · eight non-random methods</p>
             </article>
@@ -160,50 +171,51 @@
             </article>
           </div>
 
-          <div class="figure-grid two-up result-story-grid">
-            <figure class="paper-figure dark-figure result-rank-figure"><button type="button" data-figure="imgs/paper/figure-03-method-ranks.png" data-alt="Average rank of ten methods for four downstream tasks" data-caption="Figure 3 · Average rank across datasets per task; lower is better."><img src="imgs/paper/figure-03-method-ranks.png" alt="Four horizontal bar charts of method rank by task" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 3.</b> The best method changes with the downstream task.</figcaption></figure>
+          <div class="figure-grid result-story-grid">
             <article class="result-finding-card">
               <span>Finding 01</span>
-              <h3>There is no universally best sequence embeddings method.</h3>
               <p>Methods perform differently across downstream tasks. Almost every method wins somewhere, but none performs consistently best across the benchmark.</p>
             </article>
+            <figure class="paper-figure dark-figure result-rank-figure"><button type="button" data-figure="imgs/paper/figure-03-method-ranks.png" data-alt="Average rank of ten methods for four downstream tasks" data-caption="Average rank across datasets per task; lower is better."><img src="imgs/paper/figure-03-method-ranks.png" alt="Four horizontal bar charts of method rank by task" loading="lazy"><span>Expand figure</span></button><figcaption>The best method changes with the downstream task.</figcaption></figure>
           </div>
 
           <div class="fusion-block">
             <div class="subsection-heading fusion-heading">
-              <p class="eyebrow"><span></span> Representation fusion</p>
-              <h2>Embedding Fusion</h2>
+              <div class="fusion-diagram" role="img" aria-label="Two D to the N representations are fused into one representation of the same dimensionality that works well on more tasks">
+                <div class="fusion-inputs" aria-hidden="true">
+                  <span>D<sup>N</sup></span>
+                  <b>+</b>
+                  <span>D<sup>N</sup></span>
+                </div>
+                <span class="fusion-arrow" aria-hidden="true">→</span>
+                <span class="fusion-output" aria-hidden="true">D<sup>N</sup></span>
+                <p><strong>Same dimensionality.</strong><span>But works well on more tasks.</span></p>
+              </div>
               <div class="fusion-summary">
-                <h3>Embedding fusion offers an alternative to a single universal method.</h3>
                 <p>We evaluate fusion strategies from simple concatenation and dimensionality reduction to more advanced approaches like Low-Rank Fusion. Across multiple downstream tasks, fused representations can match or even outperform the individual embeddings.</p>
               </div>
             </div>
             <article class="fusion-explorer data-card fusion-table-card">
-              <div class="card-heading"><div><span>Tables 6, 20, 21 &amp; 28</span><h3>Fusion results</h3></div><small>One combined view</small></div>
-              <div id="fusion-tabs" class="tabs" role="tablist" aria-label="Fusion table"></div>
-              <div class="fusion-study-heading"><h4 id="fusion-study-title"></h4><p id="fusion-study-note"></p></div>
-              <div class="table-scroll"><table><thead><tr><th>Representation</th><th>Clf. accuracy</th><th>Reg. R²</th><th>Forec. R²</th><th>Anom. ROC-AUC</th></tr></thead><tbody id="fusion-study-body"></tbody></table></div>
-              <p class="table-note">Select a table above to compare fusion strategies. The best score in each task is highlighted.</p>
+              <div class="table-scroll"><table class="fusion-unified-table"><thead><tr><th>Dataset</th><th>Encoders</th><th>Representation</th><th>Clf. accuracy</th><th>Reg. R²</th><th>Forec. R²</th><th>Anom. ROC-AUC</th></tr></thead><tbody id="fusion-study-body"></tbody></table></div>
             </article>
           </div>
 
           <div class="ablations-block">
             <article class="ablation-row">
-              <div class="ablation-copy"><span class="ablation-index">F1</span><h3>Aggregation depends on the target configuration.</h3><p>The last embedding is strongly preferred for forecasting and moderately preferred for regression, while mean pooling is more common for classification and anomaly detection. The same overall pattern holds across methods, with some differences in strength.</p></div>
+              <div class="ablation-copy"><h3>Aggregation depends on the target configuration.</h3><p>The last embedding is strongly preferred for forecasting and moderately preferred for regression, while mean pooling is more common for classification and anomaly detection. The same overall pattern holds across methods, with some differences in strength.</p></div>
               <div class="mini-figures">
-                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-06-aggregation-share.png" data-alt="Mean versus last-state aggregation share by task" data-caption="By task · Selected aggregation by task family."><img src="imgs/paper/figure-06-aggregation-share.png" alt="Stacked bars comparing mean and last-state aggregation" loading="lazy"><span>Expand</span></button><figcaption>By task</figcaption></figure>
-                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-13-aggregation-by-method.png" data-alt="Last-state share by method and task" data-caption="By method · Last-state selection share per method and task."><img src="imgs/paper/figure-13-aggregation-by-method.png" alt="Heatmap of last-state selection by method" loading="lazy"><span>Expand</span></button><figcaption>By method</figcaption></figure>
+                <figure class="paper-figure dark-figure"><figcaption>By task</figcaption><button type="button" data-figure="imgs/paper/figure-06-aggregation-share.png" data-alt="Mean versus last-state aggregation share by task" data-caption="By task · Selected aggregation by task family."><img src="imgs/paper/figure-06-aggregation-share.png" alt="Stacked bars comparing mean and last-state aggregation" loading="lazy"><span>Expand</span></button></figure>
+                <figure class="paper-figure dark-figure"><figcaption>By method</figcaption><button type="button" data-figure="imgs/paper/figure-13-aggregation-by-method.png" data-alt="Last-state share by method and task" data-caption="By method · Last-state selection share per method and task."><img src="imgs/paper/figure-13-aggregation-by-method.png" alt="Heatmap of last-state selection by method" loading="lazy"><span>Expand</span></button></figure>
               </div>
             </article>
 
             <article class="ablation-row reverse">
-              <div class="ablation-copy"><span class="ablation-index">F2</span><h3>Validators introduce measurable bias.</h3><p>LightGBM has the best average candidate rank, but MLP favours forecasting while the linear probe favours anomaly detection. The same frozen embeddings can be ordered differently by the readout.</p></div>
-              <div class="data-card compact-card"><div class="card-heading"><div><span>Table 3</span><h3>Validator sensitivity</h3></div><small>Lower is better</small></div><div class="table-scroll"><table><thead><tr><th>Scope</th><th>LightGBM</th><th>MLP</th><th>Linear</th></tr></thead><tbody id="validator-body"></tbody></table></div><p class="table-note">23 settings · six datasets · final 10 Optuna trials</p></div>
+              <div class="ablation-copy"><h3>Validators introduce measurable bias during hyperparameter optimization.</h3><p>LightGBM has the best average candidate rank, but MLP favours forecasting while the linear probe favours anomaly detection. The same frozen embeddings can be ordered differently by the readout.</p></div>
+              <div class="data-card compact-card"><div class="card-heading"><div><h3>Validator sensitivity</h3></div><small>Lower is better</small></div><div class="table-scroll"><table><thead><tr><th>Scope</th><th>LightGBM</th><th>MLP</th><th>Linear</th></tr></thead><tbody id="validator-body"></tbody></table></div><p class="table-note">23 settings · six datasets · final 10 Optuna trials</p></div>
             </article>
 
             <article class="selection-signals">
               <div class="ablation-copy signal-copy">
-                <span class="ablation-index">F3</span>
                 <h3>Label-free signals are noisy and do not reliably predict downstream performance.</h3>
                 <div class="signal-points">
                   <div><h4>SSL loss is not a reliable selection signal.</h4><p>Across datasets and models, SSL loss provides no stable signal for either Optuna-based model selection or early stopping: its relationship with downstream performance varies widely across tasks and settings.</p></div>
@@ -211,23 +223,23 @@
                 </div>
               </div>
               <div class="figure-grid two-up">
-                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-08-loss-correlation.png" data-alt="Spearman correlation of SSL losses with downstream metrics" data-caption="Figure 8 · SSL loss versus downstream performance."><img src="imgs/paper/figure-08-loss-correlation.png" alt="Scatter plots of SSL loss and downstream correlation" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 8.</b> SSL loss is a low-signal selector.</figcaption></figure>
-                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-15-unsupervised-trajectories.png" data-alt="Additional unsupervised metric trajectories across four downstream tasks" data-caption="Figure 15 · Additional AGE anomaly trajectories for RankMe, LiDAR and aSMI."><img src="imgs/paper/figure-15-unsupervised-trajectories.png" alt="Detailed epoch-wise unsupervised metric trajectories" loading="lazy"><span>Expand figure</span></button><figcaption><b>Figure 15.</b> Additional unsupervised metric trajectories.</figcaption></figure>
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-08-loss-correlation.png" data-alt="Spearman correlation of SSL losses with downstream metrics" data-caption="SSL loss versus downstream performance."><img src="imgs/paper/figure-08-loss-correlation.png" alt="Scatter plots of SSL loss and downstream correlation" loading="lazy"><span>Expand figure</span></button><figcaption>SSL loss is a low-signal selector.</figcaption></figure>
+                <figure class="paper-figure dark-figure"><button type="button" data-figure="imgs/paper/figure-15-unsupervised-trajectories.png" data-alt="Additional unsupervised metric trajectories across four downstream tasks" data-caption="Additional AGE anomaly trajectories for RankMe, LiDAR and aSMI."><img src="imgs/paper/figure-15-unsupervised-trajectories.png" alt="Detailed epoch-wise unsupervised metric trajectories" loading="lazy"><span>Expand figure</span></button><figcaption>Additional unsupervised metric trajectories.</figcaption></figure>
               </div>
             </article>
 
-            <article class="ablation-row">
-              <div class="ablation-copy"><span class="ablation-index">F4</span><h3>A random encoder is a real baseline.</h3><p>On some datasets, trained SSL methods add only a small increment above R-RNN or R-Tr; on Favorita regression they all underperform the random RNN. The frontier view separates the contribution of architecture from the contribution of pretraining.</p></div>
-              <figure class="paper-figure dark-figure large-figure titled-figure"><figcaption><b>Figure 11</b><span>Incremental gains over the random-encoder baseline</span></figcaption><button type="button" data-figure="imgs/paper/figure-11-random-baseline.png" data-alt="Performance frontiers above the best random encoder" data-caption="Figure 11 · Incremental gains over the random-encoder baseline."><img src="imgs/paper/figure-11-random-baseline.png" alt="Stacked performance frontiers above random encoders across datasets" loading="lazy"><span>Expand figure</span></button></figure>
+            <article class="ablation-row random-baseline-row">
+              <div class="ablation-copy"><h3>A random encoder is a Strong Baseline.</h3><p>On some datasets, trained SSL methods add only a small increment above R-RNN or R-Tr; on Favorita regression they all underperform the random RNN. The frontier view separates the contribution of architecture from the contribution of pretraining.</p><p class="random-baseline-note">Grey represents performance of random projections.</p></div>
+              <figure class="paper-figure dark-figure large-figure titled-figure"><figcaption><span>Incremental gains over the random-encoder baseline</span></figcaption><button type="button" data-figure="imgs/paper/figure-11-random-baseline.png" data-alt="Performance frontiers above the best random encoder" data-caption="Incremental gains over the random-encoder baseline."><img src="imgs/paper/figure-11-random-baseline.png" alt="Stacked performance frontiers above random encoders across datasets" loading="lazy"><span>Expand figure</span></button></figure>
             </article>
 
             <article class="ablation-row finding-text-row">
-              <div class="ablation-copy"><span class="ablation-index">F5</span><h3>Hyperparameter optimisation is necessary.</h3><p>Fixed-budget Optuna studies improve downstream metrics substantially—up to 20% in the main analysis, with larger absolute changes in hard settings. Plateau trials vary strongly by dataset, motivating the 70-trial NTP budget.</p></div>
+              <div class="ablation-copy"><h3>Hyperparameter optimisation is necessary.</h3><p>Fixed-budget Optuna studies improve downstream metrics substantially—up to 20% in the main analysis, with larger absolute changes in hard settings. Plateau trials vary strongly by dataset, motivating the 70-trial NTP budget.</p></div>
             </article>
 
             <article class="multi-target data-card">
-              <div class="multi-target-copy"><span class="ablation-index">F6</span><div><h3>Multi-target HPO reduces search cost without a consistent loss in quality.</h3><p>Instead of running a separate HPO study for each downstream task, we optimize all tasks jointly within a single study. This requires 4× fewer trials on X5-Retail and 3× fewer on Twitter, while neither single- nor multi-target HPO consistently wins in downstream performance.</p></div></div>
-              <div class="card-heading"><div><span>Table 5</span><h3>Single- vs multi-target objective</h3></div><small>Higher is better</small></div>
+              <div class="multi-target-copy"><div><h3>Multi-target HPO reduces search cost without a consistent loss in quality.</h3><p>Instead of running a separate HPO study for each downstream task, we optimize all tasks jointly within a single study. This requires 4× fewer trials on X5-Retail and 3× fewer on Twitter, while neither single- nor multi-target HPO consistently wins in downstream performance.</p></div></div>
+              <div class="card-heading"><div><h3>Single- vs multi-target objective</h3></div><small>Higher is better</small></div>
               <div id="multi-target-tabs" class="tabs multi-target-tabs" role="tablist" aria-label="Dataset results"></div>
               <div class="table-scroll"><table><thead><tr><th>Model</th><th>HPO</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th></tr></thead><tbody id="multi-target-body"></tbody></table></div>
             </article>
@@ -236,7 +248,7 @@
       </section>
 
       <section id="methods" class="methods-section section-shell anchor-offset">
-        <div class="section-intro"><div><p class="section-number">05 · Methods</p><h2>Seven SSL methods, one statistical and two random baselines.</h2></div><p>The benchmark spans contrastive, masked, latent-predictive and autoregressive objectives, adapted to the same sequential interface and evaluated with frozen representations.</p></div>
+        <div class="section-intro"><div><h2>Methods</h2></div><p>The benchmark spans contrastive, masked, latent-predictive and autoregressive objectives, adapted to the same sequential interface and evaluated with frozen representations.</p></div>
         <div class="method-family-table data-card">
           <div class="card-heading"><div><span>Table 2</span><h3>Objective families</h3></div><small>Unified implementations</small></div>
           <div class="family-grid">
@@ -253,7 +265,7 @@
 
       <section id="protocol" class="protocol-section anchor-offset">
         <div class="section-shell">
-          <div class="section-intro light protocol-intro"><div><p class="section-number">06 · Evaluation protocol</p><h2>Comparable splits, frozen embeddings, repeated probes.</h2></div><p>Every dataset uses the same entity-centric representation, scope-aware splitting and fixed downstream validators. Probe variation—not repeated SSL pretraining—defines uncertainty intervals.</p></div>
+          <div class="section-intro light protocol-intro"><div><h2>Evaluation protocol</h2></div></div>
           <div class="protocol-grid">
             <div class="protocol-figure-title">
               <span>Figure 2</span>
@@ -272,7 +284,7 @@
       </section>
 
       <section id="authors" class="authors-section section-shell anchor-offset">
-        <div class="authors-heading"><div><p class="section-number">07 · Authors</p><h2>Built across Applied AI and SB AI Lab.</h2></div><div class="author-links"><a href="408_Towards_a_Universal_Sequen.pdf">Preprint</a><a href="https://github.com/On-Point-RND/ESdB-Embeddings-for-Sequential-data-Benchmark">Code</a><a href="https://huggingface.co/datasets/On-Point-Rnd/ESdB-Embeddings-for-Sequential-data-Benchmark">Dataset</a></div></div>
+        <div class="authors-heading"><div><h2>Authors</h2></div><div class="author-links"><a href="408_Towards_a_Universal_Sequen.pdf">Preprint</a><a href="https://github.com/On-Point-RND/ESdB-Embeddings-for-Sequential-data-Benchmark">Code</a><a href="https://huggingface.co/datasets/On-Point-Rnd/ESdB-Embeddings-for-Sequential-data-Benchmark">Dataset</a></div></div>
         <ul id="authors-list" class="authors-list"></ul>
       </section>
     </main>

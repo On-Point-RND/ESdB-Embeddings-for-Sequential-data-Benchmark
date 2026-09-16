@@ -69,29 +69,23 @@
     $(target).innerHTML = rows.map((row) => `<tr>${columns.map(([key, header], index) => index === 0 ? `<th scope="row">${escapeHtml(row[key])}</th>` : `<td data-label="${escapeHtml(header)}">${escapeHtml(row[key])}</td>`).join("")}</tr>`).join("");
   }
 
-  function renderFusionTable(target, table) {
-    const numericRows = table.rows.map((row) => row.slice(1).map((value) => {
-      const number = Number.parseFloat(String(value).replace("−", "-"));
-      return Number.isFinite(number) ? number : Number.NEGATIVE_INFINITY;
-    }));
-    const bestByColumn = [0, 1, 2, 3].map((column) => Math.max(...numericRows.map((row) => row[column])));
-    $(target).innerHTML = table.rows.map((row, rowIndex) => `<tr><th scope="row">${escapeHtml(row[0])}</th>${row.slice(1).map((value, column) => `<td class="${numericRows[rowIndex][column] === bestByColumn[column] ? "best" : ""}">${escapeHtml(value)}</td>`).join("")}</tr>`).join("");
-  }
-
   function renderFusion() {
     const studies = [data.fusion.main, ...data.fusion.studies];
-    $("#fusion-tabs").innerHTML = studies.map((study, index) => `<button type="button" role="tab" aria-selected="${index === 0}" data-fusion-tab="${escapeHtml(study.id)}">${escapeHtml(study.label.split(" · ")[0])}</button>`).join("");
-    selectFusion(studies[0].id);
-    $$('[data-fusion-tab]').forEach((button) => button.addEventListener("click", () => selectFusion(button.dataset.fusionTab)));
-  }
+    $("#fusion-study-body").innerHTML = studies.map((study) => {
+      const [, dataset = "", encoders = ""] = study.label.split(" · ");
+      const numericRows = study.rows.map((row) => row.slice(1).map((value) => {
+        const number = Number.parseFloat(String(value).replace("−", "-"));
+        return Number.isFinite(number) ? number : Number.NEGATIVE_INFINITY;
+      }));
+      const bestByColumn = [0, 1, 2, 3].map((column) => Math.max(...numericRows.map((row) => row[column])));
 
-  function selectFusion(id) {
-    const study = [data.fusion.main, ...data.fusion.studies].find((item) => item.id === id);
-    if (!study) return;
-    $$('[data-fusion-tab]').forEach((button) => button.setAttribute("aria-selected", String(button.dataset.fusionTab === id)));
-    $("#fusion-study-title").textContent = study.label;
-    $("#fusion-study-note").textContent = study.note;
-    renderFusionTable("#fusion-study-body", study);
+      return study.rows.map((row, rowIndex) => `
+        <tr class="${rowIndex === 0 ? "fusion-group-start" : ""}">
+          ${rowIndex === 0 ? `<th class="fusion-dataset" scope="rowgroup" rowspan="${study.rows.length}">${escapeHtml(dataset)}</th><td class="fusion-encoders" rowspan="${study.rows.length}">${escapeHtml(encoders)}</td>` : ""}
+          <th class="fusion-representation" scope="row">${escapeHtml(row[0])}</th>
+          ${row.slice(1).map((value, column) => `<td class="${numericRows[rowIndex][column] === bestByColumn[column] ? "best" : ""}">${escapeHtml(value)}</td>`).join("")}
+        </tr>`).join("");
+    }).join("");
   }
 
   function renderMethods() {
