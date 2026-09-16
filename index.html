@@ -137,15 +137,15 @@
 
           <div class="dataset-toolbar">
             <div class="filter-row" aria-label="Filter datasets by domain">
-              <button type="button" data-domain-filter="all" aria-pressed="true">All</button>
-              <button type="button" data-domain-filter="trx" aria-pressed="false">Transactions</button>
-              <button type="button" data-domain-filter="recsys" aria-pressed="false">RecSys</button>
-              <button type="button" data-domain-filter="ts" aria-pressed="false">Time series</button>
-              <button type="button" data-domain-filter="text" aria-pressed="false">Text</button>
+              <button type="button" data-domain-filter="all" aria-controls="dataset-grid" aria-pressed="true">All</button>
+              <button type="button" data-domain-filter="trx" aria-controls="dataset-grid" aria-pressed="false">Transactions</button>
+              <button type="button" data-domain-filter="recsys" aria-controls="dataset-grid" aria-pressed="false">RecSys</button>
+              <button type="button" data-domain-filter="ts" aria-controls="dataset-grid" aria-pressed="false">Time series</button>
+              <button type="button" data-domain-filter="text" aria-controls="dataset-grid" aria-pressed="false">Text</button>
             </div>
-            <span id="dataset-count">12 datasets</span>
+            <span id="dataset-count" aria-live="polite">12 datasets</span>
           </div>
-          <div id="dataset-grid" class="dataset-grid"></div>
+          <div id="dataset-grid" class="dataset-grid" aria-live="polite"></div>
         </div>
       </section>
 
@@ -241,7 +241,7 @@
               <div class="multi-target-copy"><div><h3>Multi-target HPO reduces search cost without a consistent loss in quality.</h3><p>Instead of running a separate HPO study for each downstream task, we optimize all tasks jointly within a single study. This requires 4× fewer trials on X5-Retail and 3× fewer on Twitter, while neither single- nor multi-target HPO consistently wins in downstream performance.</p></div></div>
               <div class="card-heading"><div><h3>Single- vs multi-target objective</h3></div><small>Higher is better</small></div>
               <div id="multi-target-tabs" class="tabs multi-target-tabs" role="tablist" aria-label="Dataset results"></div>
-              <div class="table-scroll"><table><thead><tr><th>Model</th><th>HPO</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th></tr></thead><tbody id="multi-target-body"></tbody></table></div>
+              <div id="multi-target-panel" class="table-scroll" role="tabpanel" aria-live="polite" tabindex="0"><table><thead><tr><th>Model</th><th>HPO</th><th>Reg.</th><th>Clf.</th><th>Forec.</th><th>Anom.</th></tr></thead><tbody id="multi-target-body"></tbody></table></div>
             </article>
           </div>
         </div>
@@ -250,7 +250,7 @@
       <section id="methods" class="methods-section section-shell anchor-offset">
         <div class="section-intro"><div><h2>Methods</h2></div><p>The benchmark spans contrastive, masked, latent-predictive and autoregressive objectives, adapted to the same sequential interface and evaluated with frozen representations.</p></div>
         <div class="method-family-table data-card">
-          <div class="card-heading"><div><span>Table 2</span><h3>Objective families</h3></div><small>Unified implementations</small></div>
+          <div class="card-heading"><div><h3>Objective families</h3></div><small>Unified implementations</small></div>
           <div class="family-grid">
             <article><span>Contrastive</span><strong>CoLES · Slice-InfoNCE · Mask-InfoNCE</strong><p>Event slices or masked views</p></article>
             <article><span>Masked modelling</span><strong>MLM</strong><p>Raw-field reconstruction</p></article>

@@ -103,15 +103,30 @@
   }
 
   function selectMultiTargetDataset(dataset) {
-    $$('[data-multi-target-dataset]').forEach((button) => button.setAttribute("aria-selected", String(button.dataset.multiTargetDataset === dataset)));
+    $$('[data-multi-target-dataset]').forEach((button) => {
+      const isActive = button.dataset.multiTargetDataset === dataset;
+      button.setAttribute("aria-selected", String(isActive));
+      button.tabIndex = isActive ? 0 : -1;
+      if (isActive) $("#multi-target-panel").setAttribute("aria-labelledby", button.id);
+    });
     const rows = data.multiTarget.filter((row) => row.dataset === dataset);
     renderSimpleTable("#multi-target-body", rows, [["model", "Model"], ["regime", "HPO"], ["regression", "Regression"], ["classification", "Classification"], ["forecasting", "Forecasting"], ["anomaly", "Anomaly"]]);
   }
 
   function setupMultiTargetTable() {
     const datasets = [...new Set(data.multiTarget.map((row) => row.dataset))];
-    $("#multi-target-tabs").innerHTML = datasets.map((dataset, index) => `<button type="button" role="tab" aria-selected="${index === 0}" data-multi-target-dataset="${escapeHtml(dataset)}">${escapeHtml(dataset)}</button>`).join("");
-    $$('[data-multi-target-dataset]').forEach((button) => button.addEventListener("click", () => selectMultiTargetDataset(button.dataset.multiTargetDataset)));
+    $("#multi-target-tabs").innerHTML = datasets.map((dataset, index) => `<button id="multi-target-tab-${index}" type="button" role="tab" aria-controls="multi-target-panel" aria-selected="${index === 0}" data-multi-target-dataset="${escapeHtml(dataset)}">${escapeHtml(dataset)}</button>`).join("");
+    const buttons = $$('[data-multi-target-dataset]');
+    buttons.forEach((button, index) => {
+      button.addEventListener("click", () => selectMultiTargetDataset(button.dataset.multiTargetDataset));
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[nextIndex].focus();
+        selectMultiTargetDataset(buttons[nextIndex].dataset.multiTargetDataset);
+      });
+    });
     selectMultiTargetDataset(datasets[0]);
   }
 
@@ -129,6 +144,7 @@
       $("figcaption", dialog).textContent = button.dataset.caption || "";
       dialog.showModal();
     }));
+    $$('[data-figure]').forEach((button) => button.setAttribute("aria-haspopup", "dialog"));
     $("#figure-dialog-close").addEventListener("click", () => $("#figure-dialog").close());
   }
 
@@ -138,7 +154,12 @@
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
       if (!visible) return;
-      links.forEach((link) => link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`));
+      links.forEach((link) => {
+        const isActive = link.getAttribute("href") === `#${visible.target.id}`;
+        link.classList.toggle("active", isActive);
+        if (isActive) link.setAttribute("aria-current", "location");
+        else link.removeAttribute("aria-current");
+      });
     }, { rootMargin: "-30% 0px -60%", threshold: [0, 0.2, 0.6] });
     sections.forEach((section) => observer.observe(section));
   }
