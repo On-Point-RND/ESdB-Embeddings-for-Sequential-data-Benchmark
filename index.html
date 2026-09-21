@@ -54,7 +54,6 @@
               <div><dt>10</dt><dd>methods + baselines</dd></div>
             </dl>
             <div class="domain-line" aria-label="Four domains"><i></i><i></i><i></i><i></i></div>
-            <a class="hero-findings-link" href="#results">All findings <span aria-hidden="true">(+)</span></a>
           </aside>
         </div>
 
@@ -62,14 +61,14 @@
           <p id="core-findings-title" class="finding-label">Core findings</p>
           <div class="finding-content">
             <ol class="finding-list">
-              <li>SSL approaches are not universal.</li>
-              <li>There is a large discrepancy between classification and regression or forecasting performance.</li>
-              <li>Current SSL approaches do not adequately account for temporal structure.</li>
-              <li>Current backbones may not be well suited to modelling temporal components.</li>
-              <li>Architectural design determines which tasks a model performs well on—for example, through feature aggregation.</li>
-              <li>Validation models are biased toward specific tasks; consequently, HPO is biased as well.</li>
-              <li>Models designed for one task transfer poorly to others.</li>
-              <li>We therefore need new models and evaluation procedures—or we can combine embeddings from diverse existing encoders.</li>
+              <li><a href="#finding-01">SSL approaches are not universal.</a></li>
+              <li><a href="#cross-task">There is a large discrepancy between classification and regression or forecasting performance.</a></li>
+              <li><a href="#aggregation">Current SSL approaches do not adequately account for temporal structure.</a></li>
+              <li><a href="#random-baseline">Current backbones may not be well suited to modelling temporal components.</a></li>
+              <li><a href="#aggregation">Architectural design determines which tasks a model performs well on—for example, through feature aggregation.</a></li>
+              <li><a href="#validator-sensitivity">Validation models are biased toward specific tasks; consequently, HPO is biased as well.</a></li>
+              <li><a href="#finding-01">Models designed for one task transfer poorly to others.</a></li>
+              <li><a href="#fusion">We therefore need new models and evaluation procedures—or we can combine embeddings from diverse existing encoders.</a></li>
             </ol>
             <p class="finding-summary"><strong>We invite researchers to validate their new models on our benchmark.</strong></p>
           </div>
@@ -87,7 +86,7 @@
             <article><span>03</span><div><h3>Forecasting</h3><p>Activity in the next interval · R²</p></div></article>
             <article><span>04</span><div><h3>Anomaly detection</h3><p>Rare or tail behaviour · ROC-AUC</p></div></article>
           </div>
-          <figure class="paper-figure feature-figure">
+          <figure class="paper-figure feature-figure overview-figure">
             <button type="button" data-figure="imgs/paper/figure-01-selection-paths.png" data-alt="Decision tree for selecting or fusing sequence embeddings" data-caption="Strategies for obtaining embeddings that work across many downstream tasks.">
               <img src="imgs/paper/figure-01-selection-paths.png" alt="Decision tree showing unreliable single-model selection signals and embedding fusion" loading="eager">
               <span>Expand figure</span>
@@ -96,7 +95,7 @@
           </figure>
         </div>
 
-        <div class="correlation-block">
+        <div id="cross-task" class="correlation-block anchor-offset">
           <div class="correlation-copy">
             <h3>Cross-task transferability</h3>
             <p>Task performance and method rankings are only weakly aligned, even within the same dataset. A representation selected for one task therefore cannot be assumed to work equally well for others.</p>
@@ -110,7 +109,7 @@
         </div>
 
         <div id="datasets" class="datasets-block anchor-offset">
-          <div class="section-intro">
+          <div class="section-intro datasets-intro">
             <div><h2>Datasets · Four domains</h2></div>
             <p>Each source is converted to the same entity-centric sequence format. Across 42 available settings, 35 targets are constructed from histories.</p>
           </div>
@@ -151,7 +150,7 @@
 
       <section id="results" class="results-section anchor-offset">
         <div class="section-shell">
-          <div class="section-intro light results-intro">
+          <div class="section-intro light results-intro overall-results-intro">
             <div><h2>Overall results</h2></div>
             <div class="result-intro-side">
               <article class="result-highlight"><strong>7 / 10</strong><span>methods win at least one setting</span></article>
@@ -172,14 +171,14 @@
           </div>
 
           <div class="figure-grid result-story-grid">
-            <article class="result-finding-card">
+            <article id="finding-01" class="result-finding-card anchor-offset">
               <span>Finding 01</span>
               <p>Methods perform differently across downstream tasks. Almost every method wins somewhere, but none performs consistently best across the benchmark.</p>
             </article>
             <figure class="paper-figure dark-figure result-rank-figure"><button type="button" data-figure="imgs/paper/figure-03-method-ranks.png" data-alt="Average rank of ten methods for four downstream tasks" data-caption="Average rank across datasets per task; lower is better."><img src="imgs/paper/figure-03-method-ranks.png" alt="Four horizontal bar charts of method rank by task" loading="lazy"><span>Expand figure</span></button><figcaption>The best method changes with the downstream task.</figcaption></figure>
           </div>
 
-          <div class="fusion-block">
+          <div id="fusion" class="fusion-block anchor-offset">
             <div class="subsection-heading fusion-heading">
               <div class="fusion-diagram" role="img" aria-label="Two D to the N representations are fused into one representation of the same dimensionality that works well on more tasks">
                 <div class="fusion-inputs" aria-hidden="true">
@@ -201,7 +200,7 @@
           </div>
 
           <div class="ablations-block">
-            <article class="ablation-row">
+            <article id="aggregation" class="ablation-row anchor-offset">
               <div class="ablation-copy"><h3>Aggregation depends on the target configuration.</h3><p>The last embedding is strongly preferred for forecasting and moderately preferred for regression, while mean pooling is more common for classification and anomaly detection. The same overall pattern holds across methods, with some differences in strength.</p></div>
               <div class="mini-figures">
                 <figure class="paper-figure dark-figure"><figcaption>By task</figcaption><button type="button" data-figure="imgs/paper/figure-06-aggregation-share.png" data-alt="Mean versus last-state aggregation share by task" data-caption="By task · Selected aggregation by task family."><img src="imgs/paper/figure-06-aggregation-share.png" alt="Stacked bars comparing mean and last-state aggregation" loading="lazy"><span>Expand</span></button></figure>
@@ -209,7 +208,7 @@
               </div>
             </article>
 
-            <article class="ablation-row reverse">
+            <article id="validator-sensitivity" class="ablation-row reverse anchor-offset">
               <div class="ablation-copy"><h3>Validators introduce measurable bias during hyperparameter optimization.</h3><p>LightGBM has the best average candidate rank, but MLP favours forecasting while the linear probe favours anomaly detection. The same frozen embeddings can be ordered differently by the readout.</p></div>
               <div class="data-card compact-card"><div class="card-heading"><div><h3>Validator sensitivity</h3></div><small>Lower is better</small></div><div class="table-scroll"><table><thead><tr><th>Scope</th><th>LightGBM</th><th>MLP</th><th>Linear</th></tr></thead><tbody id="validator-body"></tbody></table></div><p class="table-note">23 settings · six datasets · final 10 Optuna trials</p></div>
             </article>
@@ -228,7 +227,7 @@
               </div>
             </article>
 
-            <article class="ablation-row random-baseline-row">
+            <article id="random-baseline" class="ablation-row random-baseline-row anchor-offset">
               <div class="ablation-copy"><h3>A random encoder is a Strong Baseline.</h3><p>On some datasets, trained SSL methods add only a small increment above R-RNN or R-Tr; on Favorita regression they all underperform the random RNN. The frontier view separates the contribution of architecture from the contribution of pretraining.</p><p class="random-baseline-note">Grey represents performance of random projections.</p></div>
               <figure class="paper-figure dark-figure large-figure titled-figure"><figcaption><span>Incremental gains over the random-encoder baseline</span></figcaption><button type="button" data-figure="imgs/paper/figure-11-random-baseline.png" data-alt="Performance frontiers above the best random encoder" data-caption="Incremental gains over the random-encoder baseline."><img src="imgs/paper/figure-11-random-baseline.png" alt="Stacked performance frontiers above random encoders across datasets" loading="lazy"><span>Expand figure</span></button></figure>
             </article>
@@ -267,11 +266,13 @@
         <div class="section-shell">
           <div class="section-intro light protocol-intro"><div><h2>Evaluation protocol</h2></div></div>
           <div class="protocol-grid">
-            <div class="protocol-figure-title">
-              <span>Figure 2</span>
-              <h3>Data splitting protocols for local and global targets.</h3>
-              <p>Local targets use Global Time Split; global targets use Global User Split.</p>
-            </div>
+            <figure class="paper-figure protocol-split-figure">
+              <button type="button" data-figure="imgs/paper/figure-02-splitting-protocols.png" data-alt="Global time and global user split protocols for local and global targets" data-caption="Local targets use Global Time Split; global targets use Global User Split.">
+                <img src="imgs/paper/figure-02-splitting-protocols.png" alt="Protocol diagram comparing global time split for local targets with global user split for global targets" loading="lazy">
+                <span>Expand figure</span>
+              </button>
+              <figcaption><strong>Local → global evaluation.</strong> Local targets use Global Time Split; global targets use Global User Split.</figcaption>
+            </figure>
             <div class="protocol-steps">
               <article><span>01</span><div><h3>Global Time Split</h3><p>A shared test boundary is the 0.9 quantile of valid target times. Earlier histories train the encoder and validator; future shifts test them.</p></div></article>
               <article><span>02</span><div><h3>Global User Split</h3><p>Complete entity histories are assigned approximately 90/10 to train and test, so downstream evaluation uses unseen entities.</p></div></article>
