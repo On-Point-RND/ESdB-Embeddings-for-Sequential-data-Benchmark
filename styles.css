@@ -1484,10 +1484,10 @@ dialog::backdrop { background: rgba(5,8,12,.78); backdrop-filter: blur(8px); }
 .scope-mode strong { margin-bottom: 10px; }
 
 .overall-results-intro { grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); align-items: center; padding-top: clamp(86px, 10vw, 126px); }
-.overall-results-intro .result-intro-side { grid-template-columns: 158px 1fr; gap: 18px; align-items: center; }
+.overall-results-intro .result-intro-side { grid-template-columns: 190px minmax(0, 1fr); gap: 18px; align-items: center; }
 .overall-results-intro .result-highlight { grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 7px; align-content: center; min-width: 0; }
-.result-highlight { min-height: 134px; padding: 20px; }
-.result-highlight strong { white-space: nowrap; font-size: clamp(2.5rem, 3.8vw, 3.55rem); }
+.result-highlight { min-height: 126px; padding: 18px 16px; }
+.result-highlight strong { white-space: nowrap; font-size: clamp(2.2rem, 3vw, 2.8rem); }
 .result-highlight span { max-width: 15ch; font-size: .78rem; line-height: 1.35; }
 .result-intro-side > p { font-size: .9rem; line-height: 1.57; }
 .ranking-layout { gap: 14px; }
@@ -1518,7 +1518,7 @@ dialog::backdrop { background: rgba(5,8,12,.78); backdrop-filter: blur(8px); }
   .protocol-grid { grid-template-columns: 1fr; }
   .task-stack { grid-template-rows: none; }
   .overview-figure button { min-height: 0; }
-  .overall-results-intro .result-intro-side { grid-template-columns: minmax(150px, .35fr) 1fr; max-width: 700px; }
+  .overall-results-intro .result-intro-side { grid-template-columns: 180px minmax(0, 1fr); max-width: 700px; }
 }
 
 @media (max-width: 760px) {
