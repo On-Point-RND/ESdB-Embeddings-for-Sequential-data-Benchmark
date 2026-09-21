@@ -153,7 +153,7 @@
           <div class="section-intro light results-intro overall-results-intro">
             <div><h2>Overall results</h2></div>
             <div class="result-intro-side">
-              <article class="result-highlight"><strong>7 / 10</strong><span>methods win at least one setting</span></article>
+              <article class="result-highlight"><strong>7 / 10</strong><span>methods lead in at least one setting</span></article>
               <p>CoLES has the best average rank, but Slice-InfoNCE leads classification and NTP-GPT leads forecasting in the ten-method task view.</p>
             </div>
           </div>
@@ -180,15 +180,29 @@
 
           <div id="fusion" class="fusion-block anchor-offset">
             <div class="subsection-heading fusion-heading">
-              <div class="fusion-diagram" role="img" aria-label="Two D to the N representations are fused into one representation of the same dimensionality that works well on more tasks">
-                <div class="fusion-inputs" aria-hidden="true">
-                  <span>D<sup>N</sup></span>
-                  <b>+</b>
-                  <span>D<sup>N</sup></span>
+              <div class="fusion-diagram">
+                <div class="fusion-sources">
+                  <article class="fusion-source contrastive-source">
+                    <span>Contrastive SSL</span>
+                    <b>Slice-InfoNCE</b>
+                    <i>D<sup>N</sup></i>
+                  </article>
+                  <article class="fusion-source autoregressive-source">
+                    <span>Autoregressive SSL</span>
+                    <b>NTP-GRU</b>
+                    <i>D<sup>N</sup></i>
+                  </article>
                 </div>
-                <span class="fusion-arrow" aria-hidden="true">→</span>
-                <span class="fusion-output" aria-hidden="true">D<sup>N</sup></span>
-                <p><strong>Same dimensionality.</strong><span>But works well on more tasks.</span></p>
+                <div class="fusion-arrow" aria-hidden="true"><b>→</b><small>fuse</small></div>
+                <article class="fusion-output">
+                  <span>Fused embedding</span>
+                  <strong>D<sup>N</sup></strong>
+                  <small>same dimensionality</small>
+                </article>
+                <div class="fusion-task-view">
+                  <span>Works across tasks</span>
+                  <ul><li>Classification</li><li>Regression</li><li>Forecasting</li><li>Anomaly detection</li></ul>
+                </div>
               </div>
               <div class="fusion-summary">
                 <p>We evaluate fusion strategies from simple concatenation and dimensionality reduction to more advanced approaches like Low-Rank Fusion. Across multiple downstream tasks, fused representations can match or even outperform the individual embeddings.</p>
