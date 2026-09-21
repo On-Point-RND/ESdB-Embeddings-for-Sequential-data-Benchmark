@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://on-point-rnd.github.io/ESdB-Embeddings-for-Sequential-data-Benchmark/sitemap.xml
