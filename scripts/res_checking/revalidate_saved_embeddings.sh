@@ -1,9 +1,54 @@
 #!/usr/bin/env bash
-# Usage: bash scripts/res_checking/revalidate_saved_embeddings.sh PATH/TO/seed_0
+# Usage: bash scripts/res_checking/revalidate_saved_embeddings.sh zvuk 30music
+# Or pass a single PATH/TO/seed_0.
 set -euo pipefail
+shopt -s nullglob
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+if (( $# == 0 )); then
+    echo "Usage: bash $0 DATASET [DATASET ...] | PATH/TO/seed_0" >&2
+    exit 1
+fi
+if [[ ! -f "$1/config.yaml" ]]; then
+    mkdir -p log/batch_runs
+    log_dir=$(mktemp -d log/batch_runs/revalidate_saved.XXXXXXXX)
+    printf 'run\tstatus\texit_code\n' > "$log_dir/status.tsv"
+    echo "Logs: $log_dir"
+    failed=0
+    number=0
+    for dataset in "$@"; do
+        configs=(log/full/"$dataset"/SimCLR_masks/tests/best*/reeval/*/seed_0/config.yaml)
+        if (( ${#configs[@]} == 0 )); then
+            printf '%s\tNO_RUNS\t-\n' "$dataset" | tee -a "$log_dir/status.tsv"
+            failed=1
+        fi
+        for config in "${configs[@]}"; do
+            run=${config%/config.yaml}
+            completed=("$run"/revalidation_saved.*/metrics.csv)
+            if [[ -f "${run%/seed_0}/results.csv" ]] || (( ${#completed[@]} > 0 )); then
+                printf '%s\tSKIPPED_COMPLETED\t-\n' "$run" | tee -a "$log_dir/status.tsv"
+                continue
+            fi
+            if [[ ! -e "$run/embeddings/train" || ! -e "$run/embeddings/test" ]]; then
+                printf '%s\tSKIPPED_NO_EMBEDDINGS\t-\n' "$run" | tee -a "$log_dir/status.tsv"
+                continue
+            fi
+            number=$((number + 1))
+            printf '%s\tSTARTED\t-\n' "$run" | tee -a "$log_dir/status.tsv"
+            echo "Output: $log_dir/$number.log"
+            if bash scripts/res_checking/revalidate_saved_embeddings.sh "$run" 2>&1 | tee "$log_dir/$number.log"; then
+                printf '%s\tCOMPLETED\t0\n' "$run" | tee -a "$log_dir/status.tsv"
+            else
+                code=$?
+                printf '%s\tFAILED\t%s\n' "$run" "$code" | tee -a "$log_dir/status.tsv"
+                failed=1
+            fi
+        done
+    done
+    echo "Finished. Status: $log_dir/status.tsv"
+    exit "$failed"
+fi
 if (( $# != 1 )); then
-    echo "Usage: bash $0 PATH/TO/seed_0" >&2
+    echo "Pass only one seed directory, or a list of datasets." >&2
     exit 1
 fi
 python -u - "$1" <<'PY'
