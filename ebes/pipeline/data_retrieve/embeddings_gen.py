@@ -35,6 +35,7 @@ class ResultsGetter:
     def __init__(self, config, mode):
         # self.config=config
         self.mode = mode
+        self.legacy = config.get("embedding_generation", {}).get("legacy", False)
         if mode == "train":
             data_path = Path(config["data"]["dataset"]["parquet_path"])
         elif mode == "test":
@@ -134,6 +135,15 @@ class ResultsGetter:
         shifts = self.shifts_by_index[old_index]
         if isinstance(shifts, list):
             shifts = np.asarray(shifts)
+        if self.legacy:
+            # Reproduce dev/generation (9fed9be2), including shifted output IDs.
+            orig_len = int(self.orig_len_by_index[old_index])
+            full_len_i = int(full_len)
+            cutoff = max(0, orig_len - full_len_i)
+            if cutoff > 0:
+                shifts = shifts[shifts >= cutoff] - cutoff
+            shifts = np.clip(shifts, 0, full_len_i)
+            return np.append(shifts, full_len_i)
         return np.append(shifts, int(full_len))
 
     def shift_transform(self, batch):

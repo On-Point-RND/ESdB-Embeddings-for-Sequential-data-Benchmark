@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATASETS = ['alpha', 'x5-retail', 'twitter', 'zvuk', '30music']
 
 
-def prepare(seed_dir, dataset, output_name, method="SimCLR"):
+def prepare(seed_dir, dataset, output_name, method="SimCLR_masks"):
     config = OmegaConf.load(seed_dir / 'config.yaml')
     metric = config.unsupervised_trainer.ckpt_track_metric
     checkpoints = list((seed_dir / 'pretrain/ckpt').glob('*.ckpt'))
@@ -31,7 +31,7 @@ def prepare(seed_dir, dataset, output_name, method="SimCLR"):
     config = OmegaConf.merge(config, OmegaConf.load('configs/experiments/inference.yaml'))
     if dataset in ('zvuk', '30music'):
         config = OmegaConf.merge(
-            config, OmegaConf.load(f'configs/specify/full/{dataset}/eval_batch1.yaml')
+            config, OmegaConf.load(f'configs/specify/full/{dataset}/eval_legacy.yaml')
         )
     else:
         config = OmegaConf.merge(
@@ -47,7 +47,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('datasets', nargs='*', default=DATASETS, choices=None)
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--method', choices=['SimCLR', 'SimCLR_masks'], default='SimCLR')
+    parser.add_argument('--method', choices=['SimCLR', 'SimCLR_masks'], default='SimCLR_masks')
     parser.add_argument('--validator', default=(
         'universal_validator/configs/validator/logreg_3seed_embedding_metrics.yaml'
     ))

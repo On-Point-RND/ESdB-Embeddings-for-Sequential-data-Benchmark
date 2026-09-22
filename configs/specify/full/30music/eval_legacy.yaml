@@ -1,17 +1,20 @@
+embedding_generation:
+  legacy: true
+
 data:
   preprocessing:
     gen_pipeline:
-      max_seq_len: 1000000
+      max_seq_len: 10000
   loaders:
     gen_train:
-      batch_size: 1
+      batch_size: 16
     gen_train_val:
-      batch_size: 1
+      batch_size: 16
 
 test_data:
   preprocessing:
     gen_pipeline:
-      max_seq_len: 1000000
+      max_seq_len: 10000
   loaders:
     gen_test:
-      batch_size: 1
+      batch_size: 16
