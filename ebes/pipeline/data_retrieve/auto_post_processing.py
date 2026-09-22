@@ -42,6 +42,39 @@ def post_processing(
     emb_df_renamed = emb_df.withColumnRenamed("shifts", "shifts_emb")
     joined_df = data_df.join(emb_df_renamed, on=id_col, how="left")
 
+    if config.get("embedding_generation", {}).get("legacy", False):
+        section = "data" if data_mode == "train" else "test_data"
+        max_len = config[section]["preprocessing"]["gen_pipeline"]["max_seq_len"]
+        cutoff = F.greatest(F.col("_seq_len") - F.lit(max_len), F.lit(0))
+        retained_len = F.least(F.col("_seq_len"), F.lit(max_len))
+        # Keep original array positions to select the corresponding targets.
+        positions = F.transform(
+            F.col("shifts"),
+            lambda shift, i: F.struct(shift.alias("shift"), i.alias("position")),
+        )
+        positions = F.array_sort(F.filter(positions, lambda point: point.shift >= cutoff))
+        joined_df = joined_df.withColumn("_legacy_positions", positions)
+        expected_shifts = F.transform(
+            F.col("_legacy_positions"),
+            lambda point: F.least(F.greatest(point.shift - cutoff, F.lit(0)), retained_len),
+        )
+        local_targets = [name for name in data_df.columns
+                         if name.startswith("target__") and "__local__" in name]
+        invalid = ~expected_shifts.eqNullSafe(F.col("shifts_emb"))
+        invalid = invalid | (F.size("shift_emb") != F.size("_legacy_positions"))
+        for name in local_targets:
+            invalid = invalid | F.col(name).isNull() | (F.size(name) != F.size("shifts"))
+        if joined_df.filter(F.col("embeddings").isNotNull() & invalid).limit(1).count():
+            raise ValueError("Legacy shifts/targets do not match saved embeddings")
+        for name in local_targets:
+            joined_df = joined_df.withColumn(
+                name, F.transform(
+                    F.col("_legacy_positions"),
+                    lambda point: F.element_at(F.col(name), point.position + 1),
+                ),
+            )
+        joined_df = joined_df.drop("_legacy_positions")
+
     joined_df = joined_df.drop("shifts")
     bad_cond = F.col("embeddings").isNull() | F.expr(
         "exists(embeddings, x -> x is null)"

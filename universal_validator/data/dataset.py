@@ -57,6 +57,9 @@ class ValidatorDataset:
             columns = ["shift_emb", target_name]
             train = pd.read_parquet(self.data_conf.train_path, columns=columns)
             test = pd.read_parquet(self.data_conf.test_path, columns=columns)
+            # No local examples remain when all query points were truncated.
+            train = train[(train["shift_emb"].map(len) > 0) | (train[target_name].map(len) > 0)]
+            test = test[(test["shift_emb"].map(len) > 0) | (test[target_name].map(len) > 0)]
             train, test = train.explode(columns), test.explode(columns)
 
             X_train = np.stack(train["shift_emb"].values).astype(np.float32)
