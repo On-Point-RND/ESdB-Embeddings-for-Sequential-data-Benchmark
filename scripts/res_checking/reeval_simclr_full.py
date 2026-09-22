@@ -93,12 +93,13 @@ def main():
                                '-g', 'cuda:0', '-dv', args.validator]
                     status.writerow([dataset, run, 'STARTED', checkpoint, '-'])
                     status_file.flush()
-                    with (log_dir / f'{dataset}_{run}.log').open('w') as output:
+                    with (log_dir / f'{dataset}_{run}.log').open('wb') as output:
                         with subprocess.Popen(command, stdout=subprocess.PIPE,
-                                              stderr=subprocess.STDOUT, text=True) as process:
-                            for line in process.stdout:
-                                print(line, end='', flush=True)
-                                output.write(line)
+                                              stderr=subprocess.STDOUT) as process:
+                            while chunk := process.stdout.read1(8192):
+                                sys.stdout.buffer.write(chunk)
+                                sys.stdout.buffer.flush()
+                                output.write(chunk)
                                 output.flush()
                             code = process.wait()
                     state = 'COMPLETED' if code == 0 else 'FAILED'
