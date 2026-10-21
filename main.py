@@ -17,6 +17,23 @@ def start_debugging(_, frame):
     pdb.Pdb().set_trace(frame)
 
 
+def resolve_probe_selection(config, method, specify):
+    """Resolve only values that depend on the selected method and source task."""
+    selection = config.downstream_selection
+    config.source_task = specify.removeprefix("best_")
+    selection.max_epochs = selection.epoch_limits[method][config.source_task]
+    if selection.task_names is None:
+        selection.task_names = [selection.targets[config.source_task]]
+    if selection.every_n_epochs is None:
+        selection.every_n_epochs = next(
+            interval for cap, interval in selection.check_intervals.items()
+            if selection.max_epochs <= int(cap)
+        )
+    selection.checkpoint_metrics = [
+        f"downstream/val/{task}" for task in selection.task_names
+    ]
+
+
 def collect_config(
     dataset,
     method,
@@ -39,9 +56,9 @@ def collect_config(
             raise ValueError(f"No specification {specify}")
 
     if extra_config is not None:
-        extra_config_path = Path(
-            f"configs/specify/{dataset}/{extra_config}.yaml"
-        )
+        extra_config_path = Path(extra_config)
+        if not extra_config_path.is_file():
+            extra_config_path = Path(f"configs/specify/{dataset}/{extra_config}.yaml")
         if extra_config_path.exists():
             configs.append(OmegaConf.load(extra_config_path))
         else:
@@ -61,6 +78,10 @@ def collect_config(
             raise ValueError("Config for downstream validator is not found.")
     else:
         config["universal_validator"] = None
+
+    selection = config.get("downstream_selection")
+    if selection is not None and "epoch_limits" in selection.keys():
+        resolve_probe_selection(config, method, specify)
 
     if gpu is not None:
         assert config.runner.get("device_list") is None

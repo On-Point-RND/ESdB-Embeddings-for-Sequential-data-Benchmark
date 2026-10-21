@@ -1,0 +1,49 @@
+global_train_filter: exclude_test
+downstream_selection:
+  # Entity counts in original eligible splits; null means all.
+  train_size: 3000
+  val_size: 1000
+  # Optional overrides: every_n_epochs, patience (in checks).
+  task_names: null  # Only the source best_* task.
+  targets:
+    classification: target__clf__local__accuracy+f1_macro
+    anomaly: target__anomaly__global__roc_auc
+    regression: target__reg__local__r2
+    forecasting: target__forecast__local__r2
+  # Historical epochs capped at 200; missing cells use 200.
+  epoch_limits:
+    bert4rec:
+      regression: 100
+      classification: 63
+      forecasting: 100
+      anomaly: 100
+    jepa:
+      regression: 100
+      classification: 100
+      forecasting: 100
+      anomaly: 100
+    coles:
+      regression: 197
+      classification: 45
+      forecasting: 98
+      anomaly: 54
+    SimCLR:
+      regression: 76
+      classification: 38
+      forecasting: 41
+      anomaly: 43
+    SimCLR_masks:
+      regression: 50
+      classification: 13
+      forecasting: 50
+      anomaly: 102
+    ntp_gru:
+      regression: 113
+      classification: 35
+      forecasting: 57
+      anomaly: 13
+    ntp_gpt:
+      regression: 18
+      classification: 27
+      forecasting: 19
+      anomaly: 20

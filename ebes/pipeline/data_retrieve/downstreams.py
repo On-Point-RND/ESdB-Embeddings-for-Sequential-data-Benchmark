@@ -230,12 +230,30 @@ class _SampledAccessor:
     fraction: float = 1.0
     seed: int = 42
     exclude_global_test: bool = False
+    size: int | None = None
+    filter_sampling_pool: bool = False
 
     def get_split(self, index):
         data = self.source.get_split(index)
         if not 0 < self.fraction <= 1:
             raise ValueError("Sample fraction must be in (0, 1]")
-        if self.fraction < 1:
+        if self.size is not None:
+            if self.size < 1:
+                raise ValueError("Sample size must be positive or null")
+            eligible = data
+            if self.filter_sampling_pool and "global_train" in data:
+                eligible = data[data.global_train == 1]
+            ids = eligible[self.index_name].drop_duplicates()
+            ids = ids.sample(n=min(self.size, len(ids)), random_state=self.seed)
+            selected = data[self.index_name].isin(ids)
+            if (self.filter_sampling_pool and not self.exclude_global_test
+                    and "global_train" in data):
+                # Diagnostic group 0 must not change the selected fitting IDs.
+                test_ids = data.loc[data.global_train == 0, self.index_name].drop_duplicates()
+                test_ids = test_ids.sample(n=min(self.size, len(test_ids)), random_state=self.seed)
+                selected |= data[self.index_name].isin(test_ids)
+            data = data[selected]
+        elif self.fraction < 1:
             ids = (
                 data[self.index_name]
                 .drop_duplicates()
@@ -251,7 +269,7 @@ class _SampledAccessor:
 
 def build_validation_loaders(
     data, *, accessor=None, fractions=None, seed=42, include_global_test=True,
-    global_train_filter=None,
+    global_train_filter=None, sizes=None,
 ):
     """Experiment-specific sampling/filtering; ebes.data remains unchanged."""
     if global_train_filter not in (None, "exclude_test"):
@@ -271,6 +289,8 @@ def build_validation_loaders(
             seed,
             global_train_filter == "exclude_test"
             and (not name.startswith("gen_") or not include_global_test),
+            size=(sizes or {}).get(name),
+            filter_sampling_pool=global_train_filter == "exclude_test",
         )
         selected = dict(params)
         if fractions is not None:
@@ -303,6 +323,8 @@ def make_checkpoint_evaluator(config, embedding_model=None, *, accessor=None):
         seed=seed,
         include_global_test=diagnostic,
         global_train_filter=config.get("global_train_filter"),
+        sizes={"gen_train": selection.get("train_size"),
+               "gen_train_val": selection.get("val_size")},
         fractions={
             "gen_train": selection.get("train_fraction", 1.0),
             "gen_train_val": selection.get("val_fraction", 1.0),
@@ -310,7 +332,8 @@ def make_checkpoint_evaluator(config, embedding_model=None, *, accessor=None):
     )
     validator = deepcopy(config["universal_validator"])
     validator.update(
-        use_is_val=True, evaluate_test=diagnostic, task_names=None,
+        use_is_val=True, evaluate_test=diagnostic,
+        task_names=selection.get("task_names"),
         global_train_filter=config.get("global_train_filter"),
     )
     validator["embedding_metrics"] = {"enabled": False}

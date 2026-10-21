@@ -1,16 +1,22 @@
 import logging
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import optuna
-from sklearn.base import BaseEstimator
 from sklearn.model_selection import KFold, cross_val_score
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
+
+
+class Estimator(Protocol):
+    def fit(self, x: np.ndarray, y: np.ndarray, /) -> Any: ...
+    def get_params(self, deep: bool = True) -> dict[str, Any]: ...
+    def set_params(self, **params: Any) -> Any: ...
+    def predict(self, x: np.ndarray, /) -> np.ndarray: ...
 
 
 @dataclass
@@ -30,26 +36,27 @@ class HPOOptimizer:
 
     def optimize(
         self,
-        base_model: BaseEstimator,
-        X_train: np.ndarray,
+        base_model: Estimator,
+        x_train: np.ndarray,
         y_train: np.ndarray,
         scorer,
-        search_space: dict = None,
+        search_space: dict[str, Any] | None = None,
+        *,
+        refit: bool = True,
     ):
         model_name = base_model.__class__.__name__
 
         if not search_space:
             logger.warning("No search space for %s", model_name)
-            base_model.fit(X_train, y_train)
+            if refit:
+                base_model.fit(x_train, y_train)
             return base_model, None
 
-        logger.info(
-            "Optimizing %s by %s (maximize)", model_name, scorer.name
-        )
+        logger.info("Optimizing %s by %s (maximize)", model_name, scorer.name)
         study = optuna.create_study(direction="maximize")
         try:
             objective = self._create_objective(
-                base_model, X_train, y_train, scorer, search_space
+                base_model, x_train, y_train, scorer, search_space
             )
             study.optimize(
                 objective,
@@ -61,7 +68,8 @@ class HPOOptimizer:
                 base_model.get_params(), study.best_params
             )
             final_model = base_model.__class__(**best_params)
-            final_model.fit(X_train, y_train)
+            if refit:
+                final_model.fit(x_train, y_train)
 
             cv_results = {
                 "best_score": study.best_value,
@@ -73,13 +81,14 @@ class HPOOptimizer:
 
         except Exception as e:
             logger.exception("Optuna failed: %s", e)
-            base_model.fit(X_train, y_train)
+            if refit:
+                base_model.fit(x_train, y_train)
             return base_model, {"failed": True}
 
     def _create_objective(
         self,
-        base_model: BaseEstimator,
-        X: np.ndarray,
+        base_model: Estimator,
+        x: np.ndarray,
         y: np.ndarray,
         scorer,
         search_space: dict,
@@ -92,7 +101,7 @@ class HPOOptimizer:
             model = base_model.__class__(**params)
             cv = self.hpo_config.cv
             kf = KFold(n_splits=cv, shuffle=True, random_state=42)
-            scores = cross_val_score(model, X, y, cv=kf, scoring=scorer)
+            scores = cross_val_score(model, x, y, cv=kf, scoring=scorer)
             return scores.mean()
 
         return objective
@@ -120,5 +129,7 @@ class HPOOptimizer:
         updated_params = {**base_params, **trial_params}
         if isinstance(updated_params.get("hidden_layer_sizes"), str):
             # "[64, 32]" --> [64, 32]
-            updated_params["hidden_layer_sizes"] = eval(updated_params["hidden_layer_sizes"])
+            updated_params["hidden_layer_sizes"] = eval(
+                updated_params["hidden_layer_sizes"]
+            )
         return updated_params

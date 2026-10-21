@@ -6,11 +6,10 @@ from typing import Any
 import numpy as np
 import optuna.logging
 from sklearn.model_selection import train_test_split
-from sklearn.base import BaseEstimator
 
 from ..data.dataset import DataSplit
 from ..pipeline.utils import ValidatorConfig
-from .hpo_optimizer import HPOOptimizer
+from .hpo_optimizer import Estimator, HPOOptimizer
 from .scorers import METRIC_INFO, TaskType, get_scorers
 
 logger = logging.getLogger(__name__)
@@ -34,14 +33,14 @@ class TaskManager:
 
     def _init_models(
         self, metrics: list[str], task_name: str
-    ) -> dict[str, BaseEstimator]:
+    ) -> dict[str, tuple[Estimator, dict[str, Any]]]:
         if not metrics:
             return {}
 
         first_metric = metrics[0]
         task_type = METRIC_INFO[first_metric]["task"]
 
-        models = {}
+        models: dict[str, tuple[Estimator, dict[str, Any]]] = {}
         for name, model_config in self.config.models.items():
             if task_type == TaskType.CLASSIFICATION:
                 estimator_path = model_config["classifier"]
@@ -76,7 +75,7 @@ class TaskManager:
             return False
         return True
 
-    def _print_task_info(self, split_data: dict[str, Any]) -> None:
+    def _print_task_info(self, split_data: DataSplit) -> None:
         pass
 
     def execute(self, split_data: DataSplit) -> dict[str, Any] | None:
@@ -120,10 +119,11 @@ class TaskManager:
             if self.use_hpo:
                 model, cv_results = self.hpo_optimizer.optimize(
                     base_model=base_model,
-                    X_train=x,
+                    x_train=x,
                     y_train=y,
                     scorer=scorers[0],
                     search_space=search_space,
+                    refit=False,
                 )
             else:
                 model = base_model

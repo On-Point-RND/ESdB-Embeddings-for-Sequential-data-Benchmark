@@ -1,0 +1,43 @@
+run_name: "${method_name}/probe_val/best_${source_task}"
+common_seed: 0
+device: "cuda:0"
+
+runner:
+  name: ${runner_name}
+  run_type: simple
+  seed_keys:
+    - "common_seed"
+    - "data.loaders.train.random_seed"
+    - "data.dataset.split_seed"
+  params:
+    n_runs: 3
+    n_workers: 1
+  # device_list: ["cuda:0", "cuda:1", "cuda:2"]
+
+logging:
+  file_lvl: info
+  cons_lvl: info
+
+trainer: &probe_trainer
+  total_iters: null
+  total_epochs: ${downstream_selection.max_epochs}
+  iters_per_epoch: null
+  patience: ${downstream_selection.patience}
+  ckpt_track_metric: ${downstream_selection.checkpoint_metrics}
+  ckpt_replace: true
+  ckpt_warmup_epochs: 0
+
+unsupervised_trainer: *probe_trainer
+
+pretrainer:
+  ckpt_replace: false
+downstream_selection:
+  epoch_limits: ???
+  task_names: null  # Resolve the source task; dataset tails can list all tasks.
+  every_n_epochs: 1
+  check_intervals: {20: 1, 100: 2, 200: 5}
+  patience: 3
+  sample_seed: 42
+  evaluate_test: false
+  final_evaluation: false
+global_train_filter: null

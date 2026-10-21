@@ -26,3 +26,5 @@ unsupervised_trainer:
 
 pretrainer:
   ckpt_replace: false
+downstream_selection: null
+global_train_filter: null
