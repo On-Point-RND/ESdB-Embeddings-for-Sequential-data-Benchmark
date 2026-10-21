@@ -3,7 +3,7 @@ import os
 from collections.abc import Iterable, Sized
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Callable
 
 import numpy as np
 import torch
@@ -38,7 +38,8 @@ class Trainer:
         iters_per_epoch: int | None = 10_000,
         ckpt_dir: str | os.PathLike | None = None,
         ckpt_replace: bool = True,
-        ckpt_track_metric: str = "epoch",
+        ckpt_track_metric: str | list[str] = "epoch",
+        checkpoint_evaluator: Callable | None = None,
         ckpt_warmup_epochs: int = 0,
         ckpt_resume: str | os.PathLike | None = None,
         device: str = "cpu",
@@ -70,6 +71,8 @@ class Trainer:
             ckpt_track_metric: if `ckpt_replace` is `True`, the best checkpoint is
                 determined based on `track_metric`. All metrcs except loss are assumed
                 to be better if the value is higher.
+            checkpoint_evaluator: callback(model, device, epoch, is_last_check).
+                Returns extra metrics, or None when no check is scheduled.
             ckpt_warmup_epochs: number of initial epochs excluded from checkpoint
                 selection and early stopping.
             ckpt_resume: path to the checkpoint to resume training from.
@@ -99,6 +102,10 @@ class Trainer:
         self._ckpt_dir = ckpt_dir
         self._ckpt_replace = ckpt_replace
         self._ckpt_track_metric = ckpt_track_metric
+        self._checkpoint_evaluator = checkpoint_evaluator
+        self._checkpoint_states = {}
+        self._best_metric = float("-inf")
+        self._remaining_patience = patience
         self._ckpt_warmup_epochs = ckpt_warmup_epochs
         self._ckpt_resume = ckpt_resume
         self._device = device
@@ -158,13 +165,13 @@ class Trainer:
         def key_extractor(p: Path) -> float:
             metrics = {}
             for it in p.stem.split("_-_"):
-                kv = it.split("__")
+                kv = it.rsplit("__", 1)
                 assert len(kv) == 2, f"Failed to parse filename: {p.name}"
                 k = kv[0]
                 # v = -float(kv[1]) if ("loss" in k) or ("mse" in k) else float(kv[1])
                 v = float(kv[1])
                 metrics[k] = v
-            return metrics[key]
+            return metrics[key.replace("/", "-")]
 
         return key_extractor
 
@@ -192,11 +199,16 @@ class Trainer:
             ckpt_path = self._ckpt_dir
 
         ckpt_path = Path(ckpt_path)
-        ckpt_path.mkdir(parents=True, exist_ok=True)
+        (ckpt_path.parent if ckpt_path.suffix == ".ckpt" else ckpt_path).mkdir(
+            parents=True, exist_ok=True
+        )
 
         ckpt: dict[str, Any] = {
             "last_iter": self._last_iter,
             "last_epoch": self._last_epoch,
+            "checkpoint_states": self._checkpoint_states,
+            "best_metric": self._best_metric,
+            "remaining_patience": self._remaining_patience,
         }
         if self._model:
             ckpt["model"] = self._model.state_dict()
@@ -205,8 +217,11 @@ class Trainer:
         if self._sched:
             ckpt["sched"] = self._sched.state_dict()
 
-        if not ckpt_path.is_dir():
-            torch.save(ckpt, ckpt_path)
+        if ckpt_path.suffix == ".ckpt":
+            temporary = ckpt_path.with_suffix(".tmp")
+            torch.save(ckpt, temporary)
+            temporary.replace(ckpt_path)
+            return
 
         assert self._metric_values
 
@@ -214,7 +229,9 @@ class Trainer:
 
         fname = f"epoch__{self._last_epoch:04d}"
         metrics_str = "_-_".join(
-            f"{k}__{v:.4g}" for k, v in metrics.items() if k == self._ckpt_track_metric
+            f"{k.replace('/', '-')}__{v:.17g}"
+            for k, v in metrics.items()
+            if k == self._ckpt_track_metric
         )
 
         if len(metrics_str) > 0:
@@ -263,6 +280,9 @@ class Trainer:
                 self._sched.load_state_dict(ckpt["sched"])
         self._last_iter = ckpt["last_iter"]
         self._last_epoch = ckpt["last_epoch"]
+        self._checkpoint_states = ckpt.get("checkpoint_states", {})
+        self._best_metric = ckpt.get("best_metric", float("-inf"))
+        self._remaining_patience = ckpt.get("remaining_patience", self._patience)
 
     def train(self, iters: int) -> dict[str, Any]:
         assert self._opt is not None, "Set an optimizer first"
@@ -437,11 +457,13 @@ class Trainer:
             assert self._total_epochs is not None, "Set `total_iters` or `total_epochs`"
             self._total_iters = self._total_epochs * self._iters_per_epoch
 
-        # TODO more epochs than set when dataset too small
-        best_metric = float("-inf")
-        patience = self._patience
-
-        while self._last_iter < self._total_iters:
+        while self._last_iter < self._total_iters and (
+            self._total_epochs is None or self._last_epoch < self._total_epochs
+        ):
+            if self._checkpoint_states and all(
+                state["fixed"] for state in self._checkpoint_states.values()
+            ):
+                break
             train_iters = min(
                 self._total_iters - self._last_iter,
                 self._iters_per_epoch,
@@ -459,27 +481,59 @@ class Trainer:
             self.validate()
 
             self._last_epoch += 1
+            if self._checkpoint_evaluator is not None:
+                is_last_check = self._last_iter >= self._total_iters or (
+                    self._total_epochs is not None
+                    and self._last_epoch >= self._total_epochs
+                )
+                checkpoint_metrics = self._checkpoint_evaluator(
+                    self.model, self.device, self._last_epoch, is_last_check
+                )
+                if checkpoint_metrics is not None:
+                    self._metric_values.update(checkpoint_metrics)
+                    tracked = self._ckpt_track_metric
+                    keys = tracked if isinstance(tracked, list) else [tracked]
+                    missing = [
+                        key
+                        for key in keys
+                        if key != "epoch" and key not in self._metric_values
+                    ]
+                    if missing:
+                        raise ValueError(
+                            f"Validator did not return tracked metrics: {missing}"
+                        )
+                    logger.info(
+                        "Epoch %04d: checkpoint metrics: %s",
+                        self._last_epoch,
+                        checkpoint_metrics,
+                    )
 
             if self._last_epoch <= self._ckpt_warmup_epochs:
                 continue
 
-            self.save_ckpt()
+            if isinstance(self._ckpt_track_metric, list):
+                stop = self._update_checkpoint_states()
+                self.save_ckpt(Path(self._ckpt_dir) / "resume" / "last.ckpt")
+                if stop:
+                    break
+                continue
 
             if self._ckpt_track_metric == "epoch":
                 target_metric = self._last_epoch
             else:
-                assert (
-                    self._metric_values is not None
-                    and self._ckpt_track_metric in self._metric_values
-                )
+                if self._ckpt_track_metric not in self._metric_values:
+                    continue  # No downstream check this epoch; patience does not advance.
                 target_metric = self._metric_values[self._ckpt_track_metric]
 
-            if target_metric > best_metric:
-                best_metric = target_metric
-                patience = self._patience
+            if not np.isfinite(target_metric):
+                raise ValueError("Non-finite checkpoint metric")
+            if target_metric > self._best_metric:
+                self._best_metric = target_metric
+                self._remaining_patience = self._patience
             else:
-                patience -= 1
-            if patience == 0:
+                self._remaining_patience -= 1
+            self.save_ckpt()
+            if self._remaining_patience == 0:
                 logger.info(
                     f"Patience has run out. Early stopping at {self._last_epoch} epoch"
                 )
@@ -487,10 +541,80 @@ class Trainer:
 
         logger.info("run '%s' finished successfully", self._run_name)
 
-    def best_checkpoint(self) -> Path:
+    def _update_checkpoint_states(self) -> bool:
+        """A list of tracked metrics means stop after each task is permanently fixed."""
+        keys = self._ckpt_track_metric
+        if not keys or len(set(keys)) != len(keys):
+            raise ValueError("ckpt_track_metric must contain distinct metrics")
+        if any(key not in self._metric_values for key in keys):
+            return False
+        if not all(np.isfinite(self._metric_values[key]) for key in keys):
+            raise ValueError("Non-finite checkpoint metric")
+        improved = []
+        for key in keys:
+            state = self._checkpoint_states.setdefault(
+                key,
+                {
+                    "best": float("-inf"),
+                    "stale": 0,
+                    "fixed": False,
+                    "epoch": None,
+                    "path": str(
+                        Path(self._ckpt_dir)
+                        / "tasks"
+                        / (key.replace("/", "-") + ".ckpt")
+                    ),
+                },
+            )
+            if state["fixed"]:
+                continue
+            value = float(self._metric_values[key])
+            if value > state["best"]:
+                state.update(best=value, stale=0, epoch=self._last_epoch)
+                improved.append(key)
+            else:
+                state["stale"] += 1
+                state["fixed"] = self._patience > 0 and state["stale"] >= self._patience
+        for key in improved:
+            self.save_ckpt(self._checkpoint_states[key]["path"])
+        return all(self._checkpoint_states[key]["fixed"] for key in keys)
+
+    @property
+    def checkpoint_scores(self) -> dict[str, float]:
+        if isinstance(self._ckpt_track_metric, list):
+            if not self._checkpoint_states:
+                raise ValueError(
+                    "No checkpoint selected; check the epoch budget and checkpoint warmup"
+                )
+            return {
+                key: state["best"] for key, state in self._checkpoint_states.items()
+            }
+        if not np.isfinite(self._best_metric):
+            raise ValueError(
+                "No checkpoint selected; check the tracked metric and checkpoint warmup"
+            )
+        return {self._ckpt_track_metric: self._best_metric}
+
+    @property
+    def selected_checkpoints(self) -> dict[str | None, Path]:
+        """Map task metrics to checkpoints; None selects one checkpoint for all tasks."""
+        keys = (
+            self._ckpt_track_metric
+            if isinstance(self._ckpt_track_metric, list)
+            else [None]
+        )
+        return {key: self.best_checkpoint(key) for key in keys}
+
+    def best_checkpoint(self, metric: str | None = None) -> Path:
         """
         Return the path to the best checkpoint
         """
+        if isinstance(self._ckpt_track_metric, list):
+            if metric not in self._checkpoint_states:
+                raise ValueError(
+                    "Specify the task metric when selecting from multiple checkpoints"
+                )
+            return Path(self._checkpoint_states[metric]["path"])
         assert self._ckpt_dir is not None
         ckpt_path = Path(self._ckpt_dir)
 

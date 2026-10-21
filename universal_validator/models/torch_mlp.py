@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from copy import deepcopy
+from typing import Any
 
 import numpy as np
 import torch
@@ -44,13 +46,14 @@ class BaseMLP:
         self.sync_params()
         return self
 
-    def resolve_early_stopping(self):
+    def resolve_early_stopping(self) -> tuple[bool, Callable[..., Any] | None, str]:
         early_stopping_scorer = self.params.get("early_stopping_scorer")
         if early_stopping_scorer is not None and not callable(early_stopping_scorer):
             raise TypeError("early_stopping_scorer must be callable.")
 
         early_stopping_enabled = bool(
-            self.params.get("early_stopping", False) or early_stopping_scorer is not None
+            self.params.get("early_stopping", False)
+            or early_stopping_scorer is not None
         )
         score_monitor_name = (
             getattr(early_stopping_scorer, "name", "val_score")
@@ -152,7 +155,9 @@ class BaseMLP:
         tol = float(self.params.get("tol", 1e-4))
         verbose = bool(self.params.get("verbose", False))
 
-        early_stopping, early_stopper, early_stopper_name = self.resolve_early_stopping()
+        early_stopping, early_stopper, early_stopper_name = (
+            self.resolve_early_stopping()
+        )
         use_score_monitor = early_stopper is not None
         if early_stopping and (x_val is None or y_val is None):
             raise ValueError(
@@ -208,8 +213,11 @@ class BaseMLP:
                 continue
 
             self.model_.eval()
-            if use_score_monitor:
-                monitor_value = float(early_stopper(self, x_val, y_val))
+            if early_stopper is not None:
+                assert x_val is not None and y_val is not None
+                classes = getattr(self, "classes_", None)
+                labels = classes[y_val] if classes is not None else y_val
+                monitor_value = float(early_stopper(self, x_val, labels))
                 improved = monitor_value > best_monitor + tol
             else:
                 with torch.inference_mode():
@@ -244,7 +252,8 @@ class BaseMLP:
 
 
 class TorchMLPClassifier(BaseMLP, ClassifierMixin):
-    def fit(self, x_data: np.ndarray, y_data: np.ndarray):
+
+    def fit(self, x_data: np.ndarray, y_data: np.ndarray, validation_data=None):
         x_data = np.asarray(x_data, dtype=np.float32)
         y_data = np.asarray(y_data)
 
@@ -257,11 +266,18 @@ class TorchMLPClassifier(BaseMLP, ClassifierMixin):
         self.n_features_in_ = x_data.shape[1]
 
         self.build_model(input_dim=self.n_features_in_, output_dim=len(self.classes_))
-        x_train, x_val, y_train, y_val = self.split_train_val(
-            x_data,
-            y_encoded.astype(np.int64),
-            stratify=y_encoded,
-        )
+        if validation_data is None:
+            x_train, x_val, y_train, y_val = self.split_train_val(
+                x_data,
+                y_encoded.astype(np.int64),
+                stratify=y_encoded,
+            )
+        else:
+            x_train, y_train = x_data, y_encoded.astype(np.int64)
+            x_val, labels = validation_data
+            if not np.isin(labels, self.classes_).all():
+                raise ValueError("Validation contains a class absent from probe train")
+            y_val = np.searchsorted(self.classes_, labels).astype(np.int64)
         self.train_model(
             x_train=x_train,
             y_train=y_train,
@@ -287,7 +303,8 @@ class TorchMLPClassifier(BaseMLP, ClassifierMixin):
 
 
 class TorchMLPRegressor(BaseMLP, RegressorMixin):
-    def fit(self, x_data: np.ndarray, y_data: np.ndarray):
+
+    def fit(self, x_data: np.ndarray, y_data: np.ndarray, validation_data=None):
         x_data = np.asarray(x_data, dtype=np.float32)
         y_data = np.asarray(y_data, dtype=np.float32)
         if y_data.ndim == 1:
@@ -298,7 +315,12 @@ class TorchMLPRegressor(BaseMLP, RegressorMixin):
         self.n_features_in_ = x_data.shape[1]
 
         self.build_model(input_dim=self.n_features_in_, output_dim=y_data.shape[1])
-        x_train, x_val, y_train, y_val = self.split_train_val(x_data, y_data)
+        if validation_data is None:
+            x_train, x_val, y_train, y_val = self.split_train_val(x_data, y_data)
+        else:
+            x_train, y_train = x_data, y_data
+            x_val, y_val = validation_data
+            y_val = np.asarray(y_val, dtype=np.float32).reshape(-1, y_data.shape[1])
         self.train_model(
             x_train=x_train,
             y_train=y_train,

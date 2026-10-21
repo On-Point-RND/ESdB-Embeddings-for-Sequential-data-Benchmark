@@ -42,7 +42,7 @@ class ResultsGetter:
             data_path = Path(config["data"]["dataset"]["parquet_path"]).parent / "test"
         else:
             raise ValueError("Behaviour is not supported.")
-        
+
         self.index_name = config["data"]["preprocessing"]["common_pipeline"][
             "index_name"
         ]
@@ -58,9 +58,11 @@ class ResultsGetter:
             "_seq_len"
         ].to_dict()
 
-    def df_get(self, loaders, trainer):
-        model = trainer.model
-        assert model is not None
+    def df_get(
+        self, loaders, *, model: torch.nn.Module, device: str | torch.device
+    ):
+        if model is None or device is None:
+            raise ValueError("Embedding generation requires model and device")
         model.eval()
 
         get_query_embeddings = getattr(model, "get_query_embeddings", None)
@@ -87,9 +89,9 @@ class ResultsGetter:
                 else:
                     batches_array = self.shift_transform(batch_old)
                 # If we want to check the memory consumption
-                # torch.cuda.reset_peak_memory_stats(trainer.device)
+                # torch.cuda.reset_peak_memory_stats(device)
                 for batch in batches_array:
-                    batch.to(trainer.device)
+                    batch.to(device)
                     with torch.no_grad():
                         if callable(get_query_embeddings):
                             emb = get_query_embeddings(batch)
@@ -108,10 +110,12 @@ class ResultsGetter:
                         }
                         records.append(record)
                 # If we want to check the memory consumption
-                # peak_bytes = torch.cuda.max_memory_allocated(trainer.device)  # [web:1][web:8]
+                # peak_bytes = torch.cuda.max_memory_allocated(device)  # [web:1][web:8]
                 # print(f"Peak allocated: {peak_bytes / 1024**2:.2f} MB")
             df = pd.DataFrame(records)
             df_backed = self.shift_reverse_transform(df)
+            if loader_name in {"gen_train", "gen_train_val"}:
+                df_backed["is_val"] = loader_name == "gen_train_val"
             df_list.append(df_backed)
             logger.info(f"Embedding generation on {loader_name} finished")
         df_all = df_list[0]

@@ -3,7 +3,9 @@ import logging
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import optuna.logging
+from sklearn.model_selection import train_test_split
 from sklearn.base import BaseEstimator
 
 from ..data.dataset import DataSplit
@@ -86,6 +88,24 @@ class TaskManager:
         self._print_task_info(split_data)
         if self.use_hpo:
             logger.info("Using HPO optimization")
+        if not models:
+            return {}
+        x, y = split_data.X_train, split_data.y_train
+        xv, yv = split_data.X_val, split_data.y_val
+        if xv is None:
+            classifier = METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION
+            stratify = (
+                y
+                if classifier and np.unique(y, return_counts=True)[1].min() >= 2
+                else None
+            )
+            x, xv, y, yv = train_test_split(
+                x,
+                y,
+                test_size=self.config.validation_fraction,
+                random_state=self.config.seed,
+                stratify=stratify,
+            )
         results = {}
         for name in models:
             logger.info("Training %s", name)
@@ -100,31 +120,72 @@ class TaskManager:
             if self.use_hpo:
                 model, cv_results = self.hpo_optimizer.optimize(
                     base_model=base_model,
-                    X_train=split_data.X_train,
-                    y_train=split_data.y_train,
+                    X_train=x,
+                    y_train=y,
                     scorer=scorers[0],
                     search_space=search_space,
                 )
             else:
                 model = base_model
-                model.fit(split_data.X_train, split_data.y_train)
                 cv_results = None
 
-            result_metrics = {}
-            predictions = model.predict(split_data.X_test)
-            for scorer in scorers:
-                result_metrics[scorer.name] = scorer(
-                    model, split_data.X_test, split_data.y_test
+            self._fit_model(model, x, y, xv, yv, scorers[0], metrics[0])
+            val_metrics = {
+                scorer.name: float(scorer(model, xv, yv)) for scorer in scorers
+            }
+            if not all(np.isfinite(value) for value in val_metrics.values()):
+                raise ValueError(
+                    f"Invalid validation metrics for {split_data.task_name}"
                 )
+            test_metrics = {}
+            predictions = None
+            if split_data.X_test is not None:
+                predictions = model.predict(split_data.X_test)
+                test_metrics = {
+                    scorer.name: float(
+                        scorer(model, split_data.X_test, split_data.y_test)
+                    )
+                    for scorer in scorers
+                }
+            result_metrics = (
+                val_metrics if self.config.use_is_val else (test_metrics or val_metrics)
+            )
             results[name] = {
                 "main_metric": scorers[0].name,
                 **result_metrics,
+                "val_metrics": val_metrics,
+                "test_metrics": test_metrics,
                 "predictions": predictions,
                 "model": model,
                 "cv_results": cv_results,
             }
             self._log_model_results(name, result_metrics, cv_results)
         return results
+
+    def _fit_model(self, model, x, y, xv, yv, scorer, metric_name):
+        module = model.__class__.__module__
+        if module == "universal_validator.models.torch_mlp":
+            model.fit(x, y, validation_data=(xv, yv))
+        elif module.startswith("lightgbm"):
+            classifier = METRIC_INFO[metric_name]["task"] == TaskType.CLASSIFICATION
+
+            def eval_metric(target, prediction):
+                if classifier and metric_name != "roc_auc":
+                    prediction = (
+                        np.argmax(prediction, axis=1)
+                        if prediction.ndim == 2
+                        else (prediction >= 0.5).astype(int)
+                    )
+                value = scorer._sign * scorer._score_func(
+                    target, prediction, **scorer._kwargs
+                )
+                return scorer.name, float(value), True
+
+            # Boosting budget/early_stopping_rounds remain model config parameters.
+            model.set_params(metric="None", first_metric_only=True)
+            model.fit(x, y, eval_set=[(xv, yv)], eval_metric=eval_metric)
+        else:
+            model.fit(x, y)
 
     def _log_model_results(
         self, model_name: str, metrics: dict[str, float], cv_results: dict | None

@@ -1,11 +1,16 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from ...data.utils import build_loaders
+from ...data.utils import build_loaders, get_accessor
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
-from ..data_retrieve.downstreams import compute_downstreams
+from ..data_retrieve.downstreams import (
+    build_validation_loaders,
+    compute_downstreams,
+    finish_downstreams,
+    make_checkpoint_evaluator,
+)
 from ..utils import (
     get_loss,
     get_metrics,
@@ -17,8 +22,19 @@ from ..utils import (
 
 class BertRunner(Runner):
     def pipeline(self, config: Mapping) -> dict[str, float]:
-        loaders = build_loaders(**config["data"])
-        test_loaders = build_loaders(**config["test_data"])
+        selection = config.get("downstream_selection")
+        global_train_filter = config.get("global_train_filter")
+        prepare_loaders = bool(selection) or global_train_filter is not None
+        accessor = get_accessor(**config["data"]["dataset"]) if prepare_loaders else None
+        loaders = (
+            build_validation_loaders(
+                config["data"], accessor=accessor,
+                global_train_filter=global_train_filter,
+            )
+            if prepare_loaders
+            else build_loaders(**config["data"])
+        )
+        test_loaders = {} if selection else build_loaders(**config["test_data"])
         net = build_model(config["model"])
         opt = get_optimizer(net.parameters(), **config["optimizer"])
         lr_scheduler = None
@@ -29,6 +45,7 @@ class BertRunner(Runner):
 
         trainer = Trainer(
             model=net,
+            checkpoint_evaluator=make_checkpoint_evaluator(config, accessor=accessor),
             loss=loss,
             optimizer=opt,
             lr_scheduler=lr_scheduler,
@@ -42,6 +59,8 @@ class BertRunner(Runner):
         )
 
         trainer.run()
+        if selection:
+            return finish_downstreams(trainer, loaders, config)
 
         ckpt_dir = Path(config["log_dir"]) / config["run_name"] / "ckpt"
         if any(ckpt_dir.glob("*.ckpt")):

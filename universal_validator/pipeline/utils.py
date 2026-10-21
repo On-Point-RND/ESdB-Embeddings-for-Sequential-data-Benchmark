@@ -33,6 +33,10 @@ class ValidatorConfig:
     validator_seeds: Optional[list[int]] = None
     # List available configurations
     list_configs: bool = False
+    global_train_filter: Optional[str] = None
+    use_is_val: bool = False
+    evaluate_test: bool = True
+    validation_fraction: float = 0.1
     seed: int = 0
     verbose: bool = True
 

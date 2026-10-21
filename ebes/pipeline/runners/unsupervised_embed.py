@@ -5,11 +5,16 @@ from pathlib import Path
 
 import torch
 
-from ...data.utils import build_loaders
+from ...data.utils import build_loaders, get_accessor
 from ...model import build_model
 from ...trainer import Trainer
 from ..base_runner import Runner
-from ..data_retrieve.downstreams import compute_downstreams
+from ..data_retrieve.downstreams import (
+    build_validation_loaders,
+    compute_downstreams,
+    finish_downstreams,
+    make_checkpoint_evaluator,
+)
 from ..utils import (
     get_loss,
     get_metrics,
@@ -24,8 +29,19 @@ logger = logging.getLogger(__name__)
 class UnsupervisedEmbedRunner(Runner):
 
     def pipeline(self, config: Mapping) -> dict[str, float]:
-        loaders = build_loaders(**config["data"])
-        test_loaders = build_loaders(**config["test_data"])
+        selection = config.get("downstream_selection")
+        global_train_filter = config.get("global_train_filter")
+        prepare_loaders = bool(selection) or global_train_filter is not None
+        accessor = get_accessor(**config["data"]["dataset"]) if prepare_loaders else None
+        loaders = (
+            build_validation_loaders(
+                config["data"], accessor=accessor,
+                global_train_filter=global_train_filter,
+            )
+            if prepare_loaders
+            else build_loaders(**config["data"])
+        )
+        test_loaders = {} if selection else build_loaders(**config["test_data"])
 
         net = build_model(config["training_model"])
         opt = get_optimizer(net.parameters(), **config["optimizer"])
@@ -34,8 +50,15 @@ class UnsupervisedEmbedRunner(Runner):
             lr_scheduler = get_scheduler(opt, **config["lr_scheduler"])
         loss = get_loss(**config["unsupervised_loss"])
         metrics = get_metrics(config.get("unsupervised_metrics"), "cpu")
+        embed_net = None
+        if selection:
+            with torch.random.fork_rng(devices=[]):
+                embed_net = build_model(config["model"])
         trainer = Trainer(
             model=net,
+            checkpoint_evaluator=make_checkpoint_evaluator(
+                config, embed_net, accessor=accessor
+            ),
             loss=loss,
             optimizer=opt,
             lr_scheduler=lr_scheduler,
@@ -48,6 +71,8 @@ class UnsupervisedEmbedRunner(Runner):
             **config["unsupervised_trainer"],
         )
         trainer.run()
+        if selection:
+            return finish_downstreams(trainer, loaders, config, embed_net)
         gc.collect()
         net.eval()
 
@@ -76,7 +101,8 @@ class UnsupervisedEmbedRunner(Runner):
             torch.load(ckpt_path, map_location="cpu")["model"],
             strict=False,
         )
-        trainer._model = embed_net.eval().to(config["device"])
+        embed_net.eval().to(config["device"])
+        trainer.model.to("cpu")
 
         # Free training-time state (model with contrastive heads, Adam buffers,
         # optional scheduler) before embedding generation to leave headroom for
@@ -97,6 +123,8 @@ class UnsupervisedEmbedRunner(Runner):
                 test_loaders=test_loaders,
                 config=config,
                 downstream_config=downstream_config,
+                model=embed_net,
+                device=config["device"],
             )
 
         del loaders["train"]  # type: ignore

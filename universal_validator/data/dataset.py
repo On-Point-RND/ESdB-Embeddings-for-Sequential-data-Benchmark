@@ -21,10 +21,12 @@ class DataConfig:
 class DataSplit:
     X_train: np.ndarray
     y_train: np.ndarray
-    X_test: np.ndarray
-    y_test: np.ndarray
+    X_test: np.ndarray | None
+    y_test: np.ndarray | None
     metrics: list[str]
     task_name: str
+    X_val: np.ndarray | None = None
+    y_val: np.ndarray | None = None
 
 
 class ValidatorDataset:
@@ -51,51 +53,61 @@ class ValidatorDataset:
             )
         return target_cols
 
-    def load_for_task(self, target_name) -> DataSplit:
-        _, target_type, metrics = self._parse_target_name(target_name)
-        if target_type in ["local"]:
-            columns = ["shift_emb", target_name]
-            train = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            test = pd.read_parquet(self.data_conf.test_path, columns=columns)
-            # No local examples remain when all query points were truncated.
-            train = train[(train["shift_emb"].map(len) > 0) | (train[target_name].map(len) > 0)]
-            test = test[(test["shift_emb"].map(len) > 0) | (test[target_name].map(len) > 0)]
-            train, test = train.explode(columns), test.explode(columns)
-
-            X_train = np.stack(train["shift_emb"].values).astype(np.float32)
-            y_train = train[target_name].values
-
-            X_test = np.stack(test["shift_emb"].values).astype(np.float32)
-            y_test = test[target_name].values
-        elif target_type == "global":
-            columns = ["global_emb", "global_train", target_name]
-            data = pd.read_parquet(self.data_conf.train_path, columns=columns)
-            train = data[data["global_train"] == 1]
-            test = data[data["global_train"] == 0]
-
-            X_train = np.stack(train["global_emb"].values).astype(np.float32)
-            y_train = train[target_name].values
-
-            X_test = np.stack(test["global_emb"].values).astype(np.float32)
-            y_test = test[target_name].values
-        else:
-            raise NotImplementedError(f"Target type {target_type} not supported!")
-        assert metrics[0] in METRIC_INFO, f"{metrics[0]} not supported!"
-        if METRIC_INFO[metrics[0]]["task"] == TaskType.REGRESSION:
-            y_train, y_test = y_train.astype(np.float32), y_test.astype(np.float32)
-        elif METRIC_INFO[metrics[0]]["task"] == TaskType.CLASSIFICATION:
-            y_train, y_test = y_train.astype(np.int32), y_test.astype(np.int32)
-        else:
-            raise ValueError(METRIC_INFO[metrics[0]]["task"])
-
-        return DataSplit(
-            X_train=X_train,
-            y_train=y_train,
-            X_test=X_test,
-            y_test=y_test,
-            metrics=metrics,
-            task_name=target_name,
+    def load_for_task(
+        self, target_name, use_is_val=False, evaluate_test=True, global_train_filter=None
+    ) -> DataSplit:
+        if global_train_filter not in (None, "exclude_test"):
+            raise ValueError("global_train_filter must be null or exclude_test")
+        exclude_global_test = global_train_filter == "exclude_test"
+        _, scope, metrics = self._parse_target_name(target_name)
+        emb = "shift_emb" if scope == "local" else "global_emb"
+        columns = [emb, target_name]
+        has_global = (
+            "global_train" in pq.ParquetDataset(self.data_conf.train_path).schema.names
         )
+        if scope == "global" or (exclude_global_test and has_global):
+            columns.append("global_train")
+        if use_is_val:
+            columns.append("is_val")
+        train = pd.read_parquet(self.data_conf.train_path, columns=columns)
+        test = None
+        if scope == "global":
+            if evaluate_test:
+                test = train[train.global_train == 0]
+            train = train[train.global_train == 1]
+        elif evaluate_test and self.data_conf.test_path:
+            test = pd.read_parquet(self.data_conf.test_path, columns=[emb, target_name])
+        val = None
+        if exclude_global_test and has_global:
+            train = train[train.global_train == 1]
+        if use_is_val:
+            if train.is_val.isna().any() or not train.is_val.isin([True, False]).all():
+                raise ValueError("is_val must contain non-null booleans")
+            val, train = train[train.is_val == True], train[train.is_val == False]
+
+        def arrays(frame):
+            if frame is None:
+                return None, None
+            if scope == "local":
+                frame = frame[
+                    (frame[emb].map(len) > 0) | (frame[target_name].map(len) > 0)
+                ]
+                frame = frame.explode([emb, target_name])
+            if frame.empty:
+                raise ValueError(f"Empty split for {target_name}; increase sample size")
+            dtype = (
+                np.float32
+                if METRIC_INFO[metrics[0]]["task"] == TaskType.REGRESSION
+                else np.int32
+            )
+            return np.stack(frame[emb]).astype(np.float32), frame[
+                target_name
+            ].to_numpy().astype(dtype)
+
+        x, y = arrays(train)
+        xv, yv = arrays(val)
+        xt, yt = arrays(test)
+        return DataSplit(x, y, xt, yt, metrics, target_name, xv, yv)
 
     @staticmethod
     def _parse_target_name(target_name):

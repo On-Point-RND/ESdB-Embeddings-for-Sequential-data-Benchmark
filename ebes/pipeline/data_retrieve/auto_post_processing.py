@@ -41,6 +41,15 @@ def post_processing(
 
     emb_df_renamed = emb_df.withColumnRenamed("shifts", "shifts_emb")
     joined_df = data_df.join(emb_df_renamed, on=id_col, how="left")
+    if (
+        config.get("global_train_filter") == "exclude_test"
+        and "is_val" in joined_df.columns
+        and "global_train" in joined_df.columns
+    ):
+        joined_df = joined_df.withColumn(
+            "is_val",
+            F.when(F.col("global_train") == 0, F.lit(False)).otherwise(F.col("is_val")),
+        )
 
     if config.get("embedding_generation", {}).get("legacy", False):
         section = "data" if data_mode == "train" else "test_data"

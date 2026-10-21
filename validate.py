@@ -1,6 +1,7 @@
 """Main execution script with OmegaConf support"""
 
 import logging
+import traceback
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -44,7 +45,7 @@ def main(cfg: ValidatorConfig):
     for task in tasks:
         report = validator.run_pipeline(task_name=task)
         report["task_name"] = task
-        #print(report)
+        # print(report)
         reports.append(report)
     return reports
 
@@ -52,7 +53,7 @@ def main(cfg: ValidatorConfig):
 def run_with_paths(
     downstream_config: Mapping[str, Any],
     train_path: str,
-    test_path: str,
+    test_path: str = "",
 ):
     raw_config = dict(downstream_config)
     data_conf_overrides = dict(raw_config.pop("data_conf", {}))
@@ -83,10 +84,13 @@ if __name__ == "__main__":
     try:
         result = run_with_config(main, "universal_validator")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        pd.DataFrame(result).to_json(f"validator_output__{timestamp}.json",
-                                     orient='records', indent=4, date_format='iso')
+        pd.DataFrame(result).to_json(
+            f"validator_output__{timestamp}.json",
+            orient="records",
+            indent=4,
+            date_format="iso",
+        )
     except Exception as e:
         print(f"Error: {e}")
-        import traceback
 
         traceback.print_exc()

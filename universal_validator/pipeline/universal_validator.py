@@ -24,7 +24,12 @@ class UniversalValidator:
         return self.dataset.get_available_tasks(verbose)
 
     def run_pipeline(self, task_name) -> dict[str, Any]:
-        task_data = self.dataset.load_for_task(task_name)
+        task_data = self.dataset.load_for_task(
+            task_name,
+            use_is_val=self.config.use_is_val,
+            evaluate_test=self.config.evaluate_test,
+            global_train_filter=self.config.global_train_filter,
+        )
         logger.info(
             "Starting %s pipeline, task: %s",
             self.config.data_conf.dataset_name,
@@ -35,7 +40,7 @@ class UniversalValidator:
         return report
 
     def run_embedding_metrics(self) -> dict[str, Any]:
-        if not self.config.embedding_metrics.enabled:
+        if not self.config.embedding_metrics.enabled or not self.config.evaluate_test:
             return {}
 
         metrics = compute_embedding_metrics(
