@@ -23,6 +23,7 @@ trainer: &probe_trainer
   total_epochs: ${downstream_selection.max_epochs}
   iters_per_epoch: null
   patience: ${downstream_selection.patience}
+  min_epochs: ${downstream_selection.min_epochs}
   ckpt_track_metric: ${downstream_selection.checkpoint_metrics}
   ckpt_replace: true
   ckpt_warmup_epochs: 0
@@ -36,7 +37,8 @@ downstream_selection:
   task_names: null  # Resolve the source task; dataset tails can list all tasks.
   every_n_epochs: 1
   check_intervals: {20: 1, 100: 2, 200: 5}
-  patience: 3
+  patience: 5
+  min_epochs: 20
   sample_seed: 42
   evaluate_test: false
   final_evaluation: false

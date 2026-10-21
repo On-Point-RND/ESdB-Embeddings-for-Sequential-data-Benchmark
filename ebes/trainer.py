@@ -35,6 +35,7 @@ class Trainer:
         total_iters: int | None = None,
         total_epochs: int | None = None,
         patience: int = -1,
+        min_epochs: int = 0,
         iters_per_epoch: int | None = 10_000,
         ckpt_dir: str | os.PathLike | None = None,
         ckpt_replace: bool = True,
@@ -63,6 +64,8 @@ class Trainer:
             patience: how many epochs trainer will go without improving
                 validation ckpt_track_metric. -1 means never stop
                 Assumes track_metric is MAXIMIZED
+            min_epochs: initial epochs that still update checkpoints but do not
+                consume patience. The first patience check is at min_epochs + 1.
             iters_per_epoch: validation and checkpointing are performed every
                 `iters_per_epoch` iterations.
             ckpt_dir: path to the directory, where checkpoints are saved.
@@ -98,6 +101,7 @@ class Trainer:
         self._total_iters = total_iters
         self._total_epochs = total_epochs
         self._patience = patience
+        self._min_epochs = min_epochs
         self._iters_per_epoch = iters_per_epoch
         self._ckpt_dir = ckpt_dir
         self._ckpt_replace = ckpt_replace
@@ -530,7 +534,7 @@ class Trainer:
             if target_metric > self._best_metric:
                 self._best_metric = target_metric
                 self._remaining_patience = self._patience
-            else:
+            elif self._last_epoch > self._min_epochs:
                 self._remaining_patience -= 1
             self.save_ckpt()
             if self._remaining_patience == 0:
@@ -572,7 +576,7 @@ class Trainer:
             if value > state["best"]:
                 state.update(best=value, stale=0, epoch=self._last_epoch)
                 improved.append(key)
-            else:
+            elif self._last_epoch > self._min_epochs:
                 state["stale"] += 1
                 state["fixed"] = self._patience > 0 and state["stale"] >= self._patience
         for key in improved:
