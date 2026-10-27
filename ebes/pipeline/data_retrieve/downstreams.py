@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+from omegaconf import OmegaConf
 from pyarrow.parquet import ParquetDataset
 from pyspark.sql import SparkSession
 
@@ -395,6 +396,16 @@ def finish_downstreams(trainer, loaders, config, embedding_model=None):
     scores = trainer.checkpoint_scores
     if not config["downstream_selection"].get("final_evaluation", False):
         return scores
+    dataset = config["universal_validator"]["data_conf"]["dataset_name"]
+    sample_config = Path("configs/specify") / dataset / "rsample.yaml"
+    if sample_config.is_file():
+        config = OmegaConf.to_container(
+            OmegaConf.merge(config, OmegaConf.load(sample_config)), resolve=True
+        )
+        loaders = build_validation_loaders(
+            config["data"], global_train_filter=config.get("global_train_filter")
+        )
+        logger.info("Final evaluation uses %s", sample_config)
     validator = dict(
         config["universal_validator"], use_is_val=False, evaluate_test=True
     )
