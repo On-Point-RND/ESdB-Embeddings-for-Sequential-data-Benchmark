@@ -1,5 +1,4 @@
 import logging
-import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -13,12 +12,6 @@ from ...types import Batch
 logger = logging.getLogger(__name__)
 
 MIN_SHIFT_VALUE = 2
-FASTPATH_ENV_VAR = "EBES_BERT4REC_EMB_FASTPATH"
-
-
-def _fastpath_enabled() -> bool:
-    value = os.getenv(FASTPATH_ENV_VAR, "1").strip().lower()
-    return value not in {"0", "false", "no", "off"}
 
 
 def _pad_seq_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
@@ -36,6 +29,9 @@ class ResultsGetter:
         # self.config=config
         self.mode = mode
         self.legacy = config.get("embedding_generation", {}).get("legacy", False)
+        self.max_length = config.get("embedding_generation", {}).get("max_length")
+        if self.max_length is not None and self.max_length < 1:
+            raise ValueError("embedding_generation.max_length must be positive")
         if mode == "train":
             data_path = Path(config["data"]["dataset"]["parquet_path"])
         elif mode == "test":
@@ -72,19 +68,11 @@ class ResultsGetter:
                 raise ValueError("Incorrect loader for embeddings generation")
             logger.info(f"Embedding generation on {loader_name} started")
             records = []
-            logged_fastpath = False
+            logger.info("Embedding context window: %s", self.max_length)
             for batch_old in tqdm(loader, disable=False):
-                use_fastpath = self._should_use_tail_window_fastpath(model, batch_old)
-                if use_fastpath and not logged_fastpath:
-                    logger.info(
-                        "Embedding generation on %s uses %s tail-window fast-path",
-                        loader_name,
-                        model.__class__.__name__,
-                    )
-                    logged_fastpath = True
-                if use_fastpath:
+                if self.max_length is not None:
                     batches_array = self.shift_transform_tail_window(
-                        batch_old, int(model.max_len)
+                        batch_old, self.max_length
                     )
                 else:
                     batches_array = self.shift_transform(batch_old)
@@ -123,17 +111,6 @@ class ResultsGetter:
             df_all = pd.concat([df_all, df_list[i]], ignore_index=True)
 
         return df_all
-
-    def _should_use_tail_window_fastpath(self, model, batch: Batch) -> bool:
-        if not _fastpath_enabled():
-            return False
-        if model.__class__.__name__ not in {"Bert4Rec", "JEPA"}:
-            return False
-        if not hasattr(model, "max_len"):
-            return False
-        if batch.emb_features is not None or batch.emb_mask is not None:
-            return False
-        return True
 
     def get_shifts(self, old_index, full_len):
         shifts = self.shifts_by_index[old_index]
@@ -326,6 +303,8 @@ class ResultsGetter:
         new_cat_features = defaultdict(list)
         new_num_mask = defaultdict(list)
         new_cat_mask = defaultdict(list)
+        new_emb_features = defaultdict(lambda: defaultdict(list))
+        new_emb_mask = defaultdict(list)
         new_times = defaultdict(list)
         new_lengths = defaultdict(list)
         new_indices = defaultdict(list)
@@ -336,7 +315,7 @@ class ResultsGetter:
             orig_len = int(self.orig_len_by_index[old_index])
             if full_len != orig_len:
                 raise ValueError(
-                    "Tail-window fast-path requires full untruncated "
+                    "Tail-window generation requires full untruncated "
                     f"sequences during embedding generation, got full_len={full_len} "
                     f"and orig_len={orig_len} for index={old_index!r}"
                 )
@@ -365,6 +344,14 @@ class ResultsGetter:
 
                 if batch.cat_mask is not None:
                     new_cat_mask[i].append(batch.cat_mask[start:s, b, :].clone())
+
+                if batch.emb_features is not None:
+                    for name, values in batch.emb_features.items():
+                        new_emb_features[i][name].append(
+                            values[:, start:s, b].T.clone()
+                        )
+                if batch.emb_mask is not None:
+                    new_emb_mask[i].append(batch.emb_mask[start:s, b, :].clone())
 
                 new_lengths[i].append(length)
                 new_indices[i].append(f"{old_index}__{s}")
@@ -402,10 +389,14 @@ class ResultsGetter:
                     target=None,
                     num_features=num_features_i,
                     cat_features=cat_features_i,
-                    emb_features=None,
+                    emb_features={
+                        name: _pad_seq_tensors(values).permute(2, 0, 1)
+                        for name, values in new_emb_features[i].items()
+                    } if batch.emb_features is not None else None,
                     num_mask=num_mask_i,
                     cat_mask=cat_mask_i,
-                    emb_mask=None,
+                    emb_mask=_pad_seq_tensors(new_emb_mask[i])
+                    if batch.emb_mask is not None else None,
                     cat_features_names=batch.cat_features_names,
                     num_features_names=batch.num_features_names,
                     emb_features_names=batch.emb_features_names,

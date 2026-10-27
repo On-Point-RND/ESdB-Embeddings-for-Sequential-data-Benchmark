@@ -78,6 +78,9 @@ model:
   aggregation:
     name: TakeLastHidden
 
+embedding_generation:
+  max_length: 1000
+
 optimizer:
   name: Adam
   params:

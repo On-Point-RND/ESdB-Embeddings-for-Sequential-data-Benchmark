@@ -51,6 +51,9 @@ model:
   aggregation:
     name: ValidHiddenMean
 
+embedding_generation:
+  max_length: 1000
+
 optimizer:
   name: Adam
   params:

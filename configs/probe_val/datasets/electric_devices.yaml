@@ -8,14 +8,14 @@ downstream_selection:
   targets:
     forecasting: target__forecast__local__r2
     classification: target__clf__global__accuracy+f1_macro
-  # Historical epochs capped at 200; missing cells use 200.
+  # JEPA/BERT: 120 epochs; others: historical cap 200, missing cells 200.
   epoch_limits:
     bert4rec:
-      classification: 93
-      forecasting: 100
+      classification: 120
+      forecasting: 120
     jepa:
-      classification: 100
-      forecasting: 100
+      classification: 120
+      forecasting: 120
     coles:
       classification: 50
       forecasting: 107

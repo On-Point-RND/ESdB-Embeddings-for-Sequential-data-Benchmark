@@ -7,12 +7,12 @@ downstream_selection:
   task_names: null  # Only the source best_* task.
   targets:
     forecasting: target__forecast__local__r2
-  # Historical epochs capped at 200; missing cells use 200.
+  # JEPA/BERT: 120 epochs; others: historical cap 200, missing cells 200.
   epoch_limits:
     bert4rec:
-      forecasting: 100
+      forecasting: 120
     jepa:
-      forecasting: 100
+      forecasting: 120
     coles:
       forecasting: 38
     SimCLR:

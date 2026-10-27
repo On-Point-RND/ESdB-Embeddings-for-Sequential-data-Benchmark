@@ -52,6 +52,9 @@ model:
       time_process: "cat"
 
 
+embedding_generation:
+  max_length: 1000
+
 optimizer:
   name: Adam
   params:

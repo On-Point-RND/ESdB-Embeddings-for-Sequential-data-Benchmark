@@ -12,16 +12,16 @@ downstream_selection:
     classification: target__clf__global__accuracy+f1_macro
     regression: target__reg_mentions__global__r2
     anomaly: target__anomaly__global__roc_auc
-  # Historical epochs capped at 200; missing cells use 200.
+  # JEPA/BERT: 120 epochs; others: historical cap 200, missing cells 200.
   epoch_limits:
     bert4rec:
-      regression: 101
-      classification: 11
-      anomaly: 11
+      regression: 120
+      classification: 120
+      anomaly: 120
     jepa:
-      regression: 101
-      classification: 101
-      anomaly: 101
+      regression: 120
+      classification: 120
+      anomaly: 120
     coles:
       regression: 28
       classification: 18

@@ -10,18 +10,18 @@ downstream_selection:
     anomaly: target__anomaly__global__roc_auc
     regression: target__reg__local__r2
     forecasting: target__forecast__local__r2
-  # Historical epochs capped at 200; missing cells use 200.
+  # JEPA/BERT: 120 epochs; others: historical cap 200, missing cells 200.
   epoch_limits:
     bert4rec:
-      regression: 100
-      classification: 63
-      forecasting: 100
-      anomaly: 100
+      regression: 120
+      classification: 120
+      forecasting: 120
+      anomaly: 120
     jepa:
-      regression: 100
-      classification: 100
-      forecasting: 100
-      anomaly: 100
+      regression: 120
+      classification: 120
+      forecasting: 120
+      anomaly: 120
     coles:
       regression: 197
       classification: 45

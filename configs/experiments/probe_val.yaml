@@ -38,7 +38,8 @@ downstream_selection:
   every_n_epochs: 1
   check_intervals: {20: 1, 100: 2, 200: 5}
   patience: 5
-  min_epochs: 20
+  min_epochs: ${oc.select:downstream_selection.method_min_epochs.${method_name},20}
+  method_min_epochs: {jepa: 100, bert4rec: 100}
   sample_seed: 42
   evaluate_test: false
   final_evaluation: false
