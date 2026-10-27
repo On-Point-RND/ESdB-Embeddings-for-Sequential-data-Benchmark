@@ -42,5 +42,5 @@ downstream_selection:
   method_min_epochs: {jepa: 100, bert4rec: 100}
   sample_seed: 42
   evaluate_test: false
-  final_evaluation: false
+  final_evaluation: true
 global_train_filter: null
