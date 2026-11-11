@@ -4,6 +4,8 @@ Welcome to ESdB, the repository accompanying **"Towards a Universal Sequence Emb
 
 ESdB is a benchmark for evaluating self-supervised sequence embeddings across multiple downstream tasks and data domains. It brings 12 source datasets into a common event-sequence representation and provides targets for classification, regression, forecasting, and anomaly detection.
 
+The paper’s [supplementary materials](docs/supplementary.pdf) are available as a PDF.
+
 ## Code and benchmark annotations
 
 This repository provides the preprocessing, model implementations, and evaluation code for ESdB.
