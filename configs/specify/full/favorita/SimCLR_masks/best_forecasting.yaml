@@ -1,0 +1,24 @@
+optimizer:
+  params:
+    weight_decay: 2.1310269120895479e-07
+    lr: 3.816318140075752e-05
+unsupervised_loss:
+  params:
+    temperature: 57.92866642482668
+data:
+  loaders:
+    unsupervised_train:
+      batch_size: 512
+model:
+  encoder:
+    params:
+      num_layers: 1
+      hidden_size: 828
+  preprocess:
+    params:
+      time_process: diff
+      num_norm: false
+      cat_emb_dim: 39
+      num_emb_dim: 109
+  aggregation:
+    name: ValidHiddenMean
